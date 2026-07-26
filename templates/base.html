@@ -87,6 +87,29 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
 .row>.toggle,.toggle{width:fit-content}
 .bar{height:6px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:5px}
 .bar>i{display:block;height:100%;background:var(--accent)}
+/* Draft rendered as the page it becomes, rather than as a delivery document.
+   The article leads; the Facebook copy and open questions follow it as clearly
+   secondary blocks, because they are separate deliverables, not page content. */
+.post{margin:0}
+.post-title{font-size:26px;line-height:1.45;font-weight:700;margin:0 0 18px;
+  padding:0;border:none;letter-spacing:-.2px}
+.post-body{line-height:1.9}
+.post-body>*:first-child{margin-top:0}
+.post-body h2,.post-body h3{font-size:17px;font-weight:650;margin:26px 0 10px;
+  padding:0;border:none}
+.post-body p{margin:0 0 16px}
+.post-body ul,.post-body ol{margin:0 0 16px;padding-left:22px}
+.post-body li{margin:5px 0}
+.post-body strong{font-weight:650}
+.post-body em{color:var(--muted);font-style:normal}
+.post-tags{margin:20px 0 0;display:flex;flex-wrap:wrap;gap:6px}
+.post-tags .tag{background:var(--accent-soft);color:var(--accent);
+  border-radius:20px;padding:3px 11px;font-size:12.5px}
+.aside{margin-top:26px;padding-top:18px;border-top:1px dashed var(--line)}
+.aside h4{margin:0 0 8px;font-size:13px;color:var(--muted);font-weight:600;
+  letter-spacing:.4px}
+.aside p,.aside li{font-size:13.5px;color:var(--muted)}
+.aside ul{margin:0;padding-left:20px}
 .empty{text-align:center;padding:40px 20px;color:var(--muted)}
 /* Rendered Markdown drafts. The base reset strips heading/list styling, so
    these rules exist to make a draft read the way a published article would. */

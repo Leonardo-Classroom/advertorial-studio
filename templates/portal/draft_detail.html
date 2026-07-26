@@ -33,12 +33,12 @@
   <div class="row tight" style="margin-bottom:10px">
     <h2 style="margin:0;flex:1">初稿</h2>
     <div class="toggle">
-      <button type="button" class="on" data-view="md" data-target="d{{ run.pk }}">排版</button>
+      <button type="button" class="on" data-view="article" data-target="d{{ run.pk }}">文章</button>
       <button type="button" data-view="raw" data-target="d{{ run.pk }}">純文字</button>
     </div>
   </div>
   <div id="d{{ run.pk }}">
-    <div class="md" data-render="md">{{ run.output|markdown }}</div>
+    <div data-render="article">{{ run.output|article }}</div>
     <pre class="doc" data-render="raw" hidden>{{ run.output }}</pre>
   </div>
 </div>
@@ -49,7 +49,7 @@
     <h2 style="margin:0;flex:1">第 {{ rev.round }} 稿
       {% if rev.source == 'auto' %}<span class="pill">系統自動潤稿</span>{% endif %}</h2>
     <div class="toggle">
-      <button type="button" class="on" data-view="md" data-target="r{{ rev.pk }}">排版</button>
+      <button type="button" class="on" data-view="article" data-target="r{{ rev.pk }}">文章</button>
       <button type="button" data-view="raw" data-target="r{{ rev.pk }}">純文字</button>
     </div>
   </div>
@@ -58,7 +58,7 @@
       <pre class="doc" style="margin-top:8px">{{ rev.feedback }}</pre></details>
   {% endif %}
   <div id="r{{ rev.pk }}">
-    <div class="md" data-render="md">{{ rev.output|markdown }}</div>
+    <div data-render="article">{{ rev.output|article }}</div>
     <pre class="doc" data-render="raw" hidden>{{ rev.output }}</pre>
   </div>
 </div>

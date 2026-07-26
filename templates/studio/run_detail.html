@@ -55,14 +55,14 @@
         <h2 style="margin:0;flex:1">初稿{% if run.is_staged %}（方案 B）{% endif %}</h2>
         {% if run.output %}
         <div class="toggle">
-          <button type="button" class="on" data-view="md" data-target="draft-{{ run.pk }}">排版</button>
+          <button type="button" class="on" data-view="article" data-target="draft-{{ run.pk }}">文章</button>
           <button type="button" data-view="raw" data-target="draft-{{ run.pk }}">純文字</button>
         </div>
         {% endif %}
       </div>
       {% if run.output %}
         <div id="draft-{{ run.pk }}">
-          <div class="md" data-render="md">{{ run.output|markdown }}</div>
+          <div data-render="article">{{ run.output|article }}</div>
           <pre class="doc" data-render="raw" hidden>{{ run.output }}</pre>
         </div>
       {% else %}
@@ -78,7 +78,7 @@
         {% if not rev.accepted %}<span class="pill bad">未採納</span>{% endif %}
       </h2>
         <div class="toggle">
-          <button type="button" class="on" data-view="md" data-target="rev-{{ rev.pk }}">排版</button>
+          <button type="button" class="on" data-view="article" data-target="rev-{{ rev.pk }}">文章</button>
           <button type="button" data-view="raw" data-target="rev-{{ rev.pk }}">純文字</button>
         </div>
       </div>
@@ -91,7 +91,7 @@
       <details style="margin-bottom:10px"><summary>修改意見{% if rev.source == 'auto' %}（來自 LLM 評審）{% endif %}</summary>
         <pre class="doc" style="margin-top:8px">{{ rev.feedback }}</pre></details>
       <div id="rev-{{ rev.pk }}">
-        <div class="md" data-render="md">{{ rev.output|markdown }}</div>
+        <div data-render="article">{{ rev.output|article }}</div>
         <pre class="doc" data-render="raw" hidden>{{ rev.output }}</pre>
       </div>
     </div>

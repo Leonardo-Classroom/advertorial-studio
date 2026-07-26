@@ -17,8 +17,11 @@ from __future__ import annotations
 
 import statistics
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from django.core.management.base import BaseCommand
+from django.db import connections
 
 from briefs.models import Brief
 from corpus.models import Author, Outlet, StyleGuide
@@ -43,10 +46,18 @@ class Command(BaseCommand):
         parser.add_argument("--modes", nargs="+", default=None,
                             help="改為比較生成方式（single / staged）。"
                                  "給了這個就以方式為變因，策略固定用 --strategies 的第一項。")
+        parser.add_argument("--fixed-mode", choices=["staged", "single"], default="staged",
+                            help="比較檢索策略時，生成方式固定用哪一種（預設 staged）")
+        parser.add_argument("--fixed-rewrites", type=int, default=0,
+                            help="比較檢索策略時，重寫次數固定為幾次（預設 0，"
+                                 "把自動潤稿排除在外才能乾淨地只看檢索的影響）")
         parser.add_argument("--repeats", type=int, default=3, help="每種策略跑幾次")
         parser.add_argument("--exemplars", type=int, default=4, help="範例篇數")
         parser.add_argument("--name", default=None, help="實驗名稱")
         parser.add_argument("--no-judge", action="store_true", help="跳過 LLM 評審（省成本）")
+        parser.add_argument("--concurrency", type=int, default=4,
+                            help="同時跑幾篇（預設 4）。實測生成端點在 8 並行下"
+                                 "每次延遲不變，瓶頸不在 API；設 1 可回到序列執行。")
 
     def handle(self, *args, **opts):
         try:
@@ -91,15 +102,27 @@ class Command(BaseCommand):
         elif opts["modes"]:
             arms = [(opts["strategies"][0], m, default_n) for m in opts["modes"]]
         else:
-            arms = [(s, "single", default_n) for s in opts["strategies"]]
+            # Hold mode and rewrites at explicit values rather than the model
+            # defaults: a retrieval comparison that also lets the rewrite loop
+            # run is measuring two things at once.
+            arms = [(s, opts["fixed_mode"], opts["fixed_rewrites"])
+                    for s in opts["strategies"]]
 
         results: dict[str, list[dict]] = {}
-        for strategy, mode, n_iter in arms:
-            arm = (f"重寫{n_iter}次" if opts["rewrites"]
-                   else mode if opts["modes"] else strategy)
-            results[arm] = []
-            for i in range(opts["repeats"]):
-                self.stdout.write(f"生成中 {arm} #{i + 1}/{opts['repeats']} …")
+        jobs = [(strategy, mode, n_iter, arm, i)
+                for strategy, mode, n_iter in arms
+                for arm in [(f"重寫{n_iter}次" if opts["rewrites"]
+                             else mode if opts["modes"] else strategy)]
+                for i in range(opts["repeats"])]
+        for *_, arm, _i in jobs:
+            results.setdefault(arm, [])
+
+        lock = threading.Lock()
+        done = [0]
+
+        def execute(job):
+            strategy, mode, n_iter, arm, i = job
+            try:
                 run = GenerationRun.objects.create(
                     brief=brief, outlet=outlet, author=author, style_guide=guide,
                     experiment=experiment, retrieval_strategy=strategy, mode=mode,
@@ -107,13 +130,10 @@ class Command(BaseCommand):
                 )
                 generate_service.run_generation(run)
                 if run.status == "failed":
-                    self.stderr.write(self.style.ERROR(f"  失敗：{run.error}"))
-                    continue
+                    with lock:
+                        self.stderr.write(self.style.ERROR(f"  {arm} 失敗：{run.error[:120]}"))
+                    return
 
-                # Score the draft the run actually hands over — with n>1 that is
-                # the last accepted rewrite, not the first draft. Reuse the
-                # evaluation the refine loop already produced instead of paying
-                # for another judge call.
                 last_ok = run.revisions.filter(accepted=True).order_by("-round").first()
                 ev = (run.evaluations.filter(revision=last_ok).first() if last_ok
                       else run.evaluations.filter(revision__isnull=True).first())
@@ -121,7 +141,7 @@ class Command(BaseCommand):
                     ev = evaluate_service.evaluate(run, revision=last_ok,
                                                    run_judge=not opts["no_judge"])
                 judge_vals = [v for _, v in ev.judge_dimensions]
-                results[arm].append({
+                row = {
                     "run": run.pk,
                     "elapsed": run.elapsed_ms,
                     "drafts": run.iteration_count,
@@ -129,12 +149,29 @@ class Command(BaseCommand):
                     "overlap": ev.max_overlap,
                     "judge": statistics.mean(judge_vals) if judge_vals else None,
                     "coverage": (ev.fact_coverage or {}).get("coverage"),
-                })
-                line = (f"  run#{run.pk}  風格 {ev.style_similarity}  "
-                        f"重疊 {ev.max_overlap}")
-                if judge_vals:
-                    line += f"  評審 {statistics.mean(judge_vals):.2f}"
-                self.stdout.write(line)
+                }
+                with lock:
+                    results[arm].append(row)
+                    done[0] += 1
+                    line = (f"  [{done[0]}/{len(jobs)}] {arm} run#{run.pk}  "
+                            f"風格 {ev.style_similarity}  重疊 {ev.max_overlap}")
+                    if judge_vals:
+                        line += f"  評審 {statistics.mean(judge_vals):.2f}"
+                    self.stdout.write(line)
+                    self.stdout.flush()
+            finally:
+                # Each worker thread opens its own connection; leaving them open
+                # exhausts SQLite's handles over a long experiment.
+                connections.close_all()
+
+        workers = max(1, opts["concurrency"])
+        self.stdout.write(f"共 {len(jobs)} 篇，並行度 {workers}…\n")
+        if workers > 1:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                list(pool.map(execute, jobs))
+        else:
+            for job in jobs:
+                execute(job)
 
         self.stdout.write("\n" + self.style.SUCCESS(f"=== 實驗 #{experiment.pk} 結果 ==="))
         arm_label = "重寫次數" if opts["rewrites"] else "方式" if opts["modes"] else "策略"

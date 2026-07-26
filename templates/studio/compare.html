@@ -36,12 +36,12 @@
         {% if reveal %}<a class="small" href="{% url 'studio:run_detail' left.pk %}">（run#{{ left.pk }}）</a>{% endif %}
       </h2>
       <div class="toggle">
-        <button type="button" class="on" data-view="md" data-target="cmp-left">排版</button>
+        <button type="button" class="on" data-view="article" data-target="cmp-left">文章</button>
         <button type="button" data-view="raw" data-target="cmp-left">純文字</button>
       </div>
     </div>
     <div id="cmp-left">
-      <div class="md" data-render="md">{{ left.output|markdown }}</div>
+      <div data-render="article">{{ left.output|article }}</div>
       <pre class="doc" data-render="raw" hidden>{{ left.output }}</pre>
     </div>
     <form method="post" action="{% url 'studio:run_score' left.pk %}" style="margin-top:14px">
@@ -63,12 +63,12 @@
         {% if reveal %}<a class="small" href="{% url 'studio:run_detail' right.pk %}">（run#{{ right.pk }}）</a>{% endif %}
       </h2>
       <div class="toggle">
-        <button type="button" class="on" data-view="md" data-target="cmp-right">排版</button>
+        <button type="button" class="on" data-view="article" data-target="cmp-right">文章</button>
         <button type="button" data-view="raw" data-target="cmp-right">純文字</button>
       </div>
     </div>
     <div id="cmp-right">
-      <div class="md" data-render="md">{{ right.output|markdown }}</div>
+      <div data-render="article">{{ right.output|article }}</div>
       <pre class="doc" data-render="raw" hidden>{{ right.output }}</pre>
     </div>
     <form method="post" action="{% url 'studio:run_score' right.pk %}" style="margin-top:14px">

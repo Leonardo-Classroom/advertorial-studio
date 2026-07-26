@@ -17,26 +17,45 @@ backend only so callers do not have to care which one is active.
 """
 from __future__ import annotations
 
-from functools import lru_cache
+import threading
 
 import numpy as np
 from django.conf import settings
 
+# `lru_cache` does not serialise the *first* call, so several threads can enter
+# the factory at once. Constructing SentenceTransformer concurrently breaks
+# PyTorch's lazy meta-device loading with "Cannot copy out of meta tensor",
+# which is exactly what happened the first time experiments were parallelised:
+# every run needing the index failed while the no-exemplar arm sailed through.
+_model = None
+_load_lock = threading.Lock()
+# Inference itself is serialised too. encode() batches internally and a query
+# embedding takes ~20ms, so the cost is negligible next to sharing one CUDA
+# module across worker threads.
+_encode_lock = threading.Lock()
 
-@lru_cache(maxsize=1)
+
 def get_model():
-    from sentence_transformers import SentenceTransformer
+    global _model
+    if _model is not None:
+        return _model
+    with _load_lock:
+        if _model is not None:  # another thread finished while we waited
+            return _model
+        from sentence_transformers import SentenceTransformer
 
-    name = getattr(settings, "EMBED_LOCAL_MODEL", "BAAI/bge-m3")
-    device = getattr(settings, "EMBED_LOCAL_DEVICE", "cuda")
-    try:
-        return SentenceTransformer(name, device=device)
-    except Exception:
-        # A machine without a working CUDA runtime should still be able to
-        # index, just slower — failing outright would be worse.
-        if device != "cpu":
-            return SentenceTransformer(name, device="cpu")
-        raise
+        name = getattr(settings, "EMBED_LOCAL_MODEL", "BAAI/bge-m3")
+        device = getattr(settings, "EMBED_LOCAL_DEVICE", "cuda")
+        try:
+            _model = SentenceTransformer(name, device=device)
+        except Exception:
+            # A machine without a working CUDA runtime should still be able to
+            # index, just slower — failing outright would be worse.
+            if device != "cpu":
+                _model = SentenceTransformer(name, device="cpu")
+            else:
+                raise
+    return _model
 
 
 def dimensions() -> int:
@@ -58,13 +77,14 @@ def embed_texts(
 
     for start in range(0, len(texts), batch):
         chunk = texts[start:start + batch]
-        vectors = model.encode(
-            chunk,
-            batch_size=batch,
-            normalize_embeddings=True,   # cosine similarity becomes a dot product
-            convert_to_numpy=True,
-            show_progress_bar=False,
-        )
+        with _encode_lock:
+            vectors = model.encode(
+                chunk,
+                batch_size=batch,
+                normalize_embeddings=True,   # cosine similarity becomes a dot product
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
         out.append(np.asarray(vectors, dtype=np.float32))
         if progress:
             progress(min(start + batch, len(texts)), len(texts))

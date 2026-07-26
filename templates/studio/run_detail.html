@@ -53,7 +53,7 @@
       <div class="row tight" style="margin-bottom:10px">
         <h2 style="margin:0;flex:1">初稿{% if run.is_staged %}（方案 B）{% endif %}</h2>
         {% if run.output %}
-        <div class="toggle" style="flex:0">
+        <div class="toggle">
           <button type="button" class="on" data-view="md" data-target="draft-{{ run.pk }}">排版</button>
           <button type="button" data-view="raw" data-target="draft-{{ run.pk }}">純文字</button>
         </div>
@@ -73,7 +73,7 @@
     <div class="card">
       <div class="row tight" style="margin-bottom:10px">
         <h2 style="margin:0;flex:1">第 {{ rev.round }} 稿</h2>
-        <div class="toggle" style="flex:0">
+        <div class="toggle">
           <button type="button" class="on" data-view="md" data-target="rev-{{ rev.pk }}">排版</button>
           <button type="button" data-view="raw" data-target="rev-{{ rev.pk }}">純文字</button>
         </div>

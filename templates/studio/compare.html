@@ -35,7 +35,7 @@
       <h2 style="margin:0;flex:1">{{ left_label }}
         {% if reveal %}<a class="small" href="{% url 'studio:run_detail' left.pk %}">（run#{{ left.pk }}）</a>{% endif %}
       </h2>
-      <div class="toggle" style="flex:0">
+      <div class="toggle">
         <button type="button" class="on" data-view="md" data-target="cmp-left">排版</button>
         <button type="button" data-view="raw" data-target="cmp-left">純文字</button>
       </div>
@@ -62,7 +62,7 @@
       <h2 style="margin:0;flex:1">{{ right_label }}
         {% if reveal %}<a class="small" href="{% url 'studio:run_detail' right.pk %}">（run#{{ right.pk }}）</a>{% endif %}
       </h2>
-      <div class="toggle" style="flex:0">
+      <div class="toggle">
         <button type="button" class="on" data-view="md" data-target="cmp-right">排版</button>
         <button type="button" data-view="raw" data-target="cmp-right">純文字</button>
       </div>

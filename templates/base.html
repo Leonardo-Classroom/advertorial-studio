@@ -86,10 +86,17 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
 .md code{background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:13px}
 .md strong{font-weight:650}
 .md table{margin:0 0 14px}
-.toggle{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+/* `flex:0` alone left a gap: .row>* also sets min-width:150px, which an inline
+   flex override does not touch, so the bordered box stayed wider than its two
+   buttons. Size the control from its content instead. */
+.toggle{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;
+  flex:0 0 auto;min-width:auto;width:fit-content;align-self:center}
 .toggle button{background:transparent;border:none;color:var(--muted);font:inherit;font-size:13px;
-  padding:4px 12px;cursor:pointer}
+  padding:4px 12px;cursor:pointer;white-space:nowrap}
+.toggle button+button{border-left:1px solid var(--line)}
+.toggle button:hover{color:var(--ink)}
 .toggle button.on{background:var(--accent);color:#fff}
+.toggle button.on:hover{color:#fff}
 </style>
 </head>
 <body>

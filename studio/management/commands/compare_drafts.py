@@ -22,6 +22,13 @@ from studio.models import Experiment, GenerationRun, PairwiseComparison
 from studio.services import evaluate as E
 
 
+def _arm_key(runs):
+    """Return the accessor for whichever field this experiment varies."""
+    if len({r.mode for r in runs}) > 1:
+        return lambda r: r.get_mode_display().split("：")[0]
+    return lambda r: r.retrieval_strategy
+
+
 class Command(BaseCommand):
     help = "對實驗中不同策略的稿件做兩兩對比評審"
 
@@ -30,7 +37,7 @@ class Command(BaseCommand):
         parser.add_argument("--runs", type=int, nargs="+", default=None,
                             help="直接指定要兩兩比較的 run ID")
         parser.add_argument("--cross-arm-only", action="store_true", default=True,
-                            help="只比較不同檢索策略之間（預設開啟）")
+                            help="只比較不同組別之間（預設開啟）。組別＝該實驗實際變動的欄位")
         parser.add_argument("--all-pairs", action="store_true",
                             help="連同組內也比較")
         parser.add_argument("--use-latest", action="store_true",
@@ -55,13 +62,17 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR("至少需要兩篇完成的稿件才能比較"))
             sys.exit(1)
 
+        # Pair across whatever the experiment actually varies. Hard-coding the
+        # retrieval strategy meant a mode experiment (Plan A vs Plan B, where
+        # every run shares one strategy) produced zero comparable pairs.
+        arm_of = _arm_key(runs)
         pairs = [
             (a, b) for a, b in itertools.combinations(runs, 2)
-            if opts["all_pairs"] or a.retrieval_strategy != b.retrieval_strategy
+            if opts["all_pairs"] or arm_of(a) != arm_of(b)
         ]
         if not pairs:
             self.stderr.write(self.style.WARNING(
-                "沒有跨策略的配對可比。若要連同組內一起比，加 --all-pairs。"
+                "這個實驗的各組之間沒有可比的配對（所有 run 的變因值都相同）。若要連同組內一起比，加 --all-pairs。"
             ))
             sys.exit(0)
 
@@ -79,8 +90,8 @@ class Command(BaseCommand):
 
         for i, (a, b) in enumerate(pairs, 1):
             guide = a.style_guide.content if a.style_guide else ""
-            self.stdout.write(f"[{i}/{len(pairs)}] run#{a.pk}({a.retrieval_strategy}) "
-                              f"vs run#{b.pk}({b.retrieval_strategy}) …", ending=" ")
+            self.stdout.write(f"[{i}/{len(pairs)}] run#{a.pk}({arm_of(a)}) "
+                              f"vs run#{b.pk}({arm_of(b)}) …", ending=" ")
             self.stdout.flush()
             try:
                 result = E.pairwise_judge(a, b, guide, use_latest=opts["use_latest"])
@@ -100,11 +111,11 @@ class Command(BaseCommand):
             if not result["position_consistent"]:
                 inconsistent += 1
             if result["winner"] == "a":
-                wins[a.retrieval_strategy] += 1
-                self.stdout.write(self.style.SUCCESS(f"→ {a.retrieval_strategy}"))
+                wins[arm_of(a)] += 1
+                self.stdout.write(self.style.SUCCESS(f"→ {arm_of(a)}"))
             elif result["winner"] == "b":
-                wins[b.retrieval_strategy] += 1
-                self.stdout.write(self.style.SUCCESS(f"→ {b.retrieval_strategy}"))
+                wins[arm_of(b)] += 1
+                self.stdout.write(self.style.SUCCESS(f"→ {arm_of(b)}"))
             else:
                 wins["tie"] += 1
                 self.stdout.write("→ 平手")
@@ -123,7 +134,7 @@ class Command(BaseCommand):
         if decided == 0:
             self.stdout.write(self.style.WARNING(
                 "所有配對都判平手：對比式評審在這批稿件上同樣沒有鑑別力，"
-                "代表兩種策略的產出確實難分高下，而不是評審方法的問題。"
+                "代表兩組的產出確實難分高下，而不是評審方法的問題。"
             ))
         elif inconsistent / len(pairs) > 0.5:
             self.stdout.write(self.style.WARNING(

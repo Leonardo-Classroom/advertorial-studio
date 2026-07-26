@@ -41,8 +41,8 @@
         {% csrf_token %}
         <textarea name="outline" style="min-height:340px" class="mono">{{ run.outline }}</textarea>
         <div class="row tight" style="margin-top:10px">
-          <button class="btn ghost" style="flex:0">只儲存大綱</button>
-          <button class="btn" name="action" value="generate" style="flex:0">
+          <button class="btn ghost">只儲存大綱</button>
+          <button class="btn" name="action" value="generate">
             {% if run.output %}依大綱重寫正文{% else %}依大綱寫出正文{% endif %}</button>
         </div>
       </form>
@@ -129,7 +129,7 @@
           </select>
           <label style="flex:0;margin:0;white-space:nowrap">
             <input type="checkbox" name="judge" checked style="width:auto"> LLM 評審</label>
-          <button class="btn sm" style="flex:0">執行評估</button>
+          <button class="btn sm">執行評估</button>
         </div>
       </form>
 
@@ -209,7 +209,7 @@
           {% for r in comparable %}<option value="{{ r.pk }}">
             run#{{ r.pk }}｜{{ r.get_mode_display|truncatechars:9 }}｜檢索 {{ r.retrieval_strategy }}</option>{% endfor %}
         </select>
-        <button class="btn sm" style="flex:0">並排比較</button>
+        <button class="btn sm">並排比較</button>
       </form>
     </div>
 

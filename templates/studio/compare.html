@@ -5,9 +5,9 @@
 <div class="row tight" style="margin-bottom:6px">
   <h1 style="flex:1;margin:0">並排比較</h1>
   {% if reveal %}
-    <a class="btn sm ghost" style="flex:0" href="?a={{ a.pk }}&b={{ b.pk }}">重新隱藏標籤</a>
+    <a class="btn sm ghost" href="?a={{ a.pk }}&b={{ b.pk }}">重新隱藏標籤</a>
   {% else %}
-    <a class="btn sm" style="flex:0" href="?a={{ a.pk }}&b={{ b.pk }}&reveal=1">顯示這兩篇是什麼</a>
+    <a class="btn sm" href="?a={{ a.pk }}&b={{ b.pk }}&reveal=1">顯示這兩篇是什麼</a>
   {% endif %}
 </div>
 <p class="sub">
@@ -51,7 +51,7 @@
         <select name="human_score" style="flex:1">
           {% for i in "12345" %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
         </select>
-        <button class="btn sm" style="flex:0">記錄</button>
+        <button class="btn sm">記錄</button>
       </div>
       <input type="hidden" name="human_comment" value="">
     </form>
@@ -78,7 +78,7 @@
         <select name="human_score" style="flex:1">
           {% for i in "12345" %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
         </select>
-        <button class="btn sm" style="flex:0">記錄</button>
+        <button class="btn sm">記錄</button>
       </div>
       <input type="hidden" name="human_comment" value="">
     </form>

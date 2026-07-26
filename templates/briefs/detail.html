@@ -4,7 +4,7 @@
 <div class="row tight" style="margin-bottom:6px">
   <h1 style="flex:1;margin:0">{{ brief.title }}</h1>
   {% if brief.status == 'confirmed' %}
-    <a class="btn" style="flex:0" href="{% url 'studio:run_new' %}?brief={{ brief.pk }}">生成廣編稿 →</a>
+    <a class="btn" href="{% url 'studio:run_new' %}?brief={{ brief.pk }}">生成廣編稿 →</a>
   {% endif %}
 </div>
 <p class="sub">{{ brief.slide_count }} 張投影片 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}
@@ -39,8 +39,8 @@
       {% csrf_token %}
       <textarea name="facts" class="mono" style="min-height:460px">{{ facts_json }}</textarea>
       <div class="row tight" style="margin-top:12px">
-        <button class="btn ghost" style="flex:0">只儲存</button>
-        <button class="btn" name="confirm" value="1" style="flex:0">儲存並確認事實</button>
+        <button class="btn ghost">只儲存</button>
+        <button class="btn" name="confirm" value="1">儲存並確認事實</button>
       </div>
     </form>
   </div>

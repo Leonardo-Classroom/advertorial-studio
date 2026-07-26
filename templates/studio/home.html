@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>總覽</h1>
-<p class="sub">方案 A：輕量 RAG（依主題／隨機檢索範文）＋ 風格指南 ＋ 單次生成</p>
+<p class="sub">預設走方案 B：檢索範文 → 依文體代表性重排 → 整理重點 → 訂大綱 → 寫正文。趕時間可在新增生成時改選方案 A（單次生成）。</p>
 
 <div class="grid g4">
   <div class="stat"><div class="n">{{ total_articles }}</div><div class="l">語料文章</div></div>
@@ -81,7 +81,7 @@
 <div class="card">
   <div class="row tight" style="margin-bottom:8px">
     <h2 style="margin:0;flex:1">最近生成</h2>
-    <a class="btn sm" style="flex:0" href="{% url 'studio:run_new' %}">新增生成</a>
+    <a class="btn sm" href="{% url 'studio:run_new' %}">新增生成</a>
   </div>
   {% if runs %}
     <div class="scroll"><table>

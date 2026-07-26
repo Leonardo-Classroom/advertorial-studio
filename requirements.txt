@@ -2,6 +2,9 @@ Django>=5.0,<6.0
 openai>=1.100
 numpy>=1.26
 python-pptx>=1.0
+# 簡報圖片解析：縮圖與感知雜湊去重（briefs/services/images.py）。
+# 也是 Django ImageField 的必要條件。
+Pillow>=10.0
 python-docx>=1.0
 PyYAML>=6.0
 # 把生成稿的 Markdown 渲染成排版檢視（生成頁／並排比較頁的切換按鈕）。

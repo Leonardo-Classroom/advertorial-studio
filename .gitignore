@@ -1,5 +1,9 @@
 .env
 db.sqlite3
+# WAL mode (studio/apps.py) keeps two side-files next to the database. They are
+# recreated on every run and are meaningless without the .sqlite3 itself.
+db.sqlite3-shm
+db.sqlite3-wal
 var/
 media/
 __pycache__/

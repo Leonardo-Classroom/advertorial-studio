@@ -93,6 +93,11 @@ class Brief(models.Model):
     raw_text = models.TextField("簡報純文字", blank=True)
     slide_count = models.IntegerField("投影片數", default=0)
     facts = models.JSONField("結構化事實（唯一事實來源）", default=dict, blank=True)
+    # Opt-in, and off by default: parsing pictures costs a vision call per
+    # surviving image, which most drafts do not need. Stored rather than acted
+    # on immediately because classification needs the brand, and the brand only
+    # exists once the facts have been extracted.
+    parse_images = models.BooleanField("解析簡報圖片", default=False)
     status = models.CharField(max_length=16, choices=STATUS, default="uploaded")
     note = models.TextField("備註", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

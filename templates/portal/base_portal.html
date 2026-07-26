@@ -103,8 +103,14 @@ pre.doc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padd
 .post-body p{margin:0 0 16px}
 .post-body ul,.post-body ol{margin:0 0 16px;padding-left:22px}
 .post-body li{margin:5px 0}
+.post-figure{margin:22px 0;text-align:center}
+.post-figure img{max-width:100%;height:auto;border-radius:6px}
+.post-figure figcaption{margin-top:7px;font-size:12.5px;color:var(--muted);line-height:1.6}
 .post-body strong{font-weight:650}
 .post-body em{color:var(--muted);font-style:normal}
+.post-body .note,.aside .note{background:color-mix(in srgb,var(--warn) 10%,transparent);
+  border-left:3px solid var(--warn);border-radius:0 6px 6px 0;
+  padding:7px 12px;margin:0 0 16px;font-size:13.5px;color:var(--muted)}
 .post-tags{margin:20px 0 0;display:flex;flex-wrap:wrap;gap:6px}
 .post-tags .tag{background:var(--accent-soft);color:var(--accent);
   border-radius:20px;padding:3px 11px;font-size:12.5px}

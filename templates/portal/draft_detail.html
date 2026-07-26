@@ -38,10 +38,19 @@
     </div>
   </div>
   <div id="d{{ run.pk }}">
-    <div data-render="article">{{ run.output|article }}</div>
+    <div data-render="article">{{ run.output|article:run.brief }}</div>
     <pre class="doc" data-render="raw" hidden>{{ run.output }}</pre>
   </div>
 </div>
+
+{% with notes=run.latest_text|article_notes %}{% if notes %}
+<div class="card" style="border-style:dashed">
+  <h2 style="margin-top:0">待確認 <span class="pill warn">不隨稿件刊出</span></h2>
+  <p class="small muted" style="margin:0 0 10px">
+    這些是簡報沒寫、但稿子需要的資訊。跟品牌確認後，可以用下方「要改哪裡？」補進稿件。</p>
+  <div class="md">{{ notes }}</div>
+</div>
+{% endif %}{% endwith %}
 
 {% for rev in revisions %}
 <div class="card">
@@ -58,7 +67,7 @@
       <pre class="doc" style="margin-top:8px">{{ rev.feedback }}</pre></details>
   {% endif %}
   <div id="r{{ rev.pk }}">
-    <div data-render="article">{{ rev.output|article }}</div>
+    <div data-render="article">{{ rev.output|article:run.brief }}</div>
     <pre class="doc" data-render="raw" hidden>{{ rev.output }}</pre>
   </div>
 </div>

@@ -36,6 +36,33 @@ def _my_briefs(request):
     return Brief.objects.filter(owner=request.user)
 
 
+def _ingest_images(request, brief) -> None:
+    """Parse the deck's pictures, reporting what survived filtering.
+
+    The counts are worth showing rather than hiding: a deck yields hundreds of
+    embedded images and only a handful are article material, so "12 張裡有 6 張可用"
+    tells the user the filter worked instead of leaving them wondering why their
+    358-picture deck produced six thumbnails.
+    """
+    from briefs.services import images as image_service
+
+    try:
+        summary = image_service.ingest(brief)
+    except Exception as exc:  # noqa: BLE001 - text extraction already succeeded
+        messages.warning(request, f"圖片解析失敗：{exc}。文字內容不受影響，稿子仍可正常產出。")
+        return
+
+    if not summary["stored"]:
+        messages.info(request, "簡報裡沒有找到適合放進稿子的圖片（多半是表格、logo 或裝飾圖）。")
+        return
+
+    note = (f"圖片解析完成：{summary['found']} 張中篩出 {summary['stored']} 張候選，"
+            f"其中 {summary['usable']} 張判定可用。請在下方核對後再產稿。")
+    if summary["truncated"]:
+        note += f"（另有 {summary['truncated']} 張較小的圖未送辨識）"
+    messages.success(request, note)
+
+
 def _my_runs(request):
     return GenerationRun.objects.filter(owner=request.user)
 
@@ -66,6 +93,7 @@ def upload(request):
             owner=request.user,
             title=(request.POST.get("title") or "").strip() or upload_file.name.rsplit(".", 1)[0],
             source_file=upload_file,
+            parse_images=request.POST.get("parse_images") == "1",
         )
         try:
             raw, slides = ppt_extract.extract_text(brief.source_file.path)
@@ -87,6 +115,10 @@ def upload(request):
             return redirect("portal:brief_detail", pk=brief.pk)
 
         messages.success(request, f"已讀取 {slides} 張投影片並抽出內容。請核對後再產稿。")
+        # After the facts, never before: classifying a picture needs to know
+        # whose campaign this is, or a competitor's shoe reads as usable material.
+        if brief.parse_images:
+            _ingest_images(request, brief)
         return redirect("portal:brief_detail", pk=brief.pk)
 
     return render(request, "portal/upload.html", {"nav": "upload"})
@@ -104,7 +136,36 @@ def brief_detail(request, pk):
         "guides": guides,
         "strategies": SELECTABLE_STRATEGIES,
         "runs": brief.runs.filter(owner=request.user),
+        "brief_images": brief.images.all(),
     })
+
+
+@login_required
+def brief_images(request, pk):
+    """Re-parse the deck's pictures, or save the operator's approvals.
+
+    Both live on one endpoint because they are the same decision from the user's
+    side: what may this draft illustrate itself with.
+    """
+    brief = get_object_or_404(_my_briefs(request), pk=pk)
+    if request.method != "POST":
+        return redirect("portal:brief_detail", pk=pk)
+
+    if request.POST.get("action") == "parse":
+        brief.parse_images = True
+        brief.save(update_fields=["parse_images", "updated_at"])
+        _ingest_images(request, brief)
+        return redirect("portal:brief_detail", pk=pk)
+
+    approved = set(request.POST.getlist("approved"))
+    for image in brief.images.all():
+        key = str(image.pk)
+        image.approved = key in approved
+        image.caption = (request.POST.get(f"caption_{key}") or "").strip()[:200]
+        image.save(update_fields=["approved", "caption"])
+
+    messages.success(request, f"已確認 {len(approved)} 張圖片可用於稿件。")
+    return redirect("portal:brief_detail", pk=pk)
 
 
 @login_required

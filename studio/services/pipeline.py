@@ -104,6 +104,7 @@ def run_stages(run: GenerationRun, stop_after_outline: bool = False) -> Generati
         t = time.time()
         structure = _structure_hint(guide)
         must_cover = required_fact_values(facts)
+        images = list(run.brief.usable_images())
         outline = llm.complete(
             instructions=prompts.SYNTHESIZE_ROLE,
             user_input=prompts.SYNTHESIZE_TASK.format(
@@ -113,6 +114,7 @@ def run_stages(run: GenerationRun, stop_after_outline: bool = False) -> Generati
                 # needs to know it is writing one article.
                 deliverables="一篇廣編圖文（含 FB 貼文文案）",
                 must_cover="、".join(must_cover) or "（無）",
+                images=prompts.build_outline_image_section(images),
             ),
             timeout=400,
         )
@@ -160,7 +162,8 @@ def _generate_from_outline(run, exemplars, guide_text, facts, started) -> Genera
     instructions = prompts.build_instructions(
         guide_text, run.outlet.name, run.author.name if run.author else None
     )
-    user_input = prompts.build_generate_from_outline(facts, run.outline, exemplars)
+    user_input = prompts.build_generate_from_outline(
+        facts, run.outline, exemplars, images=run.brief.usable_images())
     output = llm.complete(instructions=instructions, user_input=user_input, timeout=600)
 
     _record(run, "generate", "依大綱寫出正文", f"（{len(output)} 字）", time.time() - t)

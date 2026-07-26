@@ -29,6 +29,7 @@ def brief_upload(request):
             owner=request.user,
             title=title or upload.name.rsplit(".", 1)[0],
             source_file=upload,
+            parse_images=request.POST.get("parse_images") == "1",
         )
         try:
             raw, slides = ppt_extract.extract_text(brief.source_file.path)
@@ -54,7 +55,57 @@ def brief_detail(request, pk):
         "section": "briefs",
         "brief": brief,
         "facts_json": json.dumps(brief.facts or FACT_SCHEMA_HINT, ensure_ascii=False, indent=2),
+        "brief_images": brief.images.all(),
     })
+
+
+def _ingest_images(request, brief) -> None:
+    """Parse the deck's pictures and report what survived the filter."""
+    from briefs.services import images as image_service
+
+    try:
+        summary = image_service.ingest(brief)
+    except Exception as exc:  # noqa: BLE001 - the text path already succeeded
+        messages.warning(request, f"圖片解析失敗：{exc}（文字內容不受影響）")
+        return
+
+    if not summary["stored"]:
+        messages.info(request, "沒有找到可用的圖片素材（多半是表格、logo 或裝飾圖）。")
+        return
+
+    messages.success(
+        request,
+        f"圖片解析完成：簡報共 {summary['found']} 張圖，"
+        f"規則過濾後剩 {summary['kept']} 張"
+        f"（重複 {summary['duplicate']}、近似重複 {summary['near_duplicate']}、"
+        f"向量圖 {summary['vector']}、過小 {summary['too_small']}），"
+        f"送辨識 {summary['stored']} 張，判定可用 {summary['usable']} 張。請逐張核對。")
+
+
+@staff_required
+def brief_images(request, pk):
+    """Re-parse pictures, or record the operator's approvals."""
+    brief = get_object_or_404(Brief, pk=pk)
+    if request.method != "POST":
+        return redirect("briefs:detail", pk=pk)
+
+    if request.POST.get("action") == "parse":
+        if not brief.facts:
+            messages.error(request, "請先抽取事實再解析圖片——分類需要知道品牌是誰，才擋得掉競品照。")
+            return redirect("briefs:detail", pk=pk)
+        brief.parse_images = True
+        brief.save(update_fields=["parse_images", "updated_at"])
+        _ingest_images(request, brief)
+        return redirect("briefs:detail", pk=pk)
+
+    approved = set(request.POST.getlist("approved"))
+    for image in brief.images.all():
+        key = str(image.pk)
+        image.approved = key in approved
+        image.caption = (request.POST.get(f"caption_{key}") or "").strip()[:200]
+        image.save(update_fields=["approved", "caption"])
+    messages.success(request, f"已確認 {len(approved)} 張圖片可用於稿件。")
+    return redirect("briefs:detail", pk=pk)
 
 
 @staff_required
@@ -83,6 +134,11 @@ def brief_extract(request, pk):
     if uncertain:
         messages.warning(request, f"模型標記了 {len(uncertain)} 處不確定的地方，請往下捲動確認。")
     messages.success(request, "已抽取。請逐項核對後再按「確認事實」。")
+
+    # The upload asked for pictures; the brand needed to judge them only exists
+    # now, so this is the earliest point the request can honestly be served.
+    if brief.parse_images and not brief.images.exists():
+        _ingest_images(request, brief)
     return redirect("briefs:detail", pk=pk)
 
 

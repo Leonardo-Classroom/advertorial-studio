@@ -74,10 +74,71 @@ OUTPUT_SPEC = """【輸出格式】請完全照下列結構輸出，用 Markdown
 **不要描述那張圖要拍什麼**，那是給攝影師的指示，不是給讀者看的。）
 
 ## Hashtag
+（一行，空格分隔）"""
+
+# The same spec, for when the deck actually supplied usable pictures. The only
+# difference is the 內文 rule: real images exist, so the draft places them by
+# number instead of writing a placeholder for someone to fill in later.
+OUTPUT_SPEC_WITH_IMAGES = """【輸出格式】請完全照下列結構輸出，用 Markdown：
+
+## FB貼文文案
+（3-5 行，口語、帶 emoji，結尾放 hashtag）
+
+## 文章標題
+（一句，符合該媒體的標題公式）
+
+## 內文
+（正文。依該媒體慣例分段並下小標。
+要放圖的地方，**單獨一行**寫圖片編號標記，例如：
+
+[[img:3]]
+
+編號只能用下面〈可用圖片〉清單裡有的。一張圖最多用一次，不必每張都用——
+挑真正搭得上該段內容的就好。標記單獨成行，前後空一行，不要寫在句子中間。
+不要再另外寫 `（Photo from ...）`，系統會自動加上圖說。）
+
+## Hashtag
 （一行，空格分隔）
 
 ## 待確認
-（條列：簡報未提供、但寫稿時需要的資訊；沒有就寫「無」）"""
+（條列：簡報未提供、但寫稿時需要的資訊；沒有就寫「無」。
+這一節不會跟著稿件刊出，是給編輯看的待辦。）"""
+
+
+def image_roster(images) -> str:
+    """The picture menu handed to the writer.
+
+    Only approved pictures appear. What the model sees is the human-confirmed
+    description, never the raw AI guess — the review page exists precisely
+    because that guess is sometimes wrong, and a draft placing a competitor's
+    shoe because the classifier mislabelled it would defeat the whole gate.
+    """
+    lines = []
+    for i, image in enumerate(images, 1):
+        caption = image.display_caption() or image.ai_description
+        lines.append(f"[[img:{i}]] （第 {image.slide_index} 張投影片）{caption}")
+    return "\n".join(lines)
+
+
+def build_image_section(images) -> str:
+    if not images:
+        return ""
+    return ("\n\n【可用圖片（簡報裡已核准的素材，只能用這些編號）】\n"
+            + image_roster(images))
+
+
+def build_outline_image_section(images) -> str:
+    """The outline's version: plan around the pictures that exist.
+
+    Without this the outline stage answers "是否需要配圖，配什麼" by inventing a
+    photo brief — "這裡放一張 KOL street style 情境照" — for a shoot nobody is
+    doing. Handing it the actual roster turns that line from a wish into an
+    assignment.
+    """
+    if not images:
+        return ""
+    return ("\n【可用圖片（簡報裡已核准的素材）——「是否需要配圖」請從這份清單挑，"
+            "不要描述一張不存在的照片】\n" + image_roster(images) + "\n")
 
 
 def build_instructions(style_guide_text: str, outlet_name: str, author_name: str | None) -> str:
@@ -183,7 +244,7 @@ SYNTHESIZE_TASK = """依據下方重點筆記與該媒體的風格慣例，訂�
 
 【必須被寫進稿子的項目——大綱要為它們安排位置，一個都不能列入「刻意不寫」】
 {must_cover}
-
+{images}
 請輸出 Markdown 大綱：
 
 ## 標題候選
@@ -209,7 +270,7 @@ SYNTHESIZE_TASK = """依據下方重點筆記與該媒體的風格慣例，訂�
 
 
 def build_generate_from_outline(facts: dict, outline: str, exemplars: list,
-                                extra_requirements: str = "") -> str:
+                                extra_requirements: str = "", images=None) -> str:
     """Stage 5: write the draft against an approved outline."""
     facts_json = json.dumps(writable_facts(facts), ensure_ascii=False, indent=2)
 
@@ -226,6 +287,7 @@ def build_generate_from_outline(facts: dict, outline: str, exemplars: list,
         exemplar_section = ""
 
     extra = f"\n\n【額外要求】\n{extra_requirements.strip()}" if extra_requirements.strip() else ""
+    images = list(images or [])
 
     return f"""請依照下面這份**已確認的大綱**寫出完整廣編稿。
 
@@ -235,10 +297,10 @@ def build_generate_from_outline(facts: dict, outline: str, exemplars: list,
 【可用素材（唯一事實來源）】
 {facts_json}
 
-{exemplar_section}
+{exemplar_section}{build_image_section(images)}
 {extra}
 
-{OUTPUT_SPEC}
+{OUTPUT_SPEC_WITH_IMAGES if images else OUTPUT_SPEC}
 
 【特別注意】
 - 大綱已經決定了段落順序與各段任務，請照著執行，不要重新安排結構。

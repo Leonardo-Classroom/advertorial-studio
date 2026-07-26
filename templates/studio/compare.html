@@ -41,7 +41,7 @@
       </div>
     </div>
     <div id="cmp-left">
-      <div data-render="article">{{ left.output|article }}</div>
+      <div data-render="article">{{ left.output|article:left.brief }}</div>
       <pre class="doc" data-render="raw" hidden>{{ left.output }}</pre>
     </div>
     <form method="post" action="{% url 'studio:run_score' left.pk %}" style="margin-top:14px">
@@ -68,7 +68,7 @@
       </div>
     </div>
     <div id="cmp-right">
-      <div data-render="article">{{ right.output|article }}</div>
+      <div data-render="article">{{ right.output|article:right.brief }}</div>
       <pre class="doc" data-render="raw" hidden>{{ right.output }}</pre>
     </div>
     <form method="post" action="{% url 'studio:run_score' right.pk %}" style="margin-top:14px">

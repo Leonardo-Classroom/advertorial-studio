@@ -57,4 +57,7 @@
     {% endif %}
   </div>
 </div>
+
+{% url 'briefs:images' brief.pk as image_action_url %}
+{% include "briefs/_image_review.html" with action_url=image_action_url %}
 {% endblock %}

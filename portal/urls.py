@@ -17,6 +17,7 @@ urlpatterns = [
     path("briefs/<int:pk>/", views.brief_detail, name="brief_detail"),
     path("briefs/<int:pk>/extract/", views.brief_extract, name="brief_extract"),
     path("briefs/<int:pk>/facts/", views.brief_save_facts, name="brief_save_facts"),
+    path("briefs/<int:pk>/images/", views.brief_images, name="brief_images"),
     path("briefs/<int:pk>/generate/", views.generate, name="generate"),
 
     path("drafts/<int:pk>/", views.draft_detail, name="draft_detail"),

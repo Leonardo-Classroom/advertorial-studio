@@ -10,9 +10,12 @@ emits a delivery document (## FB貼文文案 / ## 文章標題 / ## 內文 / ## 
 shape for judging. Reading "## 文章標題" above the headline tells you nothing
 about whether the headline works; seeing it set as a headline does. So the
 article parts are promoted — title to an h1, body unlabelled, hashtags to a tag
-row — and the two things that are not the article (the Facebook copy and the
-open questions) follow it, still labelled, because they are separate
-deliverables rather than page furniture.
+row — with the Facebook copy following it, still labelled, since it is a
+separate deliverable.
+
+`article_notes` returns the 待確認 block on its own. It is not page content at
+all — it is a note to whoever briefs the client — so the template puts it in its
+own card rather than tucking it under the article, where it sat oddly.
 
 Raw HTML stays disabled in the renderer: the text is model output, and piping
 model-generated markup straight into a page is how a prompt injection becomes
@@ -42,6 +45,16 @@ TAG_KEYS = ("hashtag", "標籤")
 FB_KEYS = ("fb貼文", "fb 貼文", "facebook", "貼文文案")
 TODO_KEYS = ("待確認", "待補", "待提供")
 
+# Where the draft asked for one of the deck's own pictures. Deliberately not
+# markdown image syntax: `![](…)` would let model output name an arbitrary URL,
+# and the whole point is that only approved, locally-stored deck images can
+# appear. A number indexes the approved roster and nothing else can.
+IMG_TOKEN = re.compile(r"\[\[img:(\d+)\]\]", re.I)
+# The same token after rendering, when it ended up alone in its own paragraph —
+# the normal case, since the spec asks for it on its own line. Matched so the
+# <figure> replaces the <p> instead of nesting inside it.
+IMG_PARAGRAPH = re.compile(r"<p>\s*\[\[img:(\d+)\]\]\s*</p>", re.I)
+
 
 @lru_cache(maxsize=1)
 def _renderer():
@@ -51,8 +64,18 @@ def _renderer():
     return MarkdownIt("commonmark", {"html": False, "linkify": False, "breaks": True})
 
 
+# The reference advertorials flag missing material with a short starred line
+# placed where it applies — "＊再請品牌提供需導連網址", "＊補品牌活動空景照" —
+# rather than a list of open questions at the end. Those lines are notes to the
+# editor, so they are marked as such instead of reading as body copy.
+NOTE_LINE = re.compile(r"<p>([＊※*][^<]*)</p>")
+
+
 def _render(text: str) -> str:
-    return _renderer().render(text.strip()) if text.strip() else ""
+    if not text.strip():
+        return ""
+    html = _renderer().render(text.strip())
+    return NOTE_LINE.sub(r'<p class="note">\1</p>', html)
 
 
 @register.filter(name="markdown")
@@ -91,9 +114,51 @@ def _classify(heading: str) -> str:
     return "body" if not heading else "other"
 
 
+def _figure(image) -> str:
+    caption = image.display_caption()
+    cap_html = f'<figcaption>{escape(caption)}</figcaption>' if caption else ""
+    return (f'<figure class="post-figure">'
+            f'<img src="{escape(image.file.url)}" alt="{escape(caption)}" loading="lazy">'
+            f'{cap_html}</figure>')
+
+
+def _place_images(html: str, brief) -> str:
+    """Swap image tokens for the pictures they refer to.
+
+    Runs on rendered HTML rather than on the markdown source so the surrounding
+    paragraph structure is already settled and a figure can replace its own
+    paragraph cleanly.
+
+    A token with no matching approved picture is dropped, not shown: the number
+    came from a language model, and leaving `[[img:9]]` visible in a draft
+    someone is about to hand to a client is worse than quietly omitting an image
+    that was never approved.
+    """
+    if brief is None:
+        return IMG_TOKEN.sub("", html)
+
+    images = list(brief.usable_images())
+    if not images:
+        return IMG_TOKEN.sub("", html)
+
+    by_number = {i: image for i, image in enumerate(images, 1)}
+
+    def swap(match):
+        image = by_number.get(int(match.group(1)))
+        return _figure(image) if image else ""
+
+    return IMG_TOKEN.sub(swap, IMG_PARAGRAPH.sub(swap, html))
+
+
 @register.filter(name="article")
-def article(text: str) -> str:
-    """Lay a draft out as the published page it is meant to become."""
+def article(text: str, brief=None) -> str:
+    """Lay a draft out as the published page it is meant to become.
+
+    Pass the brief — `{{ run.output|article:run.brief }}` — to have the deck's
+    approved pictures placed where the draft asked for them. Without it the
+    tokens are stripped, so an older call site degrades to the text-only layout
+    it already produced rather than leaking markup at the reader.
+    """
     if not text:
         return ""
 
@@ -120,7 +185,7 @@ def article(text: str) -> str:
 
     body = joined("body")
     if body:
-        html.append(f'<div class="post-body">{_render(body)}</div>')
+        html.append(f'<div class="post-body">{_place_images(_render(body), brief)}</div>')
 
     tags = joined("tags")
     if tags:
@@ -131,9 +196,33 @@ def article(text: str) -> str:
                         + "</p>")
     html.append("</article>")
 
-    for key, label in (("fb", "FB 貼文文案"), ("todo", "待確認")):
-        content = joined(key)
-        if content:
-            html.append(f'<section class="aside"><h4>{label}</h4>{_render(content)}</section>')
+    content = joined("fb")
+    if content:
+        # Tokens do not belong outside the body, but a stray one must not
+        # reach the reader as literal markup either.
+        html.append('<section class="aside"><h4>FB 貼文文案</h4>'
+                    f'{IMG_TOKEN.sub("", _render(content))}</section>')
 
     return mark_safe("".join(html))  # noqa: S308 - html disabled in the renderer
+
+
+EMPTY_NOTES = {"無", "無。", "（無）", "(無)", "none", "n/a", "-"}
+
+
+@register.filter(name="article_notes")
+def article_notes(text: str) -> str:
+    """Just the 待確認 block, so the template can place it outside the article.
+
+    It is not page content — it is a note to whoever briefs the client — so
+    tucking it under the copy read oddly. Returns empty when the model says
+    there is nothing outstanding, since a card announcing "無" is noise.
+    """
+    if not text:
+        return ""
+    body = "\n\n".join(
+        b for heading, b in _split_sections(str(text))
+        if _classify(heading) == "todo" and b.strip()
+    ).strip()
+    if not body or body.strip().lower() in EMPTY_NOTES:
+        return ""
+    return mark_safe(IMG_TOKEN.sub("", _render(body)))  # noqa: S308

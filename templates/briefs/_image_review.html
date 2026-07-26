@@ -1,0 +1,96 @@
+{# Picture review, shared by the portal and the staff backend.
+
+   Same gate as the extracted facts: nothing here reaches a draft until a human
+   has looked at it. The AI's verdict arrives pre-ticked so review is a check
+   rather than data entry, but it is only a suggestion — the categories it got
+   wrong are exactly what this page exists to catch.
+
+   `action_url` is passed by the including template so the two interfaces post
+   to their own endpoint. #}
+<div class="card">
+  <div class="row tight" style="margin-bottom:10px">
+    <h2 style="margin:0;flex:1">簡報圖片</h2>
+    <form method="post" action="{{ action_url }}" style="flex:0">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="parse">
+      <button class="btn sm ghost">{% if brief_images %}重新解析圖片{% else %}解析簡報圖片{% endif %}</button>
+    </form>
+  </div>
+
+  {% if brief_images %}
+    <p class="small muted">
+      勾選的圖片才會被放進稿子。AI 的判斷已先勾好，但<strong>它會看錯</strong>——
+      特別是簡報前段做市場分析用的<strong>競品照片</strong>，畫面上就是一雙好看的鞋，
+      要靠你確認那是不是這次要推的品牌。圖說留空就用 AI 建議的版本。
+    </p>
+
+    <form method="post" action="{{ action_url }}">
+      {% csrf_token %}
+      <div class="img-grid">
+        {% for image in brief_images %}
+          <div class="img-item{% if not image.approved %} off{% endif %}">
+            <label class="img-pick">
+              <input type="checkbox" name="approved" value="{{ image.pk }}"
+                     {% if image.approved %}checked{% endif %}>
+              <img src="{{ image.file.url }}" alt="第 {{ image.slide_index }} 張投影片的圖片" loading="lazy">
+            </label>
+            <div class="img-meta">
+              <div class="row tight" style="gap:6px;margin-bottom:4px">
+                <span class="pill sm">P{{ image.slide_index }}</span>
+                {% if image.ai_category == 'usable' %}<span class="pill good sm">可用素材</span>
+                {% elif image.ai_category == 'layout' %}<span class="pill warn sm">表格／排版</span>
+                {% elif image.ai_category == 'decoration' %}<span class="pill sm">裝飾</span>
+                {% else %}<span class="pill sm">未判斷</span>{% endif %}
+                {% if image.ai_brand %}<span class="pill sm">{{ image.ai_brand }}</span>{% endif %}
+              </div>
+              <p class="small" style="margin:0 0 6px">{{ image.ai_description }}</p>
+              <input type="text" name="caption_{{ image.pk }}" class="sm"
+                     value="{{ image.caption }}" placeholder="{{ image.ai_caption|default:'圖說' }}">
+              {% if image.nearby_text %}
+                <details class="small muted" style="margin-top:5px">
+                  <summary>簡報上鄰近的文字</summary>
+                  <p style="margin:4px 0 0">{{ image.nearby_text|truncatechars:200 }}</p>
+                  <p style="margin:4px 0 0"><em>依位置推測，未必是這張圖的說明。</em></p>
+                </details>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      <div style="margin-top:14px"><button class="btn">確認可用圖片</button></div>
+    </form>
+  {% else %}
+    <p class="small muted">
+      尚未解析圖片。按上面的按鈕會從簡報抽出圖片，濾掉重複、logo 與過小的裝飾圖，
+      再用影像辨識判斷每張圖適不適合放進稿子。<br>
+      {% if not brief.facts %}<strong>請先抽取事實</strong>——分類需要知道品牌是誰，才擋得掉競品照。{% endif %}
+    </p>
+  {% endif %}
+</div>
+
+<style>
+  .img-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:14px; }
+  .img-item { border:1px solid var(--line,#e3e3e6); border-radius:8px; overflow:hidden;
+              display:flex; flex-direction:column; transition:opacity .12s; }
+  /* Rejected pictures stay visible but recede — the operator needs to see what
+     was excluded to trust the ones that were not. */
+  .img-item.off { opacity:.5; }
+  .img-pick { position:relative; display:block; cursor:pointer; margin:0; }
+  .img-pick img { display:block; width:100%; height:150px; object-fit:contain;
+                  background:#f4f4f6; }
+  .img-pick input { position:absolute; top:8px; left:8px; width:18px; height:18px;
+                    margin:0; cursor:pointer; z-index:1; }
+  .img-meta { padding:8px 10px 10px; }
+  .img-meta input[type=text] { width:100%; font-size:12px; padding:4px 6px; }
+  .pill.sm { font-size:11px; padding:1px 6px; }
+</style>
+
+<script>
+  // Dim on toggle, so the selection reads at a glance instead of forcing the
+  // operator to scan twenty checkboxes to see what they just chose.
+  document.querySelectorAll('.img-pick input[type=checkbox]').forEach(function (box) {
+    box.addEventListener('change', function () {
+      box.closest('.img-item').classList.toggle('off', !box.checked);
+    });
+  });
+</script>

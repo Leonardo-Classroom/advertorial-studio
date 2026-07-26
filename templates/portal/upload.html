@@ -16,6 +16,17 @@
     <input type="file" name="source_file" accept=".pptx" required>
     <label>名稱（留空就用檔名）</label>
     <input type="text" name="title" placeholder="例如：NB 2026 Grey Days Campaign">
+
+    <label style="display:flex;align-items:flex-start;gap:8px;margin-top:18px;font-weight:normal;cursor:pointer">
+      <input type="checkbox" name="parse_images" value="1" style="width:auto;margin-top:3px">
+      <span>一併解析簡報裡的圖片
+        <span class="small muted" style="display:block;margin-top:2px">
+          抽出簡報中的產品照與人物照，判斷哪些適合放進稿子。
+          會多花約 30–60 秒，稿子則可以直接帶圖。不勾選就只讀文字。
+        </span>
+      </span>
+    </label>
+
     <button class="btn" style="margin-top:20px">上傳並讀取</button>
   </form>
   <p class="small muted" style="margin:16px 0 0">

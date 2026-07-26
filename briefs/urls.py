@@ -10,4 +10,5 @@ urlpatterns = [
     path("<int:pk>/", views.brief_detail, name="detail"),
     path("<int:pk>/extract/", views.brief_extract, name="extract"),
     path("<int:pk>/facts/", views.brief_save_facts, name="save_facts"),
+    path("<int:pk>/images/", views.brief_images, name="images"),
 ]

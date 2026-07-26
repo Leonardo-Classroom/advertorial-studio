@@ -5,7 +5,7 @@
 <p class="sub">支援 .pptx。系統會抽出所有文字，包含表格與備忘稿——提案簡報的重點常常藏在那裡。</p>
 
 <div class="card" style="max-width:620px">
-  <form method="post" enctype="multipart/form-data">
+  <form method="post" enctype="multipart/form-data" data-loading="upload">
     {% csrf_token %}
     <label>名稱（留空則用檔名）</label>
     <input type="text" name="title" placeholder="例如：NB 2026 Grey Days Campaign">

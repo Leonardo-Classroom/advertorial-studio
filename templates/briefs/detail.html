@@ -16,7 +16,7 @@
   <div class="card">
     <div class="row tight" style="margin-bottom:10px">
       <h2 style="margin:0;flex:1">結構化事實</h2>
-      <form method="post" action="{% url 'briefs:extract' brief.pk %}" style="flex:0">
+      <form method="post" action="{% url 'briefs:extract' brief.pk %}" style="flex:0" data-loading="extract">
         {% csrf_token %}
         <button class="btn sm ghost">{% if brief.facts %}重新抽取{% else %}用 AI 抽取事實{% endif %}</button>
       </form>

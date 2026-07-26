@@ -1,4 +1,5 @@
-{# Picture review, shared by the portal and the staff backend.
+{% comment %}
+   Picture review, shared by the portal and the staff backend.
 
    Same gate as the extracted facts: nothing here reaches a draft until a human
    has looked at it. The AI's verdict arrives pre-ticked so review is a check
@@ -6,14 +7,15 @@
    wrong are exactly what this page exists to catch.
 
    `action_url` is passed by the including template so the two interfaces post
-   to their own endpoint. #}
+   to their own endpoint.
+{% endcomment %}
 <div class="card">
   <div class="row tight" style="margin-bottom:10px">
     <h2 style="margin:0;flex:1">簡報圖片</h2>
     <form method="post" action="{{ action_url }}" style="flex:0">
       {% csrf_token %}
       <input type="hidden" name="action" value="parse">
-      <button class="btn sm ghost">{% if brief_images %}重新解析圖片{% else %}解析簡報圖片{% endif %}</button>
+      <button class="btn sm ghost" data-loading="images">{% if brief_images %}重新解析圖片{% else %}解析簡報圖片{% endif %}</button>
     </form>
   </div>
 

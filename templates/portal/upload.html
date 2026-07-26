@@ -10,7 +10,7 @@
 </div>
 
 <div class="card" style="max-width:600px">
-  <form method="post" enctype="multipart/form-data">
+  <form method="post" enctype="multipart/form-data" data-loading="upload">
     {% csrf_token %}
     <label>簡報檔（.pptx）</label>
     <input type="file" name="source_file" accept=".pptx" required>

@@ -43,7 +43,7 @@
         <textarea name="outline" style="min-height:340px" class="mono">{{ run.outline }}</textarea>
         <div class="row tight" style="margin-top:10px">
           <button class="btn ghost">只儲存大綱</button>
-          <button class="btn" name="action" value="generate">
+          <button class="btn" name="action" value="generate" data-loading="outline">
             {% if run.output %}依大綱重寫正文{% else %}依大綱寫出正文{% endif %}</button>
         </div>
       </form>
@@ -110,7 +110,7 @@
       <h2 style="margin-top:0">提出修改意見（產生下一稿）</h2>
       <p class="small muted">這裡的每一輪都會被保留。除了走完現有的初稿→Feedback→二稿流程，
         這些「修改前／修改後」配對本身就是日後做偏好微調（方案 D）需要的資料。</p>
-      <form method="post" action="{% url 'studio:run_revise' run.pk %}">
+      <form method="post" action="{% url 'studio:run_revise' run.pk %}" data-loading="revise">
         {% csrf_token %}
         <textarea name="feedback" placeholder="例如：第二段的產品描述太像官方文案，改得更像編輯自己的觀察；標題的驚嘆號拿掉一個。"></textarea>
         <button class="btn" style="margin-top:10px">產生下一稿</button>
@@ -148,7 +148,7 @@
           </select>
           <label style="flex:0;margin:0;white-space:nowrap">
             <input type="checkbox" name="judge" checked style="width:auto"> LLM 評審</label>
-          <button class="btn sm">執行評估</button>
+          <button class="btn sm" data-loading="evaluate">執行評估</button>
         </div>
       </form>
 

@@ -1,0 +1,176 @@
+{% comment %}
+   Blocking progress overlay for the slow operations.
+
+   Written with this tag, not the hash-brace form: that one is single-line only,
+   and a multi-line version of it is not treated as a comment at all — it ships
+   to the page as literal text, which is how this very block first appeared on
+   screen. Any commentary spanning lines belongs here.
+
+   Generation runs synchronously inside the request — a staged run takes 91s at
+   the median and has been seen at 403s — so without this the page simply sits
+   there. Two things go wrong then: the user clicks something else and loses the
+   run, or decides it has crashed and submits again, which starts a second run
+   and pays for it twice.
+
+   The steps are driven by a timetable built from the recorded stage medians of
+   172 real runs, not by server progress: nothing here can report actual
+   progress, because the request that would answer is the one being waited on.
+   So the display is deliberately honest about what it knows — it names the step
+   that should be running and counts real elapsed seconds, but never shows a
+   percentage and never claims to be finished. Past the expected total it says
+   so and keeps counting, rather than freezing on a last step that has silently
+   stopped meaning anything.
+{% endcomment %}
+<div id="loading" class="loading" hidden>
+  <div class="loading-box">
+    <div class="loading-spin" aria-hidden="true"></div>
+    <h3 id="loading-title">處理中</h3>
+    <p class="loading-step"><span id="loading-step">準備中…</span></p>
+    <div class="loading-track"><div class="loading-bar" id="loading-bar"></div></div>
+    <p class="loading-meta">
+      已經過 <span id="loading-time">0</span> 秒<span id="loading-of"></span>
+    </p>
+    <p class="loading-hint">請不要關閉或重新整理這個頁面。</p>
+  </div>
+</div>
+
+<style>
+.loading{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;
+  background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(3px);padding:20px}
+.loading[hidden]{display:none}
+.loading-box{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:26px 28px;max-width:380px;width:100%;text-align:center;
+  box-shadow:0 10px 40px rgba(0,0,0,.12)}
+.loading-spin{width:34px;height:34px;margin:0 auto 16px;border-radius:50%;
+  border:3px solid var(--line);border-top-color:var(--accent);animation:loading-spin .8s linear infinite}
+@keyframes loading-spin{to{transform:rotate(360deg)}}
+.loading-box h3{margin:0 0 10px;font-size:16px;font-weight:650}
+.loading-step{margin:0 0 14px;font-size:14px;color:var(--ink);min-height:21px}
+.loading-track{height:4px;border-radius:4px;background:var(--line);overflow:hidden}
+/* Creeps toward the expected finish and stops short of it. Filling the bar
+   would assert a completion the page cannot actually observe. */
+.loading-bar{height:100%;width:0;background:var(--accent);border-radius:4px;
+  transition:width .9s linear}
+.loading-meta{margin:12px 0 0;font-size:12.5px;color:var(--muted)}
+.loading-hint{margin:6px 0 0;font-size:12px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){
+  .loading-spin{animation-duration:2.4s}
+  .loading-bar{transition:none}
+}
+</style>
+
+<script>
+(function () {
+  // Cumulative seconds at which each step begins, from the median stage times
+  // of 172 recorded runs. The last entry has no end: it stays until the server
+  // answers.
+  const SCRIPTS = {
+    upload:     [[0, '讀取簡報文字'], [8, 'AI 抽取簡報內容']],
+    uploadimg:  [[0, '讀取簡報文字'], [8, 'AI 抽取簡報內容'],
+                 [24, '抽取並過濾簡報圖片'], [30, '辨識圖片用途']],
+    extract:    [[0, 'AI 抽取簡報內容']],
+    images:     [[0, '抽取並過濾簡報圖片'], [8, '辨識圖片用途']],
+    outline:    [[0, '依大綱寫出正文'], [22, '依評審意見潤稿']],
+    evaluate:   [[0, '評估稿件']],
+    revise:     [[0, '依修改意見重寫']],
+    generate:   [[0, '檢索範文'], [3, '整理重點筆記'], [26, '訂出大綱'],
+                 [61, '寫出正文'], [83, '依評審意見潤稿']],
+  };
+  const TITLES = {
+    upload: '讀取簡報中', uploadimg: '讀取簡報中', extract: '讀取簡報中',
+    images: '解析簡報圖片中', outline: '產出稿件中', generate: '產出稿件中',
+    evaluate: '評估稿件中', revise: '重寫稿件中',
+  };
+
+  // The generate form's real shape depends on what was ticked: pausing at the
+  // outline ends the run there, and a rewrite budget of 0 skips the last stage.
+  // Showing steps that will not run is the kind of small lie that makes a
+  // progress display untrustworthy.
+  function scriptFor(form, name) {
+    let steps = SCRIPTS[name];
+    if (!steps) return null;
+    if (name === 'generate' && form) {
+      const pause = form.querySelector('[name=review_outline]');
+      const budget = form.querySelector('[name=max_rewrites]');
+      if (pause && pause.checked) steps = steps.slice(0, 3);
+      else if (budget && Number(budget.value) === 0) steps = steps.slice(0, 4);
+    }
+    if (name === 'upload' && form) {
+      const pics = form.querySelector('[name=parse_images]');
+      if (pics && pics.checked) steps = SCRIPTS.uploadimg;
+    }
+    return steps;
+  }
+
+  const box = document.getElementById('loading');
+  if (!box) return;
+  const elTitle = document.getElementById('loading-title');
+  const elStep = document.getElementById('loading-step');
+  const elTime = document.getElementById('loading-time');
+  const elOf = document.getElementById('loading-of');
+  const elBar = document.getElementById('loading-bar');
+  let timer = null;
+
+  function start(steps, name) {
+    // Expected total: the last step's start plus a share of the run again, so
+    // the bar has somewhere to go during the final stage.
+    const last = steps[steps.length - 1][0];
+    const expected = Math.max(last * 1.35, last + 20);
+    elTitle.textContent = TITLES[name] || '處理中';
+    box.hidden = false;
+
+    const began = Date.now();
+    timer = setInterval(function () {
+      const secs = (Date.now() - began) / 1000;
+      elTime.textContent = Math.floor(secs);
+
+      let i = 0;
+      while (i + 1 < steps.length && secs >= steps[i + 1][0]) i++;
+      elStep.textContent = steps.length > 1
+        ? '步驟 ' + (i + 1) + '／' + steps.length + '：' + steps[i][1]
+        : steps[i][1];
+
+      if (secs < expected) {
+        elBar.style.width = (secs / expected * 92).toFixed(1) + '%';
+        elOf.textContent = '，通常約需 ' + Math.round(expected) + ' 秒';
+      } else {
+        // Overrun. Say so rather than sitting on a stalled last step: a run
+        // that is merely slow looks identical to one that has died, and the
+        // difference matters to someone deciding whether to reload.
+        elBar.style.width = '92%';
+        elOf.textContent = '，比平常久一些，仍在處理中';
+      }
+    }, 250);
+  }
+
+  document.addEventListener('submit', function (e) {
+    const form = e.target;
+    if (form.dataset.loadingDone) return;
+    const name = (e.submitter && e.submitter.dataset.loading) || form.dataset.loading;
+    const steps = scriptFor(form, name);
+    if (!steps) return;
+
+    form.dataset.loadingDone = '1';
+    if (e.submitter) {
+      // The submitter is disabled only after the value is captured, since a
+      // disabled control is not submitted and some of these buttons carry the
+      // name/value that decides what the view does.
+      const btn = e.submitter;
+      setTimeout(function () { btn.disabled = true; }, 0);
+    }
+    start(steps, name);
+  });
+
+  // Returning via the back button restores the page from cache with the overlay
+  // still up and no request in flight behind it.
+  window.addEventListener('pageshow', function (ev) {
+    if (!ev.persisted) return;
+    if (timer) { clearInterval(timer); timer = null; }
+    box.hidden = true;
+    document.querySelectorAll('form[data-loading-done]').forEach(function (f) {
+      delete f.dataset.loadingDone;
+      f.querySelectorAll('button[disabled]').forEach(function (b) { b.disabled = false; });
+    });
+  });
+})();
+</script>

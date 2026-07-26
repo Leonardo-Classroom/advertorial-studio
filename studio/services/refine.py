@@ -12,8 +12,10 @@ Two guards, both from things that actually went wrong:
     model obliged. Coverage fell 1.00 → 0.70. Any iteration that loses ground
     on mandatory facts is recorded but not accepted.
   * **Blind iteration.** More rewrites are not automatically better. The loop
-    stops as soon as an iteration fails to improve, rather than burning through
-    n calls and handing back whatever came out last.
+    stops as soon as a rewrite fails to improve, rather than spending the whole
+    budget and handing back whatever came out last. Measured: across twelve
+    runs a *second* rewrite was accepted zero times, which is why the default
+    is one.
 
 Every iteration is stored as a Revision, so the whole chain stays inspectable
 and doubles as preference-pair data (plan option D) — tagged `source="auto"`
@@ -26,7 +28,7 @@ import statistics
 from studio.models import GenerationRun, Revision
 from studio.services import evaluate as evaluate_service
 
-MAX_ITERATIONS = 4
+MAX_REWRITES = 3
 
 
 def _judge_mean(evaluation) -> float | None:
@@ -39,15 +41,15 @@ def _coverage(evaluation) -> float | None:
 
 
 def refine(run: GenerationRun, progress=None) -> list[dict]:
-    """Iteratively rewrite `run` up to `run.max_iterations` total drafts.
+    """Rewrite `run` up to `run.max_rewrites` times after the first draft.
 
-    Returns one record per iteration describing what happened and why the loop
+    Returns one record per draft describing what happened and why the loop
     continued or stopped — the reasoning is as useful as the scores when
-    deciding whether n is worth raising.
+    deciding whether more rewrites are worth allowing.
     """
     from studio.services import generate as generate_service
 
-    n = max(1, min(run.max_iterations or 1, MAX_ITERATIONS))
+    rewrites = max(0, min(run.max_rewrites or 0, MAX_REWRITES))
     history: list[dict] = []
 
     current_eval = run.evaluations.filter(revision__isnull=True).first()
@@ -63,7 +65,8 @@ def refine(run: GenerationRun, progress=None) -> list[dict]:
         "note": "",
     })
 
-    for i in range(2, n + 1):
+    for attempt in range(1, rewrites + 1):
+        i = attempt + 1  # draft number: the first draft is 1
         fixes = current_eval.judge_fixes
         if not fixes:
             history.append({"iteration": i, "kind": "略過", "judge_mean": None,
@@ -72,7 +75,7 @@ def refine(run: GenerationRun, progress=None) -> list[dict]:
             break
 
         if progress:
-            progress(i, n)
+            progress(attempt, rewrites)
 
         feedback = ("請依以下編輯意見修訂（這些意見來自文體評審）：\n"
                     + "\n".join(f"{k}. {f}" for k, f in enumerate(fixes, 1)))

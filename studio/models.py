@@ -65,9 +65,9 @@ class GenerationRun(models.Model):
     retrieval_strategy = models.CharField("檢索策略", max_length=16,
                                           choices=RETRIEVAL_STRATEGIES, default="typical")
     exemplar_count = models.IntegerField("範例篇數", default=4)
-    max_iterations = models.IntegerField(
-        "生成次數 n", default=2,
-        help_text="1 = 只寫一次；2 = 初稿＋依評審意見自動重寫一次。上限 4。",
+    max_rewrites = models.IntegerField(
+        "生成評估後重寫次數", default=1,
+        help_text="0 = 只寫初稿不重寫；1 = 初稿評估後自動重寫一次（預設）。上限 3。",
     )
     exemplars = models.JSONField("實際使用的範例", default=list, blank=True,
                                  help_text="[{id, title, score, author}]")

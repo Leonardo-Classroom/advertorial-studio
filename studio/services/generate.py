@@ -19,9 +19,9 @@ def run_generation(run: GenerationRun, stop_after_outline: bool = False,
     Dispatches on `run.mode` so Plan A and Plan B share one entry point and can
     therefore be compared with every other variable held constant.
 
-    With `run.max_iterations > 1` the draft is then rewritten from the judge's
-    own critique, up to that many drafts in total. Skipped when the run pauses
-    at the outline, since there is no draft to refine yet.
+    With `run.max_rewrites >= 1` the draft is then rewritten from the judge's
+    own critique, that many times at most. Skipped when the run pauses at the
+    outline, since there is no draft to refine yet.
     """
     if run.mode == "staged":
         from studio.services import pipeline
@@ -77,7 +77,7 @@ def run_generation(run: GenerationRun, stop_after_outline: bool = False,
 
 
 def _maybe_refine(run: GenerationRun, auto_refine: bool) -> None:
-    if not auto_refine or run.status != "done" or (run.max_iterations or 1) <= 1:
+    if not auto_refine or run.status != "done" or (run.max_rewrites or 0) < 1:
         return
     from studio.services import refine as refine_service
 
@@ -92,7 +92,7 @@ def _maybe_refine(run: GenerationRun, auto_refine: bool) -> None:
 
     run.stages = (run.stages or []) + [{
         "name": "refine", "label": "⑥ 依評審意見自動重寫",
-        "summary": f"n={run.max_iterations}",
+        "summary": f"重寫上限 {run.max_rewrites} 次",
         "output": "", "elapsed_ms": 0,
     }]
     history = refine_service.refine(run)

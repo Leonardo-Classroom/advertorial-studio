@@ -37,9 +37,9 @@ class Command(BaseCommand):
         parser.add_argument("--guide", type=int, default=None, help="StyleGuide 的 ID")
         parser.add_argument("--strategies", nargs="+", default=["topical", "random"],
                             help="要比較的策略，預設 topical random")
-        parser.add_argument("--iterations", nargs="+", type=int, default=None,
-                            help="改為比較生成次數 n（例如 --iterations 1 2 3 4）。"
-                                 "給了這個就以 n 為變因。")
+        parser.add_argument("--rewrites", nargs="+", type=int, default=None,
+                            help="改為比較重寫次數（例如 --rewrites 0 1 2 3）。"
+                                 "給了這個就以重寫次數為變因。")
         parser.add_argument("--modes", nargs="+", default=None,
                             help="改為比較生成方式（single / staged）。"
                                  "給了這個就以方式為變因，策略固定用 --strategies 的第一項。")
@@ -86,8 +86,8 @@ class Command(BaseCommand):
         # One variable at a time: either the retrieval strategy varies and the
         # mode is fixed, or the mode varies and the strategy is fixed.
         default_n = 1
-        if opts["iterations"]:
-            arms = [(opts["strategies"][0], "staged", n) for n in opts["iterations"]]
+        if opts["rewrites"]:
+            arms = [(opts["strategies"][0], "staged", n) for n in opts["rewrites"]]
         elif opts["modes"]:
             arms = [(opts["strategies"][0], m, default_n) for m in opts["modes"]]
         else:
@@ -95,7 +95,7 @@ class Command(BaseCommand):
 
         results: dict[str, list[dict]] = {}
         for strategy, mode, n_iter in arms:
-            arm = (f"n={n_iter}" if opts["iterations"]
+            arm = (f"重寫{n_iter}次" if opts["rewrites"]
                    else mode if opts["modes"] else strategy)
             results[arm] = []
             for i in range(opts["repeats"]):
@@ -103,7 +103,7 @@ class Command(BaseCommand):
                 run = GenerationRun.objects.create(
                     brief=brief, outlet=outlet, author=author, style_guide=guide,
                     experiment=experiment, retrieval_strategy=strategy, mode=mode,
-                    exemplar_count=opts["exemplars"], max_iterations=n_iter,
+                    exemplar_count=opts["exemplars"], max_rewrites=n_iter,
                 )
                 generate_service.run_generation(run)
                 if run.status == "failed":
@@ -137,7 +137,7 @@ class Command(BaseCommand):
                 self.stdout.write(line)
 
         self.stdout.write("\n" + self.style.SUCCESS(f"=== 實驗 #{experiment.pk} 結果 ==="))
-        arm_label = "n" if opts["iterations"] else "方式" if opts["modes"] else "策略"
+        arm_label = "重寫次數" if opts["rewrites"] else "方式" if opts["modes"] else "策略"
         self.stdout.write(
             f"{arm_label:<10}{'樣本':>5}{'實際稿數':>10}{'風格相似度':>13}"
             f"{'重疊率':>11}{'評審均分':>11}{'事實覆蓋':>11}{'耗時秒':>9}"

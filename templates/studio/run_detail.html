@@ -7,7 +7,7 @@
   {{ run.brief.title }} → {{ run.outlet.name }}{% if run.author %} / {{ run.author.name }}{% endif %}
   · <span class="pill">{{ run.get_mode_display }}</span>
   · {{ run.get_retrieval_strategy_display }} · 範例 {{ run.exemplar_count }} 篇
-  · n={{ run.max_iterations }}（實際跑 {{ run.iteration_count }} 次）
+  · 重寫上限 {{ run.max_rewrites }} 次（實際採納 {{ run.iteration_count }} 稿）
   · {{ run.model }} · {{ run.elapsed_ms|floatformat:0 }}ms
   {% if run.experiment %} · 實驗：<a href="{% url 'studio:experiment_detail' run.experiment.pk %}">{{ run.experiment.name }}</a>{% endif %}
 </p>

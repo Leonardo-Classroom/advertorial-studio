@@ -45,6 +45,11 @@ TAG_KEYS = ("hashtag", "標籤")
 FB_KEYS = ("fb貼文", "fb 貼文", "facebook", "貼文文案")
 TODO_KEYS = ("待確認", "待補", "待提供")
 
+# Sections the format spec asks for exactly once. Only the body may accumulate:
+# it is genuinely many chunks (prose plus every 小標), while a second title or a
+# second Facebook block is the model repeating itself, not extra content.
+SINGLE_SLOTS = frozenset({"title", "fb", "tags", "todo"})
+
 # Where the draft asked for one of the deck's own pictures. Deliberately not
 # markdown image syntax: `![](…)` would let model output name an arbitrary URL,
 # and the whole point is that only approved, locally-stored deck images can
@@ -168,6 +173,14 @@ def article(text: str, brief=None) -> str:
         if kind == "other":
             # An unexpected section is still article content; keep its heading.
             parts.setdefault("body", []).append(f"### {heading}\n\n{body}")
+        elif kind in SINGLE_SLOTS and kind in parts:
+            # The deck asks for one of each; occasionally the model writes one
+            # twice — a run was observed repeating the whole Facebook block as a
+            # ### sub-heading inside 內文, which then rendered as two FB copies
+            # stacked in the same aside. The first is the one in its specified
+            # position, so later repeats are dropped. Nothing is lost that the
+            # reader needs: 純文字 still shows the draft exactly as written.
+            continue
         else:
             parts.setdefault(kind, []).append(body)
 

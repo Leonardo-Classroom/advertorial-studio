@@ -32,6 +32,15 @@ from studio.models import SELECTABLE_STRATEGIES, GenerationRun
 from studio.services import generate as generate_service
 
 
+# The feedback-driven rewrite is not finished, so the portal does not offer it
+# yet. Both the form and the view read this: a disabled button is only a hint to
+# the browser, and the URL stays reachable by hand or from a tab opened before
+# the change, so the refusal has to exist server-side to mean anything. Staff
+# keep the loop under /manage/, which is where it is being worked on.
+# Flip to True to release it — the form re-enables with it.
+REVISION_ENABLED = False
+
+
 def _my_briefs(request):
     return Brief.objects.filter(owner=request.user)
 
@@ -245,13 +254,47 @@ def generate(request, pk):
     return redirect("portal:draft_detail", pk=run.pk)
 
 
+def _delivered_draft(run) -> str:
+    """The text the run actually hands over as its first draft.
+
+    The rewrite budget makes the generator revise its own work before handing
+    anything back. That is the generator finishing the job, not a second draft:
+    the user asked for a piece of copy, and showing them the version that exists
+    only because the machine disagreed with itself invites them to compare two
+    texts they never asked to choose between. So the accepted auto-rewrite *is*
+    the first draft here.
+
+    /manage/ still shows every round — that view exists to inspect the
+    machinery, and folding rounds together there would hide what an experiment
+    is measuring.
+    """
+    last_auto = (run.revisions.filter(source="auto", accepted=True)
+                 .order_by("-round").first())
+    return last_auto.output if last_auto else run.output
+
+
+def _human_revisions(run) -> list:
+    """The user's own revisions, renumbered as if the auto rounds never existed.
+
+    Their stored `round` counts auto-rewrites, so the first revision a user asks
+    for lands on round 3 and would read as 第 3 稿 on a page showing only two
+    versions. The numbering has to match what is on screen.
+    """
+    revisions = list(run.revisions.filter(accepted=True, source="human").order_by("round"))
+    for i, revision in enumerate(revisions, start=2):
+        revision.display_round = i
+    return revisions
+
+
 @login_required
 def draft_detail(request, pk):
     run = get_object_or_404(_my_runs(request).select_related("brief", "outlet", "style_guide"), pk=pk)
     return render(request, "portal/draft_detail.html", {
         "nav": "drafts",
         "run": run,
-        "revisions": run.revisions.filter(accepted=True),
+        "draft_text": _delivered_draft(run),
+        "revisions": _human_revisions(run),
+        "revision_enabled": REVISION_ENABLED,
     })
 
 
@@ -282,6 +325,10 @@ def draft_outline(request, pk):
 def draft_revise(request, pk):
     run = get_object_or_404(_my_runs(request), pk=pk)
     if request.method != "POST":
+        return redirect("portal:draft_detail", pk=pk)
+
+    if not REVISION_ENABLED:
+        messages.info(request, "「依意見重寫」還在開發中，暫時無法使用。")
         return redirect("portal:draft_detail", pk=pk)
 
     feedback = (request.POST.get("feedback") or "").strip()

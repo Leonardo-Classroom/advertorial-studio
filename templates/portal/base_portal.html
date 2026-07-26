@@ -43,6 +43,11 @@ tr:last-child td{border-bottom:none}
 .btn:hover{filter:brightness(1.08);text-decoration:none;color:#fff}
 .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
 .btn.sm{padding:6px 12px;font-size:13px}
+/* A disabled button keeps the accent fill otherwise, which still reads as
+   "press me" — the label says 待開發 but the colour disagrees. */
+.btn:disabled,.btn[disabled]{background:var(--line);color:var(--muted);cursor:not-allowed}
+.btn:disabled:hover,.btn[disabled]:hover{filter:none}
+textarea:disabled,input:disabled{background:var(--bg);color:var(--muted);cursor:not-allowed}
 input[type=text],input[type=password],input[type=file],input[type=email],select,textarea{
   width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:7px;
   background:var(--bg);color:var(--ink);font:inherit;font-size:14px}
@@ -106,6 +111,22 @@ pre.doc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padd
 .post-figure{margin:22px 0;text-align:center}
 .post-figure img{max-width:100%;height:auto;border-radius:6px}
 .post-figure figcaption{margin-top:7px;font-size:12.5px;color:var(--muted);line-height:1.6}
+/* Phone-width preview, and the default view of a draft — these pieces are read
+   on a phone, so a desktop-width column shows line breaks and paragraph weight
+   that nobody will actually see.
+
+   The whole mechanism is max-width. A viewport already narrower than this is
+   left alone, so on a real phone 「手機」and「文章」render identically and the
+   toggle only means something on a screen wide enough to be misleading.
+   360px clears the content column of the widest common phone (a 430px viewport
+   leaves ~346px inside main+card padding), so no phone is ever clamped. */
+.phone [data-render="article"]{max-width:360px;margin-inline:auto}
+/* Chrome that says "this is a preview, not the layout". Held above any phone
+   width so it cannot reintroduce the difference the rule above avoids. */
+@media (min-width:560px){
+  .phone [data-render="article"]{border:1px solid var(--line);border-radius:12px;
+    padding:20px 16px}
+}
 .post-body strong{font-weight:650}
 .post-body em{color:var(--muted);font-style:normal}
 .post-body .note,.aside .note{background:color-mix(in srgb,var(--warn) 10%,transparent);
@@ -158,9 +179,13 @@ document.addEventListener('click', function (e) {
   if (!btn) return;
   const box = document.getElementById(btn.dataset.target);
   if (!box) return;
+  // 手機 and 文章 show the same rendered article and differ only in width, so
+  // which element to reveal is stated separately from which view is selected.
+  const shows = btn.dataset.renderAs || btn.dataset.view;
   box.querySelectorAll('[data-render]').forEach(function (el) {
-    el.hidden = el.dataset.render !== btn.dataset.view;
+    el.hidden = el.dataset.render !== shows;
   });
+  box.classList.toggle('phone', btn.dataset.view === 'mobile');
   btn.parentElement.querySelectorAll('button').forEach(function (b) {
     b.classList.toggle('on', b === btn);
   });

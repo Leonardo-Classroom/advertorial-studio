@@ -33,13 +33,15 @@
   <div class="row tight" style="margin-bottom:10px">
     <h2 style="margin:0;flex:1">初稿</h2>
     <div class="toggle">
-      <button type="button" class="on" data-view="article" data-target="d{{ run.pk }}">文章</button>
+      <button type="button" class="on" data-view="mobile" data-render-as="article"
+              data-target="d{{ run.pk }}">手機</button>
+      <button type="button" data-view="article" data-target="d{{ run.pk }}">文章</button>
       <button type="button" data-view="raw" data-target="d{{ run.pk }}">純文字</button>
     </div>
   </div>
-  <div id="d{{ run.pk }}">
-    <div data-render="article">{{ run.output|article:run.brief }}</div>
-    <pre class="doc" data-render="raw" hidden>{{ run.output }}</pre>
+  <div id="d{{ run.pk }}" class="phone">
+    <div data-render="article">{{ draft_text|article:run.brief }}</div>
+    <pre class="doc" data-render="raw" hidden>{{ draft_text }}</pre>
   </div>
 </div>
 
@@ -55,18 +57,17 @@
 {% for rev in revisions %}
 <div class="card">
   <div class="row tight" style="margin-bottom:10px">
-    <h2 style="margin:0;flex:1">第 {{ rev.round }} 稿
-      {% if rev.source == 'auto' %}<span class="pill">系統自動潤稿</span>{% endif %}</h2>
+    <h2 style="margin:0;flex:1">第 {{ rev.display_round }} 稿</h2>
     <div class="toggle">
-      <button type="button" class="on" data-view="article" data-target="r{{ rev.pk }}">文章</button>
+      <button type="button" class="on" data-view="mobile" data-render-as="article"
+              data-target="r{{ rev.pk }}">手機</button>
+      <button type="button" data-view="article" data-target="r{{ rev.pk }}">文章</button>
       <button type="button" data-view="raw" data-target="r{{ rev.pk }}">純文字</button>
     </div>
   </div>
-  {% if rev.source == 'human' %}
-    <details style="margin-bottom:10px"><summary>你提出的修改意見</summary>
-      <pre class="doc" style="margin-top:8px">{{ rev.feedback }}</pre></details>
-  {% endif %}
-  <div id="r{{ rev.pk }}">
+  <details style="margin-bottom:10px"><summary>你提出的修改意見</summary>
+    <pre class="doc" style="margin-top:8px">{{ rev.feedback }}</pre></details>
+  <div id="r{{ rev.pk }}" class="phone">
     <div data-render="article">{{ rev.output|article:run.brief }}</div>
     <pre class="doc" data-render="raw" hidden>{{ rev.output }}</pre>
   </div>
@@ -75,11 +76,14 @@
 
 <div class="card">
   <h2 style="margin-top:0">要改哪裡？</h2>
-  <p class="small muted">寫下想調整的地方，系統會依你的意見重寫一版。原本的稿件會保留。</p>
+  <p class="small muted">{% if revision_enabled %}寫下想調整的地方，系統會依你的意見重寫一版。原本的稿件會保留。
+    {% else %}這項功能還在開發中，暫時無法使用。{% endif %}</p>
   <form method="post" action="{% url 'portal:draft_revise' run.pk %}">
     {% csrf_token %}
-    <textarea name="feedback" placeholder="例如：第二段太像官方新聞稿，改得更口語一點；標題想強調價格。"></textarea>
-    <button class="btn" style="margin-top:10px">依意見重寫</button>
+    <textarea name="feedback" {% if not revision_enabled %}disabled{% endif %}
+              placeholder="例如：第二段太像官方新聞稿，改得更口語一點；標題想強調價格。"></textarea>
+    <button class="btn" style="margin-top:10px" {% if not revision_enabled %}disabled{% endif %}>
+      依意見重寫{% if not revision_enabled %}（待開發）{% endif %}</button>
   </form>
 </div>
 {% elif not run.outline %}

@@ -74,7 +74,10 @@ OUTPUT_SPEC = """【輸出格式】請完全照下列結構輸出，用 Markdown
 **不要描述那張圖要拍什麼**，那是給攝影師的指示，不是給讀者看的。）
 
 ## Hashtag
-（一行，空格分隔）"""
+（一行，空格分隔）
+
+上面每個 `##` 區塊各只能出現一次。內文的小標用 `###`，
+**不要在內文裡再寫一次 FB 貼文文案或標題**——那些已經在自己的區塊裡了。"""
 
 # The same spec, for when the deck actually supplied usable pictures. The only
 # difference is the 內文 rule: real images exist, so the draft places them by
@@ -102,7 +105,10 @@ OUTPUT_SPEC_WITH_IMAGES = """【輸出格式】請完全照下列結構輸出，
 
 ## 待確認
 （條列：簡報未提供、但寫稿時需要的資訊；沒有就寫「無」。
-這一節不會跟著稿件刊出，是給編輯看的待辦。）"""
+這一節不會跟著稿件刊出，是給編輯看的待辦。）
+
+上面每個 `##` 區塊各只能出現一次。內文的小標用 `###`，
+**不要在內文裡再寫一次 FB 貼文文案或標題**——那些已經在自己的區塊裡了。"""
 
 
 def image_roster(images) -> str:

@@ -1,7 +1,10 @@
+import random
+
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Avg, Count
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.http import url_has_allowed_host_and_scheme
 
 from briefs.models import Brief
 from corpus.models import Article, Author, EmbeddingIndex, Outlet, StyleGuide
@@ -103,6 +106,10 @@ def run_detail(request, pk):
         "run": run,
         "revisions": run.revisions.all(),
         "evaluations": run.evaluations.select_related("revision").all(),
+        # Same brief only: comparing drafts written from different briefs would
+        # be comparing subject matter, not the thing under test.
+        "comparable": GenerationRun.objects.filter(
+            brief=run.brief, status="done").exclude(pk=run.pk).order_by("-pk")[:30],
     })
 
 
@@ -181,10 +188,64 @@ def run_score(request, pk):
     if ev is None:
         ev = Evaluation.objects.create(run=run)
     ev.human_score = int(request.POST.get("human_score") or 0) or None
-    ev.human_comment = request.POST.get("human_comment", "")
+    if request.POST.get("human_comment"):
+        ev.human_comment = request.POST["human_comment"]
     ev.save(update_fields=["human_score", "human_comment"])
-    messages.success(request, "已記錄人工評分。")
+    messages.success(request, f"已記錄 run#{run.pk} 的人工評分：{ev.human_score}/5")
+
+    # Return to wherever the score was entered — scoring happens on the
+    # side-by-side page as often as on the run page, and bouncing the user
+    # away from a comparison they are half-way through is annoying.
+    back = request.META.get("HTTP_REFERER")
+    if back and url_has_allowed_host_and_scheme(
+        back, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return redirect(back)
     return redirect("studio:run_detail", pk=pk)
+
+
+def compare(request):
+    """Side-by-side draft comparison, blind by default.
+
+    Blind because the whole point is to check whether a human can tell the
+    arms apart; knowing which is which while judging defeats that. Left/right
+    order is randomised deterministically from the pair, so reloading does not
+    reshuffle and the same pair always presents the same way.
+
+    Real corpus articles are shown alongside on purpose: the reliable question
+    to ask is not "how good is this draft" in the abstract but "which of these
+    two reads more like the published pieces next to them".
+    """
+    a = get_object_or_404(GenerationRun, pk=request.GET.get("a"))
+    b = get_object_or_404(GenerationRun, pk=request.GET.get("b"))
+    reveal = request.GET.get("reveal") == "1"
+
+    # Deterministic but non-obvious side assignment.
+    flip = ((a.pk * 31 + b.pk * 17) % 2) == 1
+    left, right = (b, a) if flip else (a, b)
+
+    rng = random.Random(a.pk * 1000 + b.pk)
+    ref_ids = list(
+        Article.objects.filter(outlet=a.outlet, char_count__gte=800)
+        .order_by().values_list("id", flat=True)[:3000]
+    )
+    references = Article.objects.filter(
+        id__in=rng.sample(ref_ids, min(3, len(ref_ids)))
+    ).select_related("author") if ref_ids else []
+
+    def label(run):
+        # The strategy's display text carries its own "(方案 B 預設)" note, which
+        # reads as a contradiction next to a 方案 A mode label. Use the bare code.
+        return f"{run.get_mode_display().split('：')[0]} · 檢索 {run.retrieval_strategy}"
+
+    return render(request, "studio/compare.html", {
+        "section": "runs",
+        "left": left, "right": right, "reveal": reveal,
+        "left_label": label(left) if reveal else "稿件 甲",
+        "right_label": label(right) if reveal else "稿件 乙",
+        "references": references,
+        "a": a, "b": b,
+    })
 
 
 def experiments(request):

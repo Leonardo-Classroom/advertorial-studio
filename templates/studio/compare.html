@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}並排比較{% endblock %}
+{% block content %}
+<div class="row tight" style="margin-bottom:6px">
+  <h1 style="flex:1;margin:0">並排比較</h1>
+  {% if reveal %}
+    <a class="btn sm ghost" style="flex:0" href="?a={{ a.pk }}&b={{ b.pk }}">重新隱藏標籤</a>
+  {% else %}
+    <a class="btn sm" style="flex:0" href="?a={{ a.pk }}&b={{ b.pk }}&reveal=1">顯示這兩篇是什麼</a>
+  {% endif %}
+</div>
+<p class="sub">
+  {% if not reveal %}
+    <strong>目前是盲測</strong>：左右哪篇是哪種生成方式已隱藏，左右順序也打亂了。
+    先看完、判斷完，再按右上角揭曉——知道答案再判斷，就失去比較的意義了。
+  {% else %}
+    標籤已揭曉。
+  {% endif %}
+</p>
+
+<div class="card">
+  <h3 style="margin-top:0">怎麼判斷</h3>
+  <p class="small muted" style="margin:0">
+    不要問「這篇好不好」，那很難答。改問：<strong>下面那幾篇真實的
+    {{ a.outlet.name }} 文章擺在旁邊，甲和乙哪一篇比較像它們？</strong><br>
+    像不像可以拆成幾個具體的點：標題的下法、開場怎麼切入、段落長短與小標語氣、
+    有沒有出現只有內部人才會講的話（例如「引導消費者進店」）、結尾怎麼收。
+  </p>
+</div>
+
+<div class="grid g2">
+  {% for run in ""|slice:":0" %}{% endfor %}
+  <div class="card">
+    <h2 style="margin-top:0">{{ left_label }}
+      {% if reveal %}<a class="small" href="{% url 'studio:run_detail' left.pk %}">（run#{{ left.pk }}）</a>{% endif %}
+    </h2>
+    <pre class="doc">{{ left.output }}</pre>
+    <form method="post" action="{% url 'studio:run_score' left.pk %}" style="margin-top:14px">
+      {% csrf_token %}
+      <label>這篇像不像 {{ a.outlet.name }}？（1 完全不像 – 5 難以分辨）</label>
+      <div class="row tight">
+        <select name="human_score" style="flex:1">
+          {% for i in "12345" %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
+        </select>
+        <button class="btn sm" style="flex:0">記錄</button>
+      </div>
+      <input type="hidden" name="human_comment" value="">
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">{{ right_label }}
+      {% if reveal %}<a class="small" href="{% url 'studio:run_detail' right.pk %}">（run#{{ right.pk }}）</a>{% endif %}
+    </h2>
+    <pre class="doc">{{ right.output }}</pre>
+    <form method="post" action="{% url 'studio:run_score' right.pk %}" style="margin-top:14px">
+      {% csrf_token %}
+      <label>這篇像不像 {{ a.outlet.name }}？（1 完全不像 – 5 難以分辨）</label>
+      <div class="row tight">
+        <select name="human_score" style="flex:1">
+          {% for i in "12345" %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
+        </select>
+        <button class="btn sm" style="flex:0">記錄</button>
+      </div>
+      <input type="hidden" name="human_comment" value="">
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">對照組：{{ a.outlet.name }} 真實文章</h2>
+  <p class="small muted">從語料庫隨機抽的已發表文章。判斷「像不像」時以這幾篇為基準。</p>
+  {% for art in references %}
+    <details {% if forloop.first %}open{% endif %} style="border-top:1px solid var(--line);padding-top:8px">
+      <summary>{{ art.title }}<span class="muted small">　{{ art.author.name }} · {{ art.published_on }}</span></summary>
+      <pre class="doc" style="margin-top:10px;max-height:420px;overflow:auto">{{ art.body }}</pre>
+    </details>
+  {% empty %}
+    <p class="muted small">語料庫沒有可用的對照文章。</p>
+  {% endfor %}
+</div>
+{% endblock %}

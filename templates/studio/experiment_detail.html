@@ -5,11 +5,11 @@
 <p class="sub">{{ experiment.description|default:"（無說明）" }}</p>
 
 <div class="card">
-  <h2 style="margin-top:0">依檢索策略彙總</h2>
+  <h2 style="margin-top:0">分組彙總</h2>
   <p class="small muted">四個指標分開看，不合併成單一分數——因為沒有任何一個單獨可靠。
     樣本數太少時（每組少於 5 筆）差異多半是雜訊，不要急著下結論。</p>
   <div class="scroll"><table>
-    <tr><th>策略</th><th>樣本數</th><th>風格向量相似度</th><th>平均重疊率</th><th>LLM 評審均分</th><th>人工均分</th></tr>
+    <tr><th>分組</th><th>樣本數</th><th>風格向量相似度</th><th>平均重疊率</th><th>LLM 評審均分</th><th>人工均分</th></tr>
     {% for row in rows %}
     <tr>
       <td>{{ row.label }}</td>
@@ -27,11 +27,37 @@
 </div>
 
 <div class="card">
+  <h2 style="margin-top:0">並排比較兩篇稿件</h2>
+  <p class="small muted">自動指標分不出來的部分，只能靠人眼。這裡會把兩篇稿子左右並排、
+    隱藏標籤、打亂左右順序，並在下方附上幾篇真實的該媒體文章當基準。</p>
+  <form method="get" action="{% url 'studio:compare' %}" class="row">
+    <div>
+      <label>稿件一</label>
+      <select name="a">
+        {% for r in runs %}<option value="{{ r.pk }}">
+          run#{{ r.pk }}｜{{ r.get_mode_display|truncatechars:9 }}｜檢索 {{ r.retrieval_strategy }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>稿件二</label>
+      <select name="b">
+        {% for r in runs reversed %}<option value="{{ r.pk }}">
+          run#{{ r.pk }}｜{{ r.get_mode_display|truncatechars:9 }}｜檢索 {{ r.retrieval_strategy }}</option>{% endfor %}
+      </select>
+    </div>
+    <div style="flex:0;min-width:auto"><button class="btn">並排比較</button></div>
+  </form>
+</div>
+
+<div class="card">
   <h2 style="margin-top:0">兩兩對比評審</h2>
-  <p class="small muted">絕對評分（上表「LLM 評審均分」）在這批稿件上分不出差異，
-    所以改問「這兩篇哪一篇比較像」。每組都判斷兩次並調換順序；
-    調換後結論翻轉代表模型只是偏好排在前面的稿件，一律計為平手。<br>
-    比較的是<strong>初稿</strong>——修訂過的稿件會贏在修訂而非檢索策略。</p>
+  <div class="msg warning" style="margin-bottom:12px">
+    ⚠ <strong>此功能實測不可用</strong>：順序翻轉率 88–92%，即使在絕對評分量得到真實差異時也一樣。
+    保留它是為了記錄這個否定結果，<strong>不要拿下面的數字做決策</strong>。
+  </div>
+  <p class="small muted">構想是：絕對評分分不出差異時，改問「這兩篇哪一篇比較像」。
+    每組判斷兩次並調換順序，翻轉即計平手。<br>
+    比較的是<strong>初稿</strong>——修訂過的稿件會贏在修訂而非變因本身。</p>
 
   {% if pairwise_total %}
     <div class="grid g3" style="margin:14px 0">
@@ -70,12 +96,12 @@
 <div class="card">
   <h2 style="margin-top:0">個別生成</h2>
   <div class="scroll"><table>
-    <tr><th>#</th><th>策略</th><th>目標風格</th><th>風格相似度</th><th>人工分</th><th>狀態</th></tr>
+    <tr><th>#</th><th>生成方式</th><th>檢索策略</th><th>風格相似度</th><th>人工分</th><th>狀態</th></tr>
     {% for r in runs %}
     <tr>
       <td><a href="{% url 'studio:run_detail' r.pk %}">#{{ r.pk }}</a></td>
-      <td class="small">{{ r.get_retrieval_strategy_display|truncatechars:18 }}</td>
-      <td class="small">{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</td>
+      <td class="small">{{ r.get_mode_display|truncatechars:9 }}</td>
+      <td class="small">{{ r.retrieval_strategy }}</td>
       <td class="small">{% for ev in r.evaluations.all %}{{ ev.style_similarity|default:"—" }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
       <td class="small">{% for ev in r.evaluations.all %}{{ ev.human_score|default:"—" }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
       <td>{% if r.status == 'done' %}<span class="pill good">完成</span>

@@ -13,6 +13,7 @@ urlpatterns = [
     path("runs/<int:pk>/evaluate/", views.run_evaluate, name="run_evaluate"),
     path("runs/<int:pk>/revise/", views.run_revise, name="run_revise"),
     path("runs/<int:pk>/score/", views.run_score, name="run_score"),
+    path("compare/", views.compare, name="compare"),
     path("experiments/", views.experiments, name="experiments"),
     path("experiments/<int:pk>/", views.experiment_detail, name="experiment_detail"),
 ]

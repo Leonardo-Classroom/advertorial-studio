@@ -179,6 +179,20 @@
     </div>
 
     <div class="card">
+      <h2 style="margin-top:0">與另一篇並排比較</h2>
+      <p class="small muted">自動指標分不出來的部分只能靠人眼。並排頁面會隱藏標籤、
+        打亂左右順序，並附上真實的 {{ run.outlet.name }} 文章當基準。</p>
+      <form method="get" action="{% url 'studio:compare' %}" class="row tight">
+        <input type="hidden" name="a" value="{{ run.pk }}">
+        <select name="b" style="flex:1">
+          {% for r in comparable %}<option value="{{ r.pk }}">
+            run#{{ r.pk }}｜{{ r.get_mode_display|truncatechars:9 }}｜檢索 {{ r.retrieval_strategy }}</option>{% endfor %}
+        </select>
+        <button class="btn sm" style="flex:0">並排比較</button>
+      </form>
+    </div>
+
+    <div class="card">
       <h2 style="margin-top:0">人工評分</h2>
       <p class="small muted">論文（arXiv:2508.06374）的結論是任何單一指標都不可靠，
         指標組合才準——所以自動分數之外仍需要你的判斷。</p>

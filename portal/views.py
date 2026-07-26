@@ -1,10 +1,14 @@
 """The portal: what someone who just wants a draft sees.
 
-Deliberately narrower than the staff tooling under /manage/. A portal user
-picks a target style and gets a draft; retrieval strategy, generation mode,
-rewrite budget and the whole evaluation apparatus stay out of sight, set to
-the values the experiments settled on. Exposing those knobs here would ask
-users to make calls that took a dozen A/B runs to answer.
+Narrower than the staff tooling under /manage/, but not by much: the portal
+exposes the target style, retrieval strategy and rewrite budget, while the
+generation mode and the whole evaluation apparatus stay behind /manage/.
+
+Every exposed control carries what the experiments actually measured, so a
+choice is never made blind — retrieval strategy made no measurable difference
+across a dozen A/B runs, and a second rewrite was accepted zero times out of
+twelve. Values arriving from the form are validated and clamped rather than
+trusted.
 
 Everything is scoped to `request.user`: a portal user sees only their own
 briefs and drafts. Staff see everything through /manage/ instead.
@@ -24,7 +28,7 @@ from django.utils.text import slugify
 from briefs.models import Brief
 from briefs.services import ppt_extract
 from corpus.models import StyleGuide
-from studio.models import GenerationRun
+from studio.models import RETRIEVAL_STRATEGIES, GenerationRun
 from studio.services import generate as generate_service
 
 
@@ -98,6 +102,7 @@ def brief_detail(request, pk):
         "facts_json": json.dumps(brief.facts or {}, ensure_ascii=False, indent=2),
         "uncertain": (brief.facts or {}).get("uncertain") or [],
         "guides": guides,
+        "strategies": RETRIEVAL_STRATEGIES,
         "runs": brief.runs.filter(owner=request.user),
     })
 
@@ -147,17 +152,26 @@ def generate(request, pk):
                               pk=request.POST.get("style_guide"))
     review_outline = request.POST.get("review_outline") == "on"
 
+    # Clamped rather than trusted: these arrive from a form and a rewrite budget
+    # of 50 would tie up the model for an hour.
+    strategy = request.POST.get("retrieval_strategy", "typical")
+    if strategy not in dict(RETRIEVAL_STRATEGIES):
+        strategy = "typical"
+    try:
+        rewrites = int(request.POST.get("max_rewrites") or 1)
+    except ValueError:
+        rewrites = 1
+
     run = GenerationRun.objects.create(
         owner=request.user,
         brief=brief,
         outlet=guide.outlet,
         author=guide.author,
         style_guide=guide,
-        # Fixed to what the experiments settled on. Not user-facing choices.
         mode="staged",
-        retrieval_strategy="typical",
+        retrieval_strategy=strategy,
         exemplar_count=4,
-        max_rewrites=1,
+        max_rewrites=max(0, min(rewrites, 3)),
     )
     generate_service.run_generation(run, stop_after_outline=review_outline)
 

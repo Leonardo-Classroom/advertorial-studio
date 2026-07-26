@@ -59,6 +59,27 @@
           <select name="style_guide" required>
             {% for g in guides %}<option value="{{ g.pk }}">{{ g.scope_label }}</option>{% endfor %}
           </select>
+
+          <label>檢索策略 *</label>
+          <select name="retrieval_strategy">
+            {% for value, label in strategies %}
+              <option value="{{ value }}" {% if value == 'typical' %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <p class="small muted" style="margin:4px 0 0">
+            決定拿哪幾篇該媒體的文章當語感範例。實測 12 組 A/B，
+            「主題相似」與「隨機」產出的稿件<strong>分不出差異</strong>，
+            所以這一項可以直接用預設值。
+          </p>
+
+          <label>生成評估後重寫次數</label>
+          <input type="number" name="max_rewrites" value="1" min="0" max="3">
+          <p class="small muted" style="margin:4px 0 0">
+            0 = 只寫初稿（快，約 90 秒）；1（預設）= 寫完後自動潤一次（約 150 秒）。
+            實測第 1 次潤稿有效、第 2 次 12 篇中 0 篇被採納，所以設超過 1 只是多等。
+            潤稿若造成內容流失或沒有進步會自動停止並保留前一版。
+          </p>
+
           <label style="margin-top:14px">
             <input type="checkbox" name="review_outline" style="width:auto"> 先讓我確認大綱再寫正文
           </label>
@@ -67,7 +88,7 @@
             方向如果抓錯，在大綱階段調整比整篇重寫省事得多。
           </p>
           <button class="btn" style="margin-top:16px;width:100%">產出稿件</button>
-          <p class="small muted" style="margin:10px 0 0">產稿約需 2–3 分鐘，請不要關閉頁面。</p>
+          <p class="small muted" style="margin:10px 0 0">產稿需 1.5–3 分鐘，請不要關閉頁面。</p>
         </form>
       {% endif %}
     </div>

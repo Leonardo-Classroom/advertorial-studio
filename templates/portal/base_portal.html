@@ -70,7 +70,7 @@ pre.doc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padd
 .md hr{border:none;border-top:1px solid var(--line);margin:22px 0}
 .md strong{font-weight:650}
 .toggle{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;
-  flex:0 0 auto;min-width:auto;width:fit-content}
+  align-self:center}
 .toggle button{background:transparent;border:none;color:var(--muted);font:inherit;font-size:13px;
   padding:4px 12px;cursor:pointer;white-space:nowrap}
 .toggle button+button{border-left:1px solid var(--line)}
@@ -79,6 +79,11 @@ pre.doc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padd
 .row>*{flex:1;min-width:150px}
 .row>.btn{flex:0 0 auto;min-width:auto}
 .row.tight{align-items:center}
+/* Sized from content. Written as `.row>.toggle` rather than `.toggle` so it
+   does not depend on appearing after `.row>*{min-width:150px}` in the sheet —
+   equal specificity means source order decides, and this exact rule silently
+   lost that race in the portal stylesheet after working in the admin one. */
+.row>.toggle,.toggle{flex:0 0 auto;min-width:auto;width:fit-content}
 .empty{text-align:center;padding:44px 20px;color:var(--muted)}
 .steps{display:flex;gap:10px;margin:0 0 22px;flex-wrap:wrap}
 .step{flex:1;min-width:150px;border:1px solid var(--line);border-radius:9px;padding:11px 14px;background:var(--panel)}

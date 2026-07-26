@@ -74,6 +74,11 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
 .row>*{flex:1;min-width:150px}
 .row>.btn{flex:0 0 auto;min-width:auto}
 .row.tight{align-items:center}
+/* Sized from content. Written as `.row>.toggle` rather than `.toggle` so it
+   does not depend on appearing after `.row>*{min-width:150px}` in the sheet —
+   equal specificity means source order decides, and this exact rule silently
+   lost that race in the portal stylesheet after working in the admin one. */
+.row>.toggle,.toggle{flex:0 0 auto;min-width:auto;width:fit-content}
 .bar{height:6px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:5px}
 .bar>i{display:block;height:100%;background:var(--accent)}
 .empty{text-align:center;padding:40px 20px;color:var(--muted)}
@@ -96,7 +101,7 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
    flex override does not touch, so the bordered box stayed wider than its two
    buttons. Size the control from its content instead. */
 .toggle{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;
-  flex:0 0 auto;min-width:auto;width:fit-content;align-self:center}
+  align-self:center}
 .toggle button{background:transparent;border:none;color:var(--muted);font:inherit;font-size:13px;
   padding:4px 12px;cursor:pointer;white-space:nowrap}
 .toggle button+button{border-left:1px solid var(--line)}

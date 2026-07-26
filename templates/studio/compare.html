@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load mdformat %}
 {% block title %}並排比較{% endblock %}
 {% block content %}
 <div class="row tight" style="margin-bottom:6px">
@@ -29,12 +30,20 @@
 </div>
 
 <div class="grid g2">
-  {% for run in ""|slice:":0" %}{% endfor %}
   <div class="card">
-    <h2 style="margin-top:0">{{ left_label }}
-      {% if reveal %}<a class="small" href="{% url 'studio:run_detail' left.pk %}">（run#{{ left.pk }}）</a>{% endif %}
-    </h2>
-    <pre class="doc">{{ left.output }}</pre>
+    <div class="row tight" style="margin-bottom:10px">
+      <h2 style="margin:0;flex:1">{{ left_label }}
+        {% if reveal %}<a class="small" href="{% url 'studio:run_detail' left.pk %}">（run#{{ left.pk }}）</a>{% endif %}
+      </h2>
+      <div class="toggle" style="flex:0">
+        <button type="button" class="on" data-view="md" data-target="cmp-left">排版</button>
+        <button type="button" data-view="raw" data-target="cmp-left">純文字</button>
+      </div>
+    </div>
+    <div id="cmp-left">
+      <div class="md" data-render="md">{{ left.output|markdown }}</div>
+      <pre class="doc" data-render="raw" hidden>{{ left.output }}</pre>
+    </div>
     <form method="post" action="{% url 'studio:run_score' left.pk %}" style="margin-top:14px">
       {% csrf_token %}
       <label>這篇像不像 {{ a.outlet.name }}？（1 完全不像 – 5 難以分辨）</label>
@@ -49,10 +58,19 @@
   </div>
 
   <div class="card">
-    <h2 style="margin-top:0">{{ right_label }}
-      {% if reveal %}<a class="small" href="{% url 'studio:run_detail' right.pk %}">（run#{{ right.pk }}）</a>{% endif %}
-    </h2>
-    <pre class="doc">{{ right.output }}</pre>
+    <div class="row tight" style="margin-bottom:10px">
+      <h2 style="margin:0;flex:1">{{ right_label }}
+        {% if reveal %}<a class="small" href="{% url 'studio:run_detail' right.pk %}">（run#{{ right.pk }}）</a>{% endif %}
+      </h2>
+      <div class="toggle" style="flex:0">
+        <button type="button" class="on" data-view="md" data-target="cmp-right">排版</button>
+        <button type="button" data-view="raw" data-target="cmp-right">純文字</button>
+      </div>
+    </div>
+    <div id="cmp-right">
+      <div class="md" data-render="md">{{ right.output|markdown }}</div>
+      <pre class="doc" data-render="raw" hidden>{{ right.output }}</pre>
+    </div>
     <form method="post" action="{% url 'studio:run_score' right.pk %}" style="margin-top:14px">
       {% csrf_token %}
       <label>這篇像不像 {{ a.outlet.name }}？（1 完全不像 – 5 難以分辨）</label>

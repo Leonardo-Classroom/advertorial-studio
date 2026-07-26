@@ -4,5 +4,7 @@ numpy>=1.26
 python-pptx>=1.0
 python-docx>=1.0
 PyYAML>=6.0
+# 把生成稿的 Markdown 渲染成排版檢視（生成頁／並排比較頁的切換按鈕）。
+markdown-it-py>=3.0
 # 本機向量後端（EMBED_BACKEND=local）。需要 torch；有 GPU 會自動使用。
 sentence-transformers>=5.0

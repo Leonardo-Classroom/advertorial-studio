@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load mdformat %}
 {% block content %}
 <p class="small"><a href="{% url 'studio:runs' %}">← 回生成紀錄</a></p>
 <h1>生成 #{{ run.pk }}</h1>
@@ -49,9 +50,20 @@
     {% endif %}
 
     <div class="card">
-      <h2 style="margin-top:0">初稿{% if run.is_staged %}（方案 B）{% endif %}</h2>
+      <div class="row tight" style="margin-bottom:10px">
+        <h2 style="margin:0;flex:1">初稿{% if run.is_staged %}（方案 B）{% endif %}</h2>
+        {% if run.output %}
+        <div class="toggle" style="flex:0">
+          <button type="button" class="on" data-view="md" data-target="draft-{{ run.pk }}">排版</button>
+          <button type="button" data-view="raw" data-target="draft-{{ run.pk }}">純文字</button>
+        </div>
+        {% endif %}
+      </div>
       {% if run.output %}
-        <pre class="doc">{{ run.output }}</pre>
+        <div id="draft-{{ run.pk }}">
+          <div class="md" data-render="md">{{ run.output|markdown }}</div>
+          <pre class="doc" data-render="raw" hidden>{{ run.output }}</pre>
+        </div>
       {% else %}
         <p class="muted small">尚未寫出正文。請先確認上方大綱，再按「依大綱寫出正文」。</p>
       {% endif %}
@@ -59,10 +71,19 @@
 
     {% for rev in revisions %}
     <div class="card">
-      <h2 style="margin-top:0">第 {{ rev.round }} 稿</h2>
-      <details><summary>修改意見</summary>
+      <div class="row tight" style="margin-bottom:10px">
+        <h2 style="margin:0;flex:1">第 {{ rev.round }} 稿</h2>
+        <div class="toggle" style="flex:0">
+          <button type="button" class="on" data-view="md" data-target="rev-{{ rev.pk }}">排版</button>
+          <button type="button" data-view="raw" data-target="rev-{{ rev.pk }}">純文字</button>
+        </div>
+      </div>
+      <details style="margin-bottom:10px"><summary>修改意見</summary>
         <pre class="doc" style="margin-top:8px">{{ rev.feedback }}</pre></details>
-      <pre class="doc" style="margin-top:12px">{{ rev.output }}</pre>
+      <div id="rev-{{ rev.pk }}">
+        <div class="md" data-render="md">{{ rev.output|markdown }}</div>
+        <pre class="doc" data-render="raw" hidden>{{ rev.output }}</pre>
+      </div>
     </div>
     {% endfor %}
 

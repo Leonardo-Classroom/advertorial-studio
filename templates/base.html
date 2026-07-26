@@ -19,12 +19,37 @@ body{margin:0;background:var(--bg);color:var(--ink);
 a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
 header.top{background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
 .topwrap{max-width:1180px;margin:0 auto;padding:0 20px;display:flex;align-items:center;gap:22px;height:56px}
-.brand{font-weight:700;font-size:16px;letter-spacing:.3px;color:var(--ink)}
+.brand{font-weight:700;font-size:16px;letter-spacing:.3px;color:var(--ink);white-space:nowrap}
 .brand:hover{text-decoration:none}
-nav.main{display:flex;gap:18px;flex-wrap:wrap}
-nav.main a{color:var(--muted);font-size:14px;padding:4px 0;border-bottom:2px solid transparent}
+nav.main{display:flex;gap:18px;flex-wrap:wrap;align-items:center}
+nav.main a{color:var(--muted);font-size:14px;padding:4px 0;border-bottom:2px solid transparent;
+  white-space:nowrap}
 nav.main a:hover{color:var(--ink);text-decoration:none}
 nav.main a.on{color:var(--ink);border-bottom-color:var(--accent)}
+nav.main a.navportal{margin-left:auto;font-size:13px}
+.navtoggle{display:none;background:transparent;border:1px solid var(--line);border-radius:7px;
+  color:var(--muted);font:inherit;font-size:18px;line-height:1;padding:6px 11px;cursor:pointer}
+.navtoggle:hover{color:var(--ink)}
+
+/* Seven nav items plus the brand cannot share one 56px row on a phone. Below
+   this width the bar keeps only the brand and a toggle, and the links stack
+   underneath — the row-height/flex-wrap combination it had before let them wrap
+   out of a fixed-height bar and get clipped. */
+@media (max-width:900px){
+  .topwrap{height:auto;min-height:54px;padding:0 16px;gap:12px;flex-wrap:wrap}
+  .brand{flex:1;padding:14px 0;font-size:15px}
+  .navtoggle{display:block}
+  nav.main{display:none;order:3;flex-basis:100%;flex-direction:column;gap:0;
+    align-items:stretch;padding:2px 0 10px;border-top:1px solid var(--line)}
+  nav.main.open{display:flex}
+  nav.main a{padding:11px 12px;border-bottom:none;border-left:3px solid transparent;
+    border-radius:0 6px 6px 0;font-size:15px}
+  nav.main a:hover{background:var(--bg)}
+  nav.main a.on{border-bottom-color:transparent;border-left-color:var(--accent);
+    background:var(--accent-soft)}
+  nav.main a.navportal{margin-left:0;font-size:15px;margin-top:6px;
+    border-top:1px solid var(--line);padding-top:14px}
+}
 main{max-width:1180px;margin:0 auto;padding:26px 20px 80px}
 h1{font-size:22px;margin:0 0 4px} h2{font-size:17px;margin:26px 0 10px}
 h3{font-size:15px;margin:18px 0 8px}
@@ -148,7 +173,9 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
 <body>
 <header class="top"><div class="topwrap">
   <a class="brand" href="{% url 'studio:home' %}">廣編稿生成系統<span class="pill" style="margin-left:8px">管理後台</span></a>
-  <nav class="main">
+  <button class="navtoggle" type="button" aria-controls="mainnav" aria-expanded="false"
+          aria-label="開關選單">☰</button>
+  <nav class="main" id="mainnav">
     <a href="{% url 'studio:home' %}" class="{% if section == 'home' %}on{% endif %}">總覽</a>
     <a href="{% url 'corpus:articles' %}" class="{% if section == 'corpus' %}on{% endif %}">語料庫</a>
     <a href="{% url 'corpus:guides' %}" class="{% if section == 'guides' %}on{% endif %}">風格指南</a>
@@ -156,8 +183,8 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
     <a href="{% url 'studio:runs' %}" class="{% if section == 'runs' %}on{% endif %}">生成紀錄</a>
     <a href="{% url 'studio:experiments' %}" class="{% if section == 'experiments' %}on{% endif %}">A/B 實驗</a>
     <a href="{% url 'accounts:list' %}" class="{% if section == 'users' %}on{% endif %}">使用者</a>
+    <a href="{% url 'portal:home' %}" class="navportal">← 前台</a>
   </nav>
-  <a href="{% url 'portal:home' %}" class="small muted" style="margin-left:auto">← 前台</a>
 </div></header>
 <main>
   {% if messages %}{% for m in messages %}
@@ -166,6 +193,24 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
   {% block content %}{% endblock %}
 </main>
 <script>
+// Header menu on narrow screens. The nav is present in the DOM either way, so
+// widening the window past the breakpoint reveals it without needing a reset.
+document.addEventListener('click', function (e) {
+  const toggle = e.target.closest('.navtoggle');
+  const nav = document.getElementById('mainnav');
+  if (!nav) return;
+  if (toggle) {
+    const open = nav.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    return;
+  }
+  // Tapping anywhere else, including a link, closes it.
+  if (nav.classList.contains('open') && !e.target.closest('#mainnav')) {
+    nav.classList.remove('open');
+    document.querySelector('.navtoggle')?.setAttribute('aria-expanded', 'false');
+  }
+});
+
 // Markdown / plain-text toggle for generated drafts. Both versions are already
 // in the DOM, so switching is instant and needs no request.
 document.addEventListener('click', function (e) {

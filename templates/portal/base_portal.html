@@ -19,12 +19,40 @@ body{margin:0;background:var(--bg);color:var(--ink);
 a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
 header.top{background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
 .topwrap{max-width:960px;margin:0 auto;padding:0 20px;display:flex;align-items:center;gap:22px;height:58px}
-.brand{font-weight:700;font-size:16px;color:var(--ink)} .brand:hover{text-decoration:none}
+.brand{font-weight:700;font-size:16px;color:var(--ink);white-space:nowrap}
+.brand:hover{text-decoration:none}
+.navpanel{display:flex;flex:1;align-items:center;gap:22px;min-width:0}
 nav.main{display:flex;gap:18px;flex:1}
-nav.main a{color:var(--muted);font-size:14px;padding:4px 0;border-bottom:2px solid transparent}
+nav.main a{color:var(--muted);font-size:14px;padding:4px 0;border-bottom:2px solid transparent;
+  white-space:nowrap}
 nav.main a:hover{color:var(--ink);text-decoration:none}
 nav.main a.on{color:var(--ink);border-bottom-color:var(--accent)}
-.who{color:var(--muted);font-size:13px;display:flex;gap:12px;align-items:center}
+.who{color:var(--muted);font-size:13px;display:flex;gap:12px;align-items:center;white-space:nowrap}
+.navtoggle{display:none;background:transparent;border:1px solid var(--line);border-radius:7px;
+  color:var(--muted);font:inherit;font-size:18px;line-height:1;padding:6px 11px;cursor:pointer}
+.navtoggle:hover{color:var(--ink)}
+
+/* The bar carries the brand, two nav links and four account items — that is
+   more than a phone row holds, and the fixed 58px height would clip whatever
+   wrapped. Below this width only the brand and a toggle stay on the bar; nav
+   and account items stack underneath. */
+@media (max-width:760px){
+  .topwrap{height:auto;min-height:56px;padding:0 16px;gap:12px;flex-wrap:wrap}
+  .brand{flex:1;padding:15px 0;font-size:15px}
+  .navtoggle{display:block}
+  .navpanel{display:none;order:3;flex-basis:100%;flex-direction:column;align-items:stretch;
+    gap:0;padding:2px 0 12px;border-top:1px solid var(--line)}
+  .navpanel.open{display:flex}
+  nav.main{flex-direction:column;gap:0;flex:none}
+  nav.main a{padding:11px 12px;border-bottom:none;border-left:3px solid transparent;
+    border-radius:0 6px 6px 0;font-size:15px}
+  nav.main a:hover{background:var(--bg)}
+  nav.main a.on{border-bottom-color:transparent;border-left-color:var(--accent);
+    background:var(--accent-soft)}
+  .who{flex-wrap:wrap;gap:14px;align-items:center;font-size:14px;
+    margin-top:8px;padding:14px 12px 0;border-top:1px solid var(--line)}
+  .who>span{flex-basis:100%;color:var(--ink);font-weight:600}
+}
 main{max-width:960px;margin:0 auto;padding:28px 20px 80px}
 h1{font-size:23px;margin:0 0 6px} h2{font-size:17px;margin:24px 0 10px}
 .sub{color:var(--muted);font-size:14px;margin:0 0 22px}
@@ -153,6 +181,9 @@ pre.doc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padd
 {% if user.is_authenticated %}
 <header class="top"><div class="topwrap">
   <a class="brand" href="{% url 'portal:home' %}">廣編稿產生器</a>
+  <button class="navtoggle" type="button" aria-controls="mainnav" aria-expanded="false"
+          aria-label="開關選單">☰</button>
+  <div class="navpanel" id="mainnav">
   <nav class="main">
     <a href="{% url 'portal:home' %}" class="{% if nav == 'home' %}on{% endif %}">我的稿件</a>
     <a href="{% url 'portal:upload' %}" class="{% if nav == 'upload' %}on{% endif %}">上傳簡報</a>
@@ -165,6 +196,7 @@ pre.doc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padd
       {% csrf_token %}<button class="btn sm ghost" type="submit">登出</button>
     </form>
   </div>
+  </div>
 </div></header>
 {% endif %}
 <main>
@@ -174,6 +206,25 @@ pre.doc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padd
   {% block content %}{% endblock %}
 </main>
 <script>
+// Header menu on narrow screens. Nav and account items live in the DOM either
+// way, so widening past the breakpoint restores the bar without a reload.
+document.addEventListener('click', function (e) {
+  const toggle = e.target.closest('.navtoggle');
+  const nav = document.getElementById('mainnav');
+  if (!nav) return;
+  if (toggle) {
+    const open = nav.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    return;
+  }
+  // Anything else closes it — but not a click inside the panel, or the logout
+  // form would be dismissed before it submits.
+  if (nav.classList.contains('open') && !e.target.closest('#mainnav')) {
+    nav.classList.remove('open');
+    document.querySelector('.navtoggle')?.setAttribute('aria-expanded', 'false');
+  }
+});
+
 document.addEventListener('click', function (e) {
   const btn = e.target.closest('.toggle button[data-view]');
   if (!btn) return;

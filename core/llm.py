@@ -50,6 +50,7 @@ def complete(
     model: str | None = None,
     timeout: float | None = None,
     temperature: float | None = None,
+    max_output_tokens: int | None = None,
 ) -> str:
     """Single-shot completion.
 
@@ -66,8 +67,50 @@ def complete(
     }
     if settings.LLM_SEND_TEMPERATURE:
         kwargs["temperature"] = settings.LLM_TEMPERATURE if temperature is None else temperature
+    if max_output_tokens:
+        kwargs["max_output_tokens"] = max_output_tokens
     response = client.responses.create(**kwargs)
     return _extract_text(response)
+
+
+def _repair_truncated_json(text: str) -> str | None:
+    """Close a JSON document that was cut off mid-write.
+
+    A larger style-guide sample makes the model write a longer analysis, and
+    when that runs past the output cap the JSON simply stops — no error, just
+    an unterminated document. Parsing then fails and the caller silently falls
+    back to raw text, which is how a bigger sample quietly produced a *worse*
+    guide. Salvaging the complete fields is far better than discarding them.
+    """
+    text = text.strip()
+    if not text.startswith("{"):
+        return None
+
+    # Drop whatever trailed after the last complete "key": value pair.
+    cut = max(text.rfind('",\n'), text.rfind('"\n'), text.rfind("],\n"),
+              text.rfind("]\n"), text.rfind("},\n"), text.rfind("}\n"))
+    if cut == -1:
+        return None
+    head = text[:cut + 1]
+
+    # Balance the brackets that are still open, ignoring those inside strings.
+    stack, in_string, escaped = [], False, False
+    for ch in head:
+        if escaped:
+            escaped = False
+            continue
+        if ch == "\\":
+            escaped = True
+        elif ch == '"':
+            in_string = not in_string
+        elif not in_string:
+            if ch in "{[":
+                stack.append(ch)
+            elif ch in "}]" and stack:
+                stack.pop()
+    if in_string:
+        return None
+    return head + "".join("}" if c == "{" else "]" for c in reversed(stack))
 
 
 def _strip_fences(text: str) -> str:
@@ -96,13 +139,27 @@ def complete_json(
     try:
         data = json.loads(cleaned)
     except json.JSONDecodeError:
+        data = None
+
+    if data is None:
         # Fall back to the outermost {...} span.
         start, end = cleaned.find("{"), cleaned.rfind("}")
         if start != -1 and end > start:
             try:
                 data = json.loads(cleaned[start:end + 1])
             except json.JSONDecodeError:
-                return {"_raw": raw}
-        else:
-            return {"_raw": raw}
-    return data if isinstance(data, dict) else {"_raw": raw}
+                data = None
+
+    if data is None:
+        repaired = _repair_truncated_json(cleaned)
+        if repaired:
+            try:
+                data = json.loads(repaired)
+                if isinstance(data, dict):
+                    data["_truncated"] = True
+            except json.JSONDecodeError:
+                data = None
+
+    if not isinstance(data, dict) or not data:
+        return {"_raw": raw}
+    return data

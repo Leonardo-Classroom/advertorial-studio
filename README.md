@@ -58,6 +58,8 @@ python manage.py build_index --outlet GQ --limit-per-author 300
 python manage.py extract_style_guide --outlet COOL-STYLE
 python manage.py extract_style_guide --outlet GQ
 python manage.py extract_style_guide --outlet COOL-STYLE --all-authors --min-articles 1000
+# 預設取樣 24 篇、純隨機。實測把樣本加大到 40 篇、或改用分層抽樣，
+# 產出的稿件反而更偏離該媒體的文體特徵（見《系統報告書.md》七之六）。
 
 # 4. 啟動
 python manage.py runserver          # 預設埠 5860，可改 .env 的 RUNSERVER_PORT

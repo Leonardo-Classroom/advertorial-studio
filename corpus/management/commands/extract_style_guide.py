@@ -25,7 +25,12 @@ class Command(BaseCommand):
         parser.add_argument("--min-articles", type=int, default=500,
                             help="--all-authors 時的樣本數門檻（預設 500）")
         parser.add_argument("--sample-size", type=int, default=24,
-                            help="送進模型分析的文章篇數")
+                            help="送進模型分析的文章篇數（預設 24；實測提高到 40 反而更差）")
+        parser.add_argument("--sampling", choices=["uniform", "stratified"],
+                            default="uniform",
+                            help="抽樣方式。uniform（預設）純隨機；"
+                                 "stratified 跨年份與長度分層並保留 15%% 名額給欄目格式——"
+                                 "語料涵蓋較好，但實測產出的稿件反而更偏離該媒體的文體特徵")
 
     def handle(self, *args, **opts):
         try:
@@ -61,7 +66,8 @@ class Command(BaseCommand):
             self.stdout.write(f"分析中：{scope} …")
             try:
                 guide = styleguide.induce(
-                    outlet=outlet, author=author, sample_size=opts["sample_size"]
+                    outlet=outlet, author=author, sample_size=opts["sample_size"],
+                    sampling=opts["sampling"],
                 )
             except Exception as exc:  # noqa: BLE001 - report and continue to next author
                 self.stderr.write(self.style.ERROR(f"  失敗：{exc}"))
@@ -74,6 +80,17 @@ class Command(BaseCommand):
                         f"  ⚠ 此作者僅 {author.article_count} 篇，風格信心度低，"
                         "建議改用全站指南或高產作者。"
                     ))
+            sec = guide.sections or {}
+            if sec.get("unparsed"):
+                self.stdout.write(self.style.ERROR(
+                    "  ⚠ 模型輸出無法解析，指南只存了原始文字。請調低 --sample-size 重試。"
+                ))
+            elif sec.get("truncated"):
+                self.stdout.write(self.style.WARNING(
+                    "  ⚠ 模型輸出被長度上限截斷，已修復殘缺 JSON，但末尾欄位可能不完整。"
+                    "若要完整版請調低 --sample-size。"
+                ))
             self.stdout.write(self.style.SUCCESS(
-                f"  完成 → StyleGuide #{guide.pk}（取樣 {guide.sample_size} 篇）"
+                f"  完成 → StyleGuide #{guide.pk}"
+                f"（取樣 {guide.sample_size} 篇 / {sec.get('sampling', '?')}）"
             ))

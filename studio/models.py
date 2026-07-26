@@ -45,6 +45,9 @@ class GenerationRun(models.Model):
     STATUS = [
         ("pending", "待執行"),
         ("running", "生成中"),
+        # Distinct from "running" so the list does not claim a run is finished
+        # while the auto-rewrite loop is still changing what it will hand over.
+        ("refining", "自動重寫中"),
         ("done", "完成"),
         ("failed", "失敗"),
     ]
@@ -106,7 +109,16 @@ class GenerationRun(models.Model):
 
     @property
     def iteration_count(self) -> int:
-        return 1 + self.revisions.filter(source="auto").count()
+        """Drafts that actually count — rejected rewrites are attempts, not drafts.
+
+        Counting rejections here overstated how much work n bought: a run whose
+        only rewrite was thrown away looked like it produced two drafts.
+        """
+        return 1 + self.revisions.filter(source="auto", accepted=True).count()
+
+    @property
+    def rewrite_attempts(self) -> int:
+        return self.revisions.filter(source="auto").count()
 
     @property
     def is_staged(self) -> bool:

@@ -84,6 +84,11 @@ def _maybe_refine(run: GenerationRun, auto_refine: bool) -> None:
     # elapsed_ms was stamped before this point; rewriting is part of what n
     # costs, so fold it in rather than reporting a time that excludes it.
     refine_started = time.time()
+    # Status stays out of "done" until the loop settles: a run that still has
+    # rewrites pending has not decided what it delivers yet, and reading it as
+    # finished produces numbers that change under you.
+    run.status = "refining"
+    run.save(update_fields=["status"])
 
     run.stages = (run.stages or []) + [{
         "name": "refine", "label": "⑥ 依評審意見自動重寫",
@@ -98,7 +103,8 @@ def _maybe_refine(run: GenerationRun, auto_refine: bool) -> None:
     )
     run.stages[-1]["elapsed_ms"] = int((time.time() - refine_started) * 1000)
     run.elapsed_ms += run.stages[-1]["elapsed_ms"]
-    run.save(update_fields=["stages", "elapsed_ms"])
+    run.status = "done"
+    run.save(update_fields=["stages", "elapsed_ms", "status"])
 
 
 def run_revision(run: GenerationRun, feedback: str) -> Revision:

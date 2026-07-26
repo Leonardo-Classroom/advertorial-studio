@@ -194,9 +194,27 @@ def experiment_detail(request, pk):
                                                       row["retrieval_strategy"])
         rows.append(row)
 
+    # Pairwise tally. Ties and order-inconsistent verdicts are kept visible
+    # rather than folded away: if most pairs are ties, that is the finding.
+    comparisons = experiment.comparisons.select_related("run_a", "run_b").all()
+    tally: dict[str, int] = {}
+    ties = inconsistent = 0
+    for c in comparisons:
+        if not c.position_consistent or c.winner == "tie":
+            ties += 1
+            inconsistent += 0 if c.position_consistent else 1
+            continue
+        winner_run = c.run_a if c.winner == "a" else c.run_b
+        tally[winner_run.retrieval_strategy] = tally.get(winner_run.retrieval_strategy, 0) + 1
+
     return render(request, "studio/experiment_detail.html", {
         "section": "experiments",
         "experiment": experiment,
         "runs": runs_qs,
         "rows": rows,
+        "comparisons": comparisons,
+        "pairwise_tally": sorted(tally.items(), key=lambda kv: -kv[1]),
+        "pairwise_total": len(comparisons),
+        "pairwise_ties": ties,
+        "pairwise_inconsistent": inconsistent,
     })

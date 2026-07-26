@@ -15,6 +15,37 @@ FACT_SCHEMA_HINT = {
 }
 
 
+def mandatory_fact_values(facts: dict) -> list[str]:
+    """The facts that must appear verbatim in a draft.
+
+    Shared by the generator, the reviser and the evaluator on purpose: when the
+    prompt and the metric disagree about what counts as mandatory, a revision
+    can quietly drop required facts and still look like it followed orders.
+    That is exactly what happened on the first real revision run — the editor
+    feedback said "消化不確定資訊" and the model removed every KOL name, which
+    the coverage check caught only after the fact.
+
+    Prose fields (campaign_context and friends) are excluded: they are meant to
+    be reworded, so absence there is not an error.
+    """
+    out: list[str] = []
+    for key in ("brand", "slogan"):
+        value = facts.get(key)
+        if isinstance(value, str) and value.strip():
+            out.append(value.strip())
+    for key in ("product", "kol", "mandatory_terms"):
+        value = facts.get(key)
+        if isinstance(value, list):
+            out.extend(str(v).strip() for v in value if str(v).strip())
+    # Preserve order while removing duplicates.
+    seen, unique = set(), []
+    for v in out:
+        if v not in seen:
+            seen.add(v)
+            unique.append(v)
+    return unique
+
+
 class Brief(models.Model):
     """An uploaded Media Brief / Proposal deck and the facts extracted from it.
 

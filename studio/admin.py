@@ -1,6 +1,8 @@
 from django.contrib import admin
 
-from studio.models import Evaluation, Experiment, GenerationRun, Revision
+from studio.models import (
+    Evaluation, Experiment, GenerationRun, PairwiseComparison, Revision,
+)
 
 
 class RevisionInline(admin.TabularInline):
@@ -25,6 +27,12 @@ class GenerationRunAdmin(admin.ModelAdmin):
 @admin.register(Experiment)
 class ExperimentAdmin(admin.ModelAdmin):
     list_display = ("name", "created_at")
+
+
+@admin.register(PairwiseComparison)
+class PairwiseComparisonAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "winner", "position_consistent", "created_at")
+    list_filter = ("winner", "position_consistent", "experiment")
 
 
 @admin.register(Evaluation)

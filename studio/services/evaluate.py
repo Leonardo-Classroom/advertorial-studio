@@ -53,6 +53,96 @@ JUDGE_TASK = """請依據下方風格指南，為這篇廣編稿評分。
 }}"""
 
 
+PAIRWISE_INSTRUCTIONS = """你是嚴格的文體評審。你會看到兩篇廣編稿，要判斷「哪一篇比較像目標媒體寫的」。
+只比較文體與執行品質，不評品牌決策，也不因為篇幅較長就給較高評價。
+你必須做出選擇；只有在真的分不出高下時才判平手。
+全程使用繁體中文。只輸出 JSON，不要有其他文字或 ``` 標記。"""
+
+PAIRWISE_TASK = """依據下方風格指南，判斷 A、B 兩篇稿件哪一篇比較像該媒體的手筆。
+
+【風格指南】
+{guide}
+
+【稿件 A】
+{a}
+
+【稿件 B】
+{b}
+
+輸出 JSON：
+{{
+  "title": "A" 或 "B" 或 "tie",
+  "tone": "A" 或 "B" 或 "tie",
+  "rhythm": "A" 或 "B" 或 "tie",
+  "diction": "A" 或 "B" 或 "tie",
+  "completeness": "A" 或 "B" 或 "tie",
+  "reads_as_human": "A" 或 "B" 或 "tie",
+  "overall": "A" 或 "B" 或 "tie",
+  "reason": "說明你判斷 overall 的關鍵理由，2-4 句，要指出具體的文字證據"
+}}"""
+
+_FLIP = {"A": "B", "B": "A", "tie": "tie"}
+
+
+def pairwise_judge(run_a, run_b, guide_text: str, max_chars: int = 7000,
+                   use_latest: bool = False) -> dict:
+    """Judge two drafts head to head, twice, with the order swapped.
+
+    Returning the same *position* both times means the model is anchoring on
+    order rather than quality, so the result is downgraded to a tie. Only a
+    verdict that survives the swap is treated as a real preference.
+
+    `use_latest=False` compares the *first* drafts. This matters: comparing
+    `latest_text` silently pits a revised draft against an unrevised one, which
+    is what invalidated the first comparison run here — every apparent win
+    belonged to a run that happened to have been revised earlier, not to its
+    retrieval strategy. For A/B-ing strategies, only the untouched first draft
+    is attributable to the strategy.
+    """
+    pick = (lambda r: r.latest_text) if use_latest else (lambda r: r.output)
+    text_a, text_b = pick(run_a)[:max_chars], pick(run_b)[:max_chars]
+    guide = guide_text[:6000]
+
+    first = llm.complete_json(
+        instructions=PAIRWISE_INSTRUCTIONS,
+        user_input=PAIRWISE_TASK.format(guide=guide, a=text_a, b=text_b),
+        timeout=300,
+    )
+    # Swapped run: what the judge called "A" is now run_b.
+    second_raw = llm.complete_json(
+        instructions=PAIRWISE_INSTRUCTIONS,
+        user_input=PAIRWISE_TASK.format(guide=guide, a=text_b, b=text_a),
+        timeout=300,
+    )
+    second = {k: (_FLIP.get(v, v) if isinstance(v, str) and v in _FLIP else v)
+              for k, v in second_raw.items()}
+
+    dims = ("title", "tone", "rhythm", "diction", "completeness", "reads_as_human")
+    dimension_winners = {}
+    for d in dims:
+        one, two = first.get(d), second.get(d)
+        dimension_winners[d] = one if one == two else "tie"
+
+    overall_one, overall_two = first.get("overall"), second.get("overall")
+    consistent = overall_one == overall_two and overall_one in {"A", "B", "tie"}
+    if consistent and overall_one in {"A", "B"}:
+        winner = overall_one.lower()
+    else:
+        winner = "tie"
+
+    reason = str(first.get("reason", ""))
+    if not consistent:
+        reason = ("（兩種順序判斷不一致，視為平手——模型可能只是偏好排在前面的稿件）\n"
+                  f"順序一：{overall_one}／順序二：{overall_two}\n{reason}")
+
+    return {
+        "winner": winner,
+        "position_consistent": bool(consistent),
+        "dimension_winners": dimension_winners,
+        "reasoning": reason,
+    }
+
+
 def _shingles(text: str, n: int = SHINGLE) -> set[str]:
     clean = re.sub(r"\s+", "", text)
     return {clean[i:i + n] for i in range(len(clean) - n + 1)} if len(clean) >= n else set()
@@ -79,16 +169,9 @@ def check_facts(draft: str, facts: dict) -> dict:
     KOL names, mandatory terms) — prose fields like campaign_context are meant
     to be reworded, so absence there is not an error.
     """
-    checkable: list[str] = []
-    for key in ("brand", "slogan"):
-        value = facts.get(key)
-        if isinstance(value, str) and value.strip():
-            checkable.append(value.strip())
-    for key in ("product", "kol", "mandatory_terms"):
-        value = facts.get(key)
-        if isinstance(value, list):
-            checkable.extend(str(v).strip() for v in value if str(v).strip())
+    from briefs.models import mandatory_fact_values
 
+    checkable = mandatory_fact_values(facts)
     normalised = re.sub(r"\s+", "", draft).lower()
     present = [t for t in checkable if re.sub(r"\s+", "", t).lower() in normalised]
     missing = [t for t in checkable if t not in present]

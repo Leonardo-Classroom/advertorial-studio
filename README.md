@@ -60,13 +60,29 @@ python manage.py extract_style_guide --outlet GQ
 python manage.py extract_style_guide --outlet COOL-STYLE --all-authors --min-articles 1000
 
 # 4. 啟動
-python manage.py runserver
+python manage.py runserver          # 預設埠 5860，可改 .env 的 RUNSERVER_PORT
 ```
 
-開 <http://127.0.0.1:8000/>。管理後台 `/admin/`（需 `createsuperuser`）。
+開 <http://127.0.0.1:5860/>。管理後台 `/admin/`（需 `createsuperuser`）。
 
 各指令都可加 `--help` 看完整參數。`ingest_corpus` 與 `build_index` 都是**可重複執行**的
 （依內容雜湊／既有向量跳過已處理的部分），中斷後直接再跑一次即可續做。
+
+### 實驗與評審
+
+```bash
+# A/B 實驗：同一份簡報、同一份指南，只改檢索策略，各跑 N 次並自動評估
+python manage.py run_experiment --brief 1 --outlet COOL-STYLE \
+    --guide 1 --strategies topical random --repeats 3
+
+# 兩兩對比評審：絕對評分分不出差異時改用這個。
+# 預設比較「初稿」；--use-latest 會拿修訂過的稿件參賽，
+# 比較檢索策略時千萬不要開，否則贏的是修訂而不是策略。
+python manage.py compare_drafts --experiment 1
+```
+
+對比評審每組會判斷兩次並調換 A/B 位置。調換後結論翻轉代表模型只是偏好排在前面的稿件，
+一律計為平手——沒有這道控制，很容易把位置偏誤讀成真實差異。
 
 ---
 
@@ -146,6 +162,9 @@ var/index/       向量矩陣（.npy）
 ## 目前狀態與後續
 
 - 已完成：方案 A 的完整端到端流程 + 操作介面 + A/B 實驗與評估架構。
+  46,153 篇語料、46,153 筆向量、10 份風格指南、11 篇生成稿、修訂迴圈已實證。
+- **待你處理**：三種自動評審都分不出 topical 與 random 的差異，需要人工評分當裁判。
+  詳見《系統報告書.md》第十一節。
 - 未做（依計畫刻意不做）：方案 B 多階段管線、方案 C 風格嵌入校正、方案 D 偏好微調。
   其中方案 D 需要的「修改前／修改後」配對資料，已經由本系統的修訂功能自然累積，
   日後要啟動時不需另外收集。

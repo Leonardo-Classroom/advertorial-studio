@@ -27,6 +27,47 @@
 </div>
 
 <div class="card">
+  <h2 style="margin-top:0">兩兩對比評審</h2>
+  <p class="small muted">絕對評分（上表「LLM 評審均分」）在這批稿件上分不出差異，
+    所以改問「這兩篇哪一篇比較像」。每組都判斷兩次並調換順序；
+    調換後結論翻轉代表模型只是偏好排在前面的稿件，一律計為平手。<br>
+    比較的是<strong>初稿</strong>——修訂過的稿件會贏在修訂而非檢索策略。</p>
+
+  {% if pairwise_total %}
+    <div class="grid g3" style="margin:14px 0">
+      {% for strategy, n in pairwise_tally %}
+        <div class="stat"><div class="n">{{ n }}</div><div class="l">{{ strategy }} 勝場</div></div>
+      {% endfor %}
+      <div class="stat"><div class="n">{{ pairwise_ties }}</div><div class="l">平手／不一致</div></div>
+    </div>
+    <p class="small {% if pairwise_inconsistent %}muted{% endif %}">
+      共 {{ pairwise_total }} 組配對，其中 {{ pairwise_inconsistent }} 組調換順序後判斷翻轉。
+      翻轉比例高代表這批判斷可信度低。
+    </p>
+    <details><summary>逐組明細</summary>
+      <table style="margin-top:8px">
+        <tr><th>配對</th><th>勝方</th><th>順序一致</th><th>理由</th></tr>
+        {% for c in comparisons %}
+        <tr>
+          <td class="small"><a href="{% url 'studio:run_detail' c.run_a.pk %}">#{{ c.run_a.pk }}</a>
+            ({{ c.run_a.retrieval_strategy }}) vs
+            <a href="{% url 'studio:run_detail' c.run_b.pk %}">#{{ c.run_b.pk }}</a>
+            ({{ c.run_b.retrieval_strategy }})</td>
+          <td class="small">{{ c.get_winner_display }}</td>
+          <td>{% if c.position_consistent %}<span class="pill good">是</span>
+            {% else %}<span class="pill warn">否</span>{% endif %}</td>
+          <td class="small">{{ c.reasoning|truncatechars:160 }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </details>
+  {% else %}
+    <p class="small muted">尚未執行。指令：
+      <code class="mono">python manage.py compare_drafts --experiment {{ experiment.pk }}</code></p>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2 style="margin-top:0">個別生成</h2>
   <div class="scroll"><table>
     <tr><th>#</th><th>策略</th><th>目標風格</th><th>風格相似度</th><th>人工分</th><th>狀態</th></tr>

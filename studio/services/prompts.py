@@ -96,6 +96,11 @@ REVISION_ROLE = """你是資深廣編稿寫手，正在依據客戶／編輯的�
 
 
 def build_revision_input(previous_text: str, feedback: str, facts: dict) -> str:
+    from briefs.models import mandatory_fact_values
+
+    must_keep = mandatory_fact_values(facts)
+    keep_block = "、".join(must_keep) if must_keep else "（無）"
+
     return f"""以下是上一版稿件，以及編輯的修改意見。請產出修訂後的完整稿件。
 
 【修改意見】
@@ -110,4 +115,9 @@ def build_revision_input(previous_text: str, feedback: str, facts: dict) -> str:
 【要求】
 - 只針對修改意見調整，其餘保持原樣，不要順手改寫沒被點名的段落。
 - 維持原本的格式結構（FB貼文文案／文章標題／內文／Hashtag／待確認）。
+- **以下項目必須全部保留在稿件中，一個都不能刪**：
+  {keep_block}
+  即使修改意見要求「刪除不確定資訊」「精簡內容」，也只能調整它們的寫法或措辭，
+  不可以整個拿掉。若某項確實不宜寫死，改用較保守的講法（例如「合作陣容規劃中，
+  包含 XXX」），但名稱本身仍要出現。
 - 輸出完整的修訂稿，不要只寫改動的部分，也不要附上說明。"""

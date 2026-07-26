@@ -107,6 +107,44 @@ class Revision(models.Model):
         return prior.output if prior else self.run.output
 
 
+class PairwiseComparison(models.Model):
+    """Head-to-head judgement between two drafts.
+
+    Absolute 1–5 scoring turned out to be useless here: across six drafts the
+    judge returned title_fit=4 and tone_fit=3 every single time, so the metric
+    could not separate arms it was built to separate. Asking "which of these
+    two is more like the outlet" is a much easier question for a model to
+    answer consistently than "how like the outlet is this one, on a scale".
+
+    Every pair is judged twice with the drafts swapped. A model that names the
+    first draft both times is showing position bias, not a preference, so that
+    case is recorded as a tie rather than a win.
+    """
+
+    VERDICTS = [("a", "A 較佳"), ("b", "B 較佳"), ("tie", "平手／不一致")]
+
+    experiment = models.ForeignKey(Experiment, on_delete=models.CASCADE,
+                                   null=True, blank=True, related_name="comparisons")
+    run_a = models.ForeignKey(GenerationRun, on_delete=models.CASCADE, related_name="comparisons_as_a")
+    run_b = models.ForeignKey(GenerationRun, on_delete=models.CASCADE, related_name="comparisons_as_b")
+    winner = models.CharField(max_length=4, choices=VERDICTS, default="tie")
+    position_consistent = models.BooleanField(
+        "兩種順序判斷一致", default=False,
+        help_text="False 代表模型只是偏好排在前面的稿件，該結果不可採信。",
+    )
+    dimension_winners = models.JSONField("各維度勝方", default=dict, blank=True)
+    reasoning = models.TextField("評審理由", blank=True)
+    model = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = verbose_name_plural = "兩兩對比評審"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"#{self.run_a_id} vs #{self.run_b_id} → {self.get_winner_display()}"
+
+
 class Evaluation(models.Model):
     """Metric-ensemble scoring for one draft.
 

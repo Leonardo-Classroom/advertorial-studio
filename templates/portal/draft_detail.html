@@ -1,0 +1,79 @@
+{% extends "portal/base_portal.html" %}
+{% load mdformat %}
+{% block content %}
+<p class="small"><a href="{% url 'portal:brief_detail' run.brief.pk %}">← 回 {{ run.brief.title|truncatechars:30 }}</a></p>
+<div class="row tight" style="margin-bottom:6px">
+  <h1 style="flex:1;margin:0">廣編稿</h1>
+  {% if run.output %}<a class="btn ghost" href="{% url 'portal:draft_download' run.pk %}">下載 .md</a>{% endif %}
+</div>
+<p class="sub">{{ run.brief.title }} · 模仿 {{ run.outlet.name }}{% if run.author %} / {{ run.author.name }}{% endif %}
+  · {{ run.created_at|date:"Y-m-d H:i" }}</p>
+
+{% if run.status == 'failed' %}
+  <div class="msg error"><strong>產稿失敗：</strong>{{ run.error }}</div>
+{% endif %}
+
+{% if run.outline and not run.output %}
+<div class="card">
+  <h2 style="margin-top:0">先確認大綱</h2>
+  <p class="small muted">這是文章的骨架。方向對了再往下寫；要調整就直接改，改完按下面的按鈕。</p>
+  <form method="post" action="{% url 'portal:draft_outline' run.pk %}">
+    {% csrf_token %}
+    <textarea name="outline" style="min-height:400px" class="mono">{{ run.outline }}</textarea>
+    <div class="row tight" style="margin-top:12px">
+      <button class="btn ghost">只儲存</button>
+      <button class="btn" name="action" value="generate">依大綱寫出正文</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+{% if run.output %}
+<div class="card">
+  <div class="row tight" style="margin-bottom:10px">
+    <h2 style="margin:0;flex:1">初稿</h2>
+    <div class="toggle">
+      <button type="button" class="on" data-view="md" data-target="d{{ run.pk }}">排版</button>
+      <button type="button" data-view="raw" data-target="d{{ run.pk }}">純文字</button>
+    </div>
+  </div>
+  <div id="d{{ run.pk }}">
+    <div class="md" data-render="md">{{ run.output|markdown }}</div>
+    <pre class="doc" data-render="raw" hidden>{{ run.output }}</pre>
+  </div>
+</div>
+
+{% for rev in revisions %}
+<div class="card">
+  <div class="row tight" style="margin-bottom:10px">
+    <h2 style="margin:0;flex:1">第 {{ rev.round }} 稿
+      {% if rev.source == 'auto' %}<span class="pill">系統自動潤稿</span>{% endif %}</h2>
+    <div class="toggle">
+      <button type="button" class="on" data-view="md" data-target="r{{ rev.pk }}">排版</button>
+      <button type="button" data-view="raw" data-target="r{{ rev.pk }}">純文字</button>
+    </div>
+  </div>
+  {% if rev.source == 'human' %}
+    <details style="margin-bottom:10px"><summary>你提出的修改意見</summary>
+      <pre class="doc" style="margin-top:8px">{{ rev.feedback }}</pre></details>
+  {% endif %}
+  <div id="r{{ rev.pk }}">
+    <div class="md" data-render="md">{{ rev.output|markdown }}</div>
+    <pre class="doc" data-render="raw" hidden>{{ rev.output }}</pre>
+  </div>
+</div>
+{% endfor %}
+
+<div class="card">
+  <h2 style="margin-top:0">要改哪裡？</h2>
+  <p class="small muted">寫下想調整的地方，系統會依你的意見重寫一版。原本的稿件會保留。</p>
+  <form method="post" action="{% url 'portal:draft_revise' run.pk %}">
+    {% csrf_token %}
+    <textarea name="feedback" placeholder="例如：第二段太像官方新聞稿，改得更口語一點；標題想強調價格。"></textarea>
+    <button class="btn" style="margin-top:10px">依意見重寫</button>
+  </form>
+</div>
+{% elif not run.outline %}
+<div class="card"><div class="empty">還沒有內容。</div></div>
+{% endif %}
+{% endblock %}

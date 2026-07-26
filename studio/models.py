@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 from briefs.models import Brief
@@ -52,6 +53,9 @@ class GenerationRun(models.Model):
         ("failed", "失敗"),
     ]
 
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                              null=True, blank=True, related_name="runs",
+                              verbose_name="建立者")
     brief = models.ForeignKey(Brief, on_delete=models.CASCADE, related_name="runs")
     outlet = models.ForeignKey(Outlet, on_delete=models.PROTECT, related_name="runs")
     author = models.ForeignKey(Author, on_delete=models.SET_NULL, null=True, blank=True,

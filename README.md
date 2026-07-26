@@ -65,7 +65,27 @@ python manage.py extract_style_guide --outlet COOL-STYLE --all-authors --min-art
 python manage.py runserver          # 預設埠 5860，可改 .env 的 RUNSERVER_PORT
 ```
 
-開 <http://127.0.0.1:5860/>。管理後台 `/admin/`（需 `createsuperuser`）。
+開 <http://127.0.0.1:5860/>。
+
+### 兩個介面
+
+| 位置 | 對象 | 內容 |
+|---|---|---|
+| `/` **前台** | 一般使用者 | 登入 → 上傳簡報 → 核對內容 → 選風格 → 產稿 → 修訂 → 下載 |
+| `/manage/` **管理後台** | 管理者（`is_staff`） | 語料庫、風格指南、簡報、生成紀錄、A/B 實驗、使用者管理 |
+| `/django-admin/` | 超級管理者 | Django 原生後台，備用 |
+
+前台刻意不提供檢索策略、生成方式、重寫次數這些選項——那些是實驗才需要調的參數，
+已固定為實驗結論的最佳值（方案 B、typical 檢索、重寫 1 次）。
+前台使用者只看得到自己上傳的簡報與產出的稿件。
+
+首次使用先建立管理者帳號：
+
+```bash
+python manage.py createsuperuser
+```
+
+之後在 `/manage/users/` 新增其他使用者，不必再用指令。
 
 各指令都可加 `--help` 看完整參數。`ingest_corpus` 與 `build_index` 都是**可重複執行**的
 （依內容雜湊／既有向量跳過已處理的部分），中斷後直接再跑一次即可續做。

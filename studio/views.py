@@ -6,6 +6,7 @@ from django.db.models import Avg, Count
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 
+from accounts.decorators import staff_required
 from briefs.models import Brief
 from corpus.models import Article, Author, EmbeddingIndex, Outlet, StyleGuide
 from studio.models import (
@@ -15,6 +16,7 @@ from studio.services import evaluate as evaluate_service
 from studio.services import generate as generate_service
 
 
+@staff_required
 def home(request):
     outlets = Outlet.objects.annotate(n=Count("articles")).order_by("-n")
     index = EmbeddingIndex.objects.filter(name="articles").first()
@@ -38,6 +40,7 @@ def home(request):
     })
 
 
+@staff_required
 def runs(request):
     qs = GenerationRun.objects.select_related("brief", "outlet", "author", "experiment")
     return render(request, "studio/runs.html", {
@@ -46,6 +49,7 @@ def runs(request):
     })
 
 
+@staff_required
 def run_new(request):
     briefs = Brief.objects.all()
     outlets = Outlet.objects.filter(is_target=True) or Outlet.objects.all()
@@ -61,6 +65,7 @@ def run_new(request):
         pause = mode == "staged" and request.POST.get("pause_at_outline") == "on"
 
         run = GenerationRun.objects.create(
+            owner=request.user,
             brief=brief,
             outlet=outlet,
             author_id=author_id or None,
@@ -98,6 +103,7 @@ def run_new(request):
     })
 
 
+@staff_required
 def run_detail(request, pk):
     run = get_object_or_404(
         GenerationRun.objects.select_related("brief", "outlet", "author", "style_guide"), pk=pk
@@ -114,6 +120,7 @@ def run_detail(request, pk):
     })
 
 
+@staff_required
 def run_outline(request, pk):
     """Save an edited outline, and optionally write the draft from it."""
     run = get_object_or_404(GenerationRun, pk=pk)
@@ -137,6 +144,7 @@ def run_outline(request, pk):
     return redirect("studio:run_detail", pk=pk)
 
 
+@staff_required
 def run_evaluate(request, pk):
     run = get_object_or_404(GenerationRun, pk=pk)
     if request.method != "POST":
@@ -164,6 +172,7 @@ def run_evaluate(request, pk):
     return redirect("studio:run_detail", pk=pk)
 
 
+@staff_required
 def run_revise(request, pk):
     run = get_object_or_404(GenerationRun, pk=pk)
     if request.method != "POST":
@@ -179,6 +188,7 @@ def run_revise(request, pk):
     return redirect("studio:run_detail", pk=pk)
 
 
+@staff_required
 def run_score(request, pk):
     """Record the human verdict — the third leg of the metric ensemble."""
     run = get_object_or_404(GenerationRun, pk=pk)
@@ -205,6 +215,7 @@ def run_score(request, pk):
     return redirect("studio:run_detail", pk=pk)
 
 
+@staff_required
 def compare(request):
     """Side-by-side draft comparison, blind by default.
 
@@ -249,6 +260,7 @@ def compare(request):
     })
 
 
+@staff_required
 def experiments(request):
     if request.method == "POST":
         name = (request.POST.get("name") or "").strip()
@@ -263,6 +275,7 @@ def experiments(request):
     })
 
 
+@staff_required
 def experiment_detail(request, pk):
     experiment = get_object_or_404(Experiment, pk=pk)
     runs_qs = experiment.runs.select_related("outlet", "brief").prefetch_related("evaluations")

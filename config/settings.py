@@ -65,6 +65,8 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "corpus",
     "briefs",
+    "accounts",
+    "portal",
 ]
 
 MIDDLEWARE = [
@@ -118,6 +120,13 @@ MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Two audiences: the portal at / for people who just want a draft, and the
+# tooling under /manage/ for whoever runs the system. Anonymous visitors land
+# on the portal login, not the Django admin one.
+LOGIN_URL = "portal:login"
+LOGIN_REDIRECT_URL = "portal:home"
+LOGOUT_REDIRECT_URL = "portal:login"
 
 # Default port for `manage.py runserver` (see studio/management/commands/runserver.py).
 RUNSERVER_PORT = env("RUNSERVER_PORT", "5860")

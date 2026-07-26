@@ -1,0 +1,26 @@
+{% extends "portal/base_portal.html" %}
+{% block content %}
+<h1>上傳簡報</h1>
+<p class="sub">支援 .pptx。系統會讀取所有文字，包含表格與備忘稿——提案的重點常常藏在那裡。</p>
+
+<div class="steps">
+  <div class="step on"><div class="n">步驟 1</div>上傳簡報</div>
+  <div class="step"><div class="n">步驟 2</div>核對抽出的內容</div>
+  <div class="step"><div class="n">步驟 3</div>選風格、產稿</div>
+</div>
+
+<div class="card" style="max-width:600px">
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <label>簡報檔（.pptx）</label>
+    <input type="file" name="source_file" accept=".pptx" required>
+    <label>名稱（留空就用檔名）</label>
+    <input type="text" name="title" placeholder="例如：NB 2026 Grey Days Campaign">
+    <button class="btn" style="margin-top:20px">上傳並讀取</button>
+  </form>
+  <p class="small muted" style="margin:16px 0 0">
+    上傳後會自動讀取內容，約需 10–20 秒。讀完會請你核對——
+    這一步很重要，之後產出的稿件只能寫核對過的內容，不會自己編造。
+  </p>
+</div>
+{% endblock %}

@@ -107,7 +107,7 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
 </head>
 <body>
 <header class="top"><div class="topwrap">
-  <a class="brand" href="{% url 'studio:home' %}">廣編稿生成系統</a>
+  <a class="brand" href="{% url 'studio:home' %}">廣編稿生成系統<span class="pill" style="margin-left:8px">管理後台</span></a>
   <nav class="main">
     <a href="{% url 'studio:home' %}" class="{% if section == 'home' %}on{% endif %}">總覽</a>
     <a href="{% url 'corpus:articles' %}" class="{% if section == 'corpus' %}on{% endif %}">語料庫</a>
@@ -115,7 +115,9 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
     <a href="{% url 'briefs:list' %}" class="{% if section == 'briefs' %}on{% endif %}">簡報</a>
     <a href="{% url 'studio:runs' %}" class="{% if section == 'runs' %}on{% endif %}">生成紀錄</a>
     <a href="{% url 'studio:experiments' %}" class="{% if section == 'experiments' %}on{% endif %}">A/B 實驗</a>
+    <a href="{% url 'accounts:list' %}" class="{% if section == 'users' %}on{% endif %}">使用者</a>
   </nav>
+  <a href="{% url 'portal:home' %}" class="small muted" style="margin-left:auto">← 前台</a>
 </div></header>
 <main>
   {% if messages %}{% for m in messages %}

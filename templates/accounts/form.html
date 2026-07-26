@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="small"><a href="{% url 'accounts:list' %}">← 回使用者列表</a></p>
+<h1>{% if creating %}新增使用者{% else %}編輯 {{ edit_user.username }}{% endif %}</h1>
+
+<div class="card" style="max-width:560px">
+  <form method="post">
+    {% csrf_token %}
+    {% if creating %}
+      {% for field in form %}
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% if field.errors %}<ul class="errlist" style="color:var(--bad);font-size:13px">
+          {% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+        {% if field.help_text %}<p class="small muted" style="margin:4px 0 0">{{ field.help_text|safe }}</p>{% endif %}
+      {% endfor %}
+      <label>姓名</label><input type="text" name="first_name">
+      <label>Email</label><input type="email" name="email">
+      <label style="margin-top:14px">
+        <input type="checkbox" name="is_staff" style="width:auto"> 給予管理者權限（可進入這個後台）</label>
+    {% else %}
+      <label>帳號</label>
+      <input type="text" value="{{ edit_user.username }}" disabled>
+      <p class="small muted" style="margin:4px 0 0">帳號建立後不可更改。</p>
+      <label>姓名</label><input type="text" name="first_name" value="{{ edit_user.first_name }}">
+      <label>Email</label><input type="email" name="email" value="{{ edit_user.email }}">
+      <label style="margin-top:14px">
+        <input type="checkbox" name="is_staff" style="width:auto"
+          {% if edit_user.is_staff %}checked{% endif %}> 管理者權限</label>
+      <label>
+        <input type="checkbox" name="is_active" style="width:auto"
+          {% if edit_user.is_active %}checked{% endif %}> 帳號啟用中</label>
+      <p class="small muted" style="margin:8px 0 0">
+        停用會讓帳號無法登入，但保留他上傳的簡報與稿件。系統不提供刪除使用者——
+        刪掉會連帶失去這些內容的歸屬。
+      </p>
+    {% endif %}
+    <button class="btn" style="margin-top:20px">{% if creating %}建立{% else %}儲存{% endif %}</button>
+  </form>
+</div>
+{% endblock %}

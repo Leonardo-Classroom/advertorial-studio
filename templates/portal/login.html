@@ -1,0 +1,24 @@
+{% extends "portal/base_portal.html" %}
+{% block title %}登入 — 廣編稿產生器{% endblock %}
+{% block content %}
+<div style="max-width:400px;margin:8vh auto 0">
+  <h1 style="text-align:center">廣編稿產生器</h1>
+  <p class="sub" style="text-align:center">上傳行銷簡報，產出符合目標媒體風格的廣編稿。</p>
+
+  <div class="card">
+    {% if form.errors %}
+      <div class="msg error">帳號或密碼不正確，請再試一次。</div>
+    {% endif %}
+    <form method="post">
+      {% csrf_token %}
+      <label for="id_username">帳號</label>
+      <input type="text" name="username" id="id_username" autofocus autocomplete="username" required>
+      <label for="id_password">密碼</label>
+      <input type="password" name="password" id="id_password" autocomplete="current-password" required>
+      <button class="btn" style="width:100%;margin-top:18px">登入</button>
+      <input type="hidden" name="next" value="{{ next }}">
+    </form>
+  </div>
+  <p class="small muted" style="text-align:center">沒有帳號請聯繫系統管理者開通。</p>
+</div>
+{% endblock %}

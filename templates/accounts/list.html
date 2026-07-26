@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row tight" style="margin-bottom:6px">
+  <h1 style="flex:1;margin:0">使用者</h1>
+  <a class="btn" href="{% url 'accounts:create' %}">新增使用者</a>
+</div>
+<p class="sub">「管理者」可以進入這個後台；一般使用者只能用前台上傳簡報與產稿，且只看得到自己的東西。</p>
+
+<div class="card">
+  <div class="scroll"><table>
+    <tr><th>帳號</th><th>姓名 / Email</th><th>權限</th><th>狀態</th><th>簡報</th><th>稿件</th><th>最後登入</th><th></th></tr>
+    {% for u in users %}
+    <tr>
+      <td><a href="{% url 'accounts:edit' u.pk %}">{{ u.username }}</a></td>
+      <td class="small">{{ u.first_name|default:"—" }}{% if u.email %}<div class="muted">{{ u.email }}</div>{% endif %}</td>
+      <td>{% if u.is_superuser %}<span class="pill">超級管理者</span>
+        {% elif u.is_staff %}<span class="pill">管理者</span>
+        {% else %}<span class="muted small">一般使用者</span>{% endif %}</td>
+      <td>{% if u.is_active %}<span class="pill good">啟用</span>{% else %}<span class="pill bad">已停用</span>{% endif %}</td>
+      <td>{{ u.n_briefs }}</td>
+      <td>{{ u.n_runs }}</td>
+      <td class="muted small">{{ u.last_login|date:"Y-m-d H:i"|default:"未登入過" }}</td>
+      <td class="small"><a href="{% url 'accounts:reset_password' u.pk %}">重設密碼</a></td>
+    </tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endblock %}

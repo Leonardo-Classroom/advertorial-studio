@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 FACT_SCHEMA_HINT = {
@@ -61,6 +62,9 @@ class Brief(models.Model):
         ("confirmed", "已確認"),
     ]
 
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+                              null=True, blank=True, related_name="briefs",
+                              verbose_name="上傳者")
     title = models.CharField("名稱", max_length=200)
     source_file = models.FileField("簡報檔", upload_to="briefs/", blank=True, null=True)
     raw_text = models.TextField("簡報純文字", blank=True)

@@ -1,0 +1,57 @@
+{% extends "portal/base_portal.html" %}
+{% block content %}
+<div class="row tight" style="margin-bottom:6px">
+  <h1 style="flex:1;margin:0">我的稿件</h1>
+  <a class="btn" href="{% url 'portal:upload' %}">上傳簡報</a>
+</div>
+<p class="sub">流程：上傳簡報 → 核對抽出的內容 → 選擇要模仿的媒體風格 → 產出稿件。</p>
+
+<div class="grid g3">
+  <div class="stat"><div class="n">{{ brief_count }}</div><div class="l">我的簡報</div></div>
+  <div class="stat"><div class="n">{{ run_count }}</div><div class="l">產出的稿件</div></div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <h2 style="margin-top:0">簡報</h2>
+  {% if briefs %}
+    <table>
+      <tr><th>名稱</th><th>投影片</th><th>狀態</th><th>上傳時間</th></tr>
+      {% for b in briefs %}
+      <tr>
+        <td><a href="{% url 'portal:brief_detail' b.pk %}">{{ b.title }}</a></td>
+        <td>{{ b.slide_count }}</td>
+        <td>{% if b.status == 'confirmed' %}<span class="pill good">已確認</span>
+          {% elif b.status == 'extracted' %}<span class="pill warn">待核對</span>
+          {% else %}<span class="pill">處理中</span>{% endif %}</td>
+        <td class="muted small">{{ b.created_at|date:"Y-m-d H:i" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <div class="empty">還沒有簡報。<br><br>
+      <a class="btn" href="{% url 'portal:upload' %}">上傳第一份</a></div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">產出的稿件</h2>
+  {% if runs %}
+    <table>
+      <tr><th>簡報</th><th>模仿風格</th><th>狀態</th><th>時間</th></tr>
+      {% for r in runs %}
+      <tr>
+        <td><a href="{% url 'portal:draft_detail' r.pk %}">{{ r.brief.title|truncatechars:36 }}</a></td>
+        <td class="small">{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</td>
+        <td>{% if r.status == 'done' %}<span class="pill good">完成</span>
+          {% elif r.status == 'failed' %}<span class="pill" style="color:var(--bad)">失敗</span>
+          {% elif r.status == 'pending' %}<span class="pill warn">待確認大綱</span>
+          {% else %}<span class="pill">處理中</span>{% endif %}</td>
+        <td class="muted small">{{ r.created_at|date:"m-d H:i" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <div class="empty">還沒有稿件。先上傳一份簡報。</div>
+  {% endif %}
+</div>
+{% endblock %}

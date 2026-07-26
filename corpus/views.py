@@ -3,9 +3,11 @@ from django.core.paginator import Paginator
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 
+from accounts.decorators import staff_required
 from corpus.models import Article, Author, EmbeddingIndex, Outlet, StyleGuide
 
 
+@staff_required
 def articles(request):
     qs = Article.objects.select_related("author", "outlet")
     outlet_id = request.GET.get("outlet") or ""
@@ -39,6 +41,7 @@ def articles(request):
     })
 
 
+@staff_required
 def article_detail(request, pk):
     article = get_object_or_404(Article.objects.select_related("author", "outlet"), pk=pk)
     return render(request, "corpus/article_detail.html", {
@@ -46,6 +49,7 @@ def article_detail(request, pk):
     })
 
 
+@staff_required
 def authors(request):
     outlet_id = request.GET.get("outlet") or ""
     qs = Author.objects.select_related("outlet").order_by("-article_count")
@@ -59,6 +63,7 @@ def authors(request):
     })
 
 
+@staff_required
 def guides(request):
     return render(request, "corpus/guides.html", {
         "section": "guides",
@@ -67,6 +72,7 @@ def guides(request):
     })
 
 
+@staff_required
 def guide_detail(request, pk):
     guide = get_object_or_404(StyleGuide.objects.select_related("outlet", "author"), pk=pk)
     if request.method == "POST":

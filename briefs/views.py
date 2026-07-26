@@ -3,10 +3,12 @@ import json
 from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect, render
 
+from accounts.decorators import staff_required
 from briefs.models import FACT_SCHEMA_HINT, Brief
 from briefs.services import ppt_extract
 
 
+@staff_required
 def brief_list(request):
     return render(request, "briefs/list.html", {
         "section": "briefs",
@@ -14,6 +16,7 @@ def brief_list(request):
     })
 
 
+@staff_required
 def brief_upload(request):
     if request.method == "POST":
         upload = request.FILES.get("source_file")
@@ -23,6 +26,7 @@ def brief_upload(request):
             return redirect("briefs:upload")
 
         brief = Brief.objects.create(
+            owner=request.user,
             title=title or upload.name.rsplit(".", 1)[0],
             source_file=upload,
         )
@@ -43,6 +47,7 @@ def brief_upload(request):
     return render(request, "briefs/upload.html", {"section": "briefs"})
 
 
+@staff_required
 def brief_detail(request, pk):
     brief = get_object_or_404(Brief, pk=pk)
     return render(request, "briefs/detail.html", {
@@ -52,6 +57,7 @@ def brief_detail(request, pk):
     })
 
 
+@staff_required
 def brief_extract(request, pk):
     brief = get_object_or_404(Brief, pk=pk)
     if request.method != "POST":
@@ -80,6 +86,7 @@ def brief_extract(request, pk):
     return redirect("briefs:detail", pk=pk)
 
 
+@staff_required
 def brief_save_facts(request, pk):
     brief = get_object_or_404(Brief, pk=pk)
     if request.method != "POST":

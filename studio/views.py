@@ -69,6 +69,7 @@ def run_new(request):
             mode=mode,
             retrieval_strategy=request.POST.get("retrieval_strategy", "typical"),
             exemplar_count=int(request.POST.get("exemplar_count") or 4),
+            max_iterations=max(1, min(int(request.POST.get("max_iterations") or 2), 4)),
         )
         generate_service.run_generation(run, stop_after_outline=pause)
         if run.status == "failed":

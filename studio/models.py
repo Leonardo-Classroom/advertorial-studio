@@ -62,6 +62,10 @@ class GenerationRun(models.Model):
     retrieval_strategy = models.CharField("檢索策略", max_length=16,
                                           choices=RETRIEVAL_STRATEGIES, default="typical")
     exemplar_count = models.IntegerField("範例篇數", default=4)
+    max_iterations = models.IntegerField(
+        "生成次數 n", default=2,
+        help_text="1 = 只寫一次；2 = 初稿＋依評審意見自動重寫一次。上限 4。",
+    )
     exemplars = models.JSONField("實際使用的範例", default=list, blank=True,
                                  help_text="[{id, title, score, author}]")
 
@@ -91,9 +95,18 @@ class GenerationRun(models.Model):
 
     @property
     def latest_text(self) -> str:
-        """The newest text for this run — the last revision, else the draft."""
-        last = self.revisions.order_by("-round").first()
+        """The newest *accepted* text — the last kept revision, else the draft.
+
+        Rejected auto-rewrites are excluded on purpose: a rewrite that lost
+        mandatory facts is still worth keeping as a record, but it must not
+        become what the run hands downstream.
+        """
+        last = self.revisions.filter(accepted=True).order_by("-round").first()
         return last.output if last else self.output
+
+    @property
+    def iteration_count(self) -> int:
+        return 1 + self.revisions.filter(source="auto").count()
 
     @property
     def is_staged(self) -> bool:
@@ -112,10 +125,17 @@ class Revision(models.Model):
     fine-tuning) would later need — no separate annotation effort required.
     """
 
+    SOURCES = [("human", "人工意見"), ("auto", "LLM 評審意見（自動重寫）")]
+
     run = models.ForeignKey(GenerationRun, on_delete=models.CASCADE, related_name="revisions")
     round = models.IntegerField("稿次", default=2)
     feedback = models.TextField("修改意見")
     output = models.TextField("修訂後內容", blank=True)
+    source = models.CharField("意見來源", max_length=8, choices=SOURCES, default="human")
+    # An auto-rewrite can come out worse; when it does we keep it for the record
+    # but do not treat it as the current best draft.
+    accepted = models.BooleanField("採納為目前最佳稿", default=True)
+    reject_reason = models.CharField("未採納原因", max_length=200, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

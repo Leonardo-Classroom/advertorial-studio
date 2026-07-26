@@ -9,7 +9,8 @@ from studio.models import GenerationRun, Revision
 from studio.services import prompts, retrieval
 
 
-def run_generation(run: GenerationRun, stop_after_outline: bool = False) -> GenerationRun:
+def run_generation(run: GenerationRun, stop_after_outline: bool = False,
+                   auto_refine: bool = True) -> GenerationRun:
     """Execute one generation run, recording the exact prompt that produced it.
 
     The prompt is persisted rather than rebuilt on demand: an A/B experiment is
@@ -17,11 +18,18 @@ def run_generation(run: GenerationRun, stop_after_outline: bool = False) -> Gene
 
     Dispatches on `run.mode` so Plan A and Plan B share one entry point and can
     therefore be compared with every other variable held constant.
+
+    With `run.max_iterations > 1` the draft is then rewritten from the judge's
+    own critique, up to that many drafts in total. Skipped when the run pauses
+    at the outline, since there is no draft to refine yet.
     """
     if run.mode == "staged":
         from studio.services import pipeline
 
-        return pipeline.run_stages(run, stop_after_outline=stop_after_outline)
+        pipeline.run_stages(run, stop_after_outline=stop_after_outline)
+        if not stop_after_outline:
+            _maybe_refine(run, auto_refine)
+        return run
 
     run.status = "running"
     run.save(update_fields=["status"])
@@ -64,7 +72,33 @@ def run_generation(run: GenerationRun, stop_after_outline: bool = False) -> Gene
         run.elapsed_ms = int((time.time() - started) * 1000)
         run.save()
 
+    _maybe_refine(run, auto_refine)
     return run
+
+
+def _maybe_refine(run: GenerationRun, auto_refine: bool) -> None:
+    if not auto_refine or run.status != "done" or (run.max_iterations or 1) <= 1:
+        return
+    from studio.services import refine as refine_service
+
+    # elapsed_ms was stamped before this point; rewriting is part of what n
+    # costs, so fold it in rather than reporting a time that excludes it.
+    refine_started = time.time()
+
+    run.stages = (run.stages or []) + [{
+        "name": "refine", "label": "⑥ 依評審意見自動重寫",
+        "summary": f"n={run.max_iterations}",
+        "output": "", "elapsed_ms": 0,
+    }]
+    history = refine_service.refine(run)
+    run.stages[-1]["output"] = "\n".join(
+        f"第 {h['iteration']} 輪 {h['kind']}："
+        f"評審 {h['judge_mean']}｜覆蓋 {h['coverage']}｜{h['note'] or '採納'}"
+        for h in history
+    )
+    run.stages[-1]["elapsed_ms"] = int((time.time() - refine_started) * 1000)
+    run.elapsed_ms += run.stages[-1]["elapsed_ms"]
+    run.save(update_fields=["stages", "elapsed_ms"])
 
 
 def run_revision(run: GenerationRun, feedback: str) -> Revision:
@@ -73,8 +107,11 @@ def run_revision(run: GenerationRun, feedback: str) -> Revision:
     Each round is stored with the text it revised, which is what makes the
     accumulated history usable later as preference pairs (plan option D).
     """
+    # Revise the current best text, not literally the last one written: a
+    # rejected auto-rewrite (one that lost facts or scored worse) is kept for
+    # the record but must not become the base for the next round.
+    previous_text = run.latest_text
     last = run.revisions.order_by("-round").first()
-    previous_text = last.output if last else run.output
     next_round = (last.round + 1) if last else 2
 
     revision = Revision.objects.create(

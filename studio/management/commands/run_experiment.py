@@ -37,6 +37,9 @@ class Command(BaseCommand):
         parser.add_argument("--guide", type=int, default=None, help="StyleGuide 的 ID")
         parser.add_argument("--strategies", nargs="+", default=["topical", "random"],
                             help="要比較的策略，預設 topical random")
+        parser.add_argument("--iterations", nargs="+", type=int, default=None,
+                            help="改為比較生成次數 n（例如 --iterations 1 2 3 4）。"
+                                 "給了這個就以 n 為變因。")
         parser.add_argument("--modes", nargs="+", default=None,
                             help="改為比較生成方式（single / staged）。"
                                  "給了這個就以方式為變因，策略固定用 --strategies 的第一項。")
@@ -82,31 +85,46 @@ class Command(BaseCommand):
 
         # One variable at a time: either the retrieval strategy varies and the
         # mode is fixed, or the mode varies and the strategy is fixed.
-        if opts["modes"]:
-            arms = [(opts["strategies"][0], m) for m in opts["modes"]]
+        default_n = 1
+        if opts["iterations"]:
+            arms = [(opts["strategies"][0], "staged", n) for n in opts["iterations"]]
+        elif opts["modes"]:
+            arms = [(opts["strategies"][0], m, default_n) for m in opts["modes"]]
         else:
-            arms = [(s, "single") for s in opts["strategies"]]
+            arms = [(s, "single", default_n) for s in opts["strategies"]]
 
         results: dict[str, list[dict]] = {}
-        for strategy, mode in arms:
-            arm = mode if opts["modes"] else strategy
+        for strategy, mode, n_iter in arms:
+            arm = (f"n={n_iter}" if opts["iterations"]
+                   else mode if opts["modes"] else strategy)
             results[arm] = []
             for i in range(opts["repeats"]):
                 self.stdout.write(f"生成中 {arm} #{i + 1}/{opts['repeats']} …")
                 run = GenerationRun.objects.create(
                     brief=brief, outlet=outlet, author=author, style_guide=guide,
                     experiment=experiment, retrieval_strategy=strategy, mode=mode,
-                    exemplar_count=opts["exemplars"],
+                    exemplar_count=opts["exemplars"], max_iterations=n_iter,
                 )
                 generate_service.run_generation(run)
                 if run.status == "failed":
                     self.stderr.write(self.style.ERROR(f"  失敗：{run.error}"))
                     continue
 
-                ev = evaluate_service.evaluate(run, run_judge=not opts["no_judge"])
+                # Score the draft the run actually hands over — with n>1 that is
+                # the last accepted rewrite, not the first draft. Reuse the
+                # evaluation the refine loop already produced instead of paying
+                # for another judge call.
+                last_ok = run.revisions.filter(accepted=True).order_by("-round").first()
+                ev = (run.evaluations.filter(revision=last_ok).first() if last_ok
+                      else run.evaluations.filter(revision__isnull=True).first())
+                if ev is None:
+                    ev = evaluate_service.evaluate(run, revision=last_ok,
+                                                   run_judge=not opts["no_judge"])
                 judge_vals = [v for _, v in ev.judge_dimensions]
                 results[arm].append({
                     "run": run.pk,
+                    "elapsed": run.elapsed_ms,
+                    "drafts": run.iteration_count,
                     "style": ev.style_similarity,
                     "overlap": ev.max_overlap,
                     "judge": statistics.mean(judge_vals) if judge_vals else None,
@@ -119,21 +137,23 @@ class Command(BaseCommand):
                 self.stdout.write(line)
 
         self.stdout.write("\n" + self.style.SUCCESS(f"=== 實驗 #{experiment.pk} 結果 ==="))
-        arm_label = "方式" if opts["modes"] else "策略"
+        arm_label = "n" if opts["iterations"] else "方式" if opts["modes"] else "策略"
         self.stdout.write(
-            f"{arm_label:<12}{'n':>4}{'風格相似度':>14}"
-            f"{'重疊率':>12}{'評審均分':>12}{'事實覆蓋':>12}"
+            f"{arm_label:<10}{'樣本':>5}{'實際稿數':>10}{'風格相似度':>13}"
+            f"{'重疊率':>11}{'評審均分':>11}{'事實覆蓋':>11}{'耗時秒':>9}"
         )
         for arm, rows in results.items():
             if not rows:
                 self.stdout.write(f"{arm:<12}{0:>4}   （全部失敗）")
                 continue
             self.stdout.write(
-                f"{arm:<12}{len(rows):>4}"
-                f"{self._avg(rows, 'style'):>14}"
-                f"{self._avg(rows, 'overlap'):>12}"
-                f"{self._avg(rows, 'judge'):>12}"
-                f"{self._avg(rows, 'coverage'):>12}"
+                f"{arm:<10}{len(rows):>5}"
+                f"{self._avg(rows, 'drafts'):>10}"
+                f"{self._avg(rows, 'style'):>13}"
+                f"{self._avg(rows, 'overlap'):>11}"
+                f"{self._avg(rows, 'judge'):>11}"
+                f"{self._avg(rows, 'coverage'):>11}"
+                f"{self._avg(rows, 'elapsed', 1000):>9}"
             )
 
         self.stdout.write(self.style.WARNING(
@@ -143,6 +163,9 @@ class Command(BaseCommand):
         self.stdout.write(f"詳細比較：/experiments/{experiment.pk}/")
 
     @staticmethod
-    def _avg(rows: list[dict], key: str) -> str:
+    def _avg(rows: list[dict], key: str, divide: float = 1) -> str:
         vals = [r[key] for r in rows if r.get(key) is not None]
-        return f"{statistics.mean(vals):.4f}" if vals else "—"
+        if not vals:
+            return "—"
+        mean = statistics.mean(vals) / divide
+        return f"{mean:.2f}" if divide != 1 or key == "drafts" else f"{mean:.4f}"

@@ -7,6 +7,7 @@
   {{ run.brief.title }} → {{ run.outlet.name }}{% if run.author %} / {{ run.author.name }}{% endif %}
   · <span class="pill">{{ run.get_mode_display }}</span>
   · {{ run.get_retrieval_strategy_display }} · 範例 {{ run.exemplar_count }} 篇
+  · n={{ run.max_iterations }}（實際跑 {{ run.iteration_count }} 次）
   · {{ run.model }} · {{ run.elapsed_ms|floatformat:0 }}ms
   {% if run.experiment %} · 實驗：<a href="{% url 'studio:experiment_detail' run.experiment.pk %}">{{ run.experiment.name }}</a>{% endif %}
 </p>
@@ -72,13 +73,22 @@
     {% for rev in revisions %}
     <div class="card">
       <div class="row tight" style="margin-bottom:10px">
-        <h2 style="margin:0;flex:1">第 {{ rev.round }} 稿</h2>
+        <h2 style="margin:0;flex:1">第 {{ rev.round }} 稿
+        {% if rev.source == 'auto' %}<span class="pill">自動重寫</span>{% endif %}
+        {% if not rev.accepted %}<span class="pill bad">未採納</span>{% endif %}
+      </h2>
         <div class="toggle">
           <button type="button" class="on" data-view="md" data-target="rev-{{ rev.pk }}">排版</button>
           <button type="button" data-view="raw" data-target="rev-{{ rev.pk }}">純文字</button>
         </div>
       </div>
-      <details style="margin-bottom:10px"><summary>修改意見</summary>
+      {% if not rev.accepted %}
+        <div class="msg warning" style="margin-bottom:10px">
+          <strong>這一輪未被採納：</strong>{{ rev.reject_reason }}。
+          目前交出的仍是前一版——保留它是為了留下紀錄，不是要你用它。
+        </div>
+      {% endif %}
+      <details style="margin-bottom:10px"><summary>修改意見{% if rev.source == 'auto' %}（來自 LLM 評審）{% endif %}</summary>
         <pre class="doc" style="margin-top:8px">{{ rev.feedback }}</pre></details>
       <div id="rev-{{ rev.pk }}">
         <div class="md" data-render="md">{{ rev.output|markdown }}</div>

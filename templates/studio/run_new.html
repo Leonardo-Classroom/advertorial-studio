@@ -60,7 +60,10 @@
     <p class="small muted" style="margin:-4px 0 8px">
       <strong>預設是方案 B</strong>：先產出重點筆記與大綱再寫正文，較慢（約 83 秒 vs 29 秒），
       但結構完整度實測高 0.75 分。「大綱階段先暫停」也預設開啟——
-      在大綱改方向比改完稿便宜得多；不需要時可取消勾選，一次跑完。
+      在大綱改方向比改完稿便宜得多；不需要時可取消勾選，一次跑完。<br>
+      <strong>生成次數 n</strong>：n=1 只寫一次；n=2（預設）寫完後再依評審意見自動重寫一次。
+      重寫若造成事實流失或分數沒進步會自動停止並保留原稿，所以調高 n 不會讓稿子變差，
+      只會多花時間。
     </p>
 
     <div class="row">
@@ -75,6 +78,10 @@
       <div>
         <label>範例篇數</label>
         <input type="number" name="exemplar_count" value="4" min="0" max="10">
+      </div>
+      <div>
+        <label>生成次數 n</label>
+        <input type="number" name="max_iterations" value="2" min="1" max="4">
       </div>
       <div>
         <label>掛到 A/B 實驗（可留空）</label>

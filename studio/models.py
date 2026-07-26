@@ -4,13 +4,20 @@ from django.db import models
 from briefs.models import Brief
 from corpus.models import Author, Outlet, StyleGuide
 
+# Every strategy that has ever run, so historical runs keep rendering a label
+# rather than a bare code. `random` and `hybrid` were control arms in the
+# topical-vs-random experiment and are still reachable from run_experiment.
 RETRIEVAL_STRATEGIES = [
     ("topical", "主題相似檢索（依簡報內容找同題材範文）"),
+    ("typical", "主題檢索後依「文體代表性」重排"),
+    ("none", "不放範例（只用風格指南）"),
     ("random", "隨機抽樣（同媒體/作者內隨機）"),
     ("hybrid", "混合（一半主題相似、一半隨機）"),
-    ("typical", "主題檢索後依「文體代表性」重排（預設）"),
-    ("none", "不放範例（只用風格指南）"),
 ]
+
+# What the forms offer. Narrower than the above on purpose: the other two exist
+# to answer experimental questions, not to be picked while writing a draft.
+SELECTABLE_STRATEGIES = RETRIEVAL_STRATEGIES[:3]
 
 GENERATION_MODES = [
     # Staged is listed first because it is the default: it scored +0.75 on

@@ -122,3 +122,63 @@ class Brief(models.Model):
 
         walk(self.facts)
         return out
+
+    def usable_images(self):
+        """Approved pictures, in slide order — the only ones a draft may place."""
+        return self.images.filter(approved=True)
+
+
+class BriefImage(models.Model):
+    """One picture pulled out of the deck, with the evidence needed to judge it.
+
+    Pictures are on the same footing as the extracted facts: they come from the
+    brief itself, so there is no borrowed-source problem, but they are equally
+    subject to the rule that nothing reaches a draft until a human has approved
+    it. `approved` starts at whatever the model guessed and is then confirmed or
+    overridden on the review page.
+    """
+
+    CATEGORIES = [
+        ("usable", "可用素材"),
+        ("layout", "表格／排版"),
+        ("decoration", "logo／裝飾"),
+        ("unknown", "未判斷"),
+    ]
+
+    brief = models.ForeignKey(Brief, on_delete=models.CASCADE, related_name="images")
+    slide_index = models.IntegerField("投影片頁次", default=0)
+    file = models.ImageField("圖片", upload_to="brief_images/")
+
+    # Two hashes, deliberately. md5 catches the byte-identical copy-paste;
+    # phash catches the same asset after rescaling or re-encoding, which md5
+    # cannot see. Kept on the row so a later cross-deck library can reuse them.
+    md5 = models.CharField("精確雜湊", max_length=32, blank=True, db_index=True)
+    phash = models.CharField("感知雜湊", max_length=16, blank=True, db_index=True)
+
+    slide_heading = models.CharField("投影片標題", max_length=200, blank=True)
+    nearby_text = models.TextField(
+        "鄰近文字（依位置推測）", blank=True,
+        help_text="同張投影片上距離最近的文字。這是空間推測，不是簡報作者標註的圖說。")
+
+    ai_description = models.TextField("AI 描述", blank=True)
+    ai_category = models.CharField("AI 分類", max_length=16, choices=CATEGORIES, default="unknown")
+    ai_brand = models.CharField(
+        "圖中辨識到的品牌", max_length=80, blank=True,
+        help_text="用來擋掉競品照。提案簡報前段常放對手商品做市場分析，"
+                  "那些不屬於本篇素材。")
+    ai_caption = models.CharField("AI 建議圖說", max_length=200, blank=True)
+
+    approved = models.BooleanField("可用於稿件", default=False)
+    caption = models.CharField("圖說", max_length=200, blank=True,
+                               help_text="留空就用 AI 建議的圖說。")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = verbose_name_plural = "簡報圖片"
+        ordering = ["slide_index", "pk"]
+
+    def __str__(self):
+        return f"{self.brief.title} 第{self.slide_index}張 #{self.pk}"
+
+    def display_caption(self) -> str:
+        return self.caption.strip() or self.ai_caption.strip()

@@ -62,7 +62,7 @@ def retrieve(
     if strategy == "topical":
         return _topical(qs, query_text, count)
     if strategy == "typical":
-        return _typical(qs, query_text, count, outlet_id)
+        return _typical(qs, query_text, count, outlet_id, author_id=author_id)
     if strategy == "hybrid":
         half = max(1, count // 2)
         topical = _topical(qs, query_text, half)
@@ -83,6 +83,7 @@ def _random(qs, count: int, seed: int | None) -> list[Exemplar]:
 
 
 def _typical(qs, query_text: str, count: int, outlet_id: int,
+             author_id: int | None = None,
              pool_factor: int = 4, topic_weight: float = 0.4) -> list[Exemplar]:
     """Retrieve topically, then re-rank by how typical of the house voice.
 
@@ -100,7 +101,10 @@ def _typical(qs, query_text: str, count: int, outlet_id: int,
     if not pool:
         return []
 
-    typ = index.typicality([e.article.id for e in pool], outlet_id)
+    # Author-scoped runs measure typicality against that author, not the house
+    # average — otherwise a writer's most distinctive pieces score as *least*
+    # typical, which inverts what the re-rank is for.
+    typ = index.typicality([e.article.id for e in pool], outlet_id, author_id)
     if not typ:
         return pool[:count]
 
@@ -113,7 +117,8 @@ def _typical(qs, query_text: str, count: int, outlet_id: int,
 
     return [
         Exemplar(e.article, blended,
-                 f"綜合 {blended:.3f}（主題 {e.score:.3f} / 文體代表性 {t:.3f}）")
+                 f"綜合 {blended:.3f}（主題 {e.score:.3f} / 文體代表性 {t:.3f}"
+                 + ("，對比作者本人" if author_id else "，對比全站") + "）")
         for blended, t, e in scored[:count]
     ]
 

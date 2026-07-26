@@ -206,28 +206,32 @@ def search_rows(query_vec: np.ndarray, rows: np.ndarray, top_k: int) -> list[tup
     return [(int(rows[i]), float(scores[i])) for i in top]
 
 
-def outlet_centroid(outlet_id: int, sample: int = 4000) -> np.ndarray | None:
-    """The outlet's stylistic centre of mass, cached per process.
+def outlet_centroid(outlet_id: int, author_id: int | None = None,
+                    sample: int = 4000) -> np.ndarray | None:
+    """The stylistic centre of mass to measure typicality against, cached.
 
-    Used to score how *typical* an article is of the house voice, which is a
-    different question from how topically relevant it is — and, on the
-    evidence so far, the one that actually matters for style imitation.
+    Scoped to the author when a run targets one. Measuring an author's articles
+    against the *outlet* average is backwards for author imitation: it would
+    rank that writer's most characteristic pieces as least typical, precisely
+    because what makes them characteristic is departing from the house mean.
     """
-    key = f"centroid:{outlet_id}:{sample}"
+    key = f"centroid:{outlet_id}:{author_id}:{sample}"
     if key not in _cache:
+        qs = Article.objects.filter(outlet_id=outlet_id)
+        if author_id:
+            qs = qs.filter(author_id=author_id)
         ids = list(
-            Article.objects.filter(outlet_id=outlet_id)
-            .exclude(vector_row__isnull=True)
-            .order_by()
+            qs.exclude(vector_row__isnull=True).order_by()
             .values_list("id", flat=True)[:sample]
         )
         _cache[key] = centroid(ids)
     return _cache[key]  # type: ignore[return-value]
 
 
-def typicality(article_ids: list[int], outlet_id: int) -> dict[int, float]:
-    """Cosine of each article to its outlet centroid, keyed by article id."""
-    centre = outlet_centroid(outlet_id)
+def typicality(article_ids: list[int], outlet_id: int,
+               author_id: int | None = None) -> dict[int, float]:
+    """Cosine of each article to its outlet (or author) centroid, by article id."""
+    centre = outlet_centroid(outlet_id, author_id)
     ids, matrix = load()
     if centre is None or not ids.size:
         return {}

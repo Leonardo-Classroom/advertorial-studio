@@ -10,7 +10,8 @@ from accounts.decorators import staff_required
 from briefs.models import Brief
 from corpus.models import Article, Author, EmbeddingIndex, Outlet, StyleGuide
 from studio.models import (
-    GENERATION_MODES, RETRIEVAL_STRATEGIES, Evaluation, Experiment, GenerationRun,
+    GENERATION_MODES, RETRIEVAL_STRATEGIES, SELECTABLE_STRATEGIES,
+    Evaluation, Experiment, GenerationRun,
 )
 from studio.services import evaluate as evaluate_service
 from studio.services import generate as generate_service
@@ -97,7 +98,7 @@ def run_new(request):
             outlet__is_target=True, article_count__gte=100).order_by("-article_count"),
         "guides": StyleGuide.objects.select_related("outlet", "author").filter(is_active=True),
         "experiments": Experiment.objects.all(),
-        "strategies": RETRIEVAL_STRATEGIES,
+        "strategies": SELECTABLE_STRATEGIES,
         "modes": GENERATION_MODES,
         "preselect_brief": request.GET.get("brief") or "",
     })

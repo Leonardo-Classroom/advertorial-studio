@@ -8,6 +8,10 @@ Step 2 asks the model to normalise that into the fact schema. The result is
 explicitly *editable* by the operator before generation: it becomes the only
 sanctioned source of brand names, product codes and KOL names, so a mistake
 here would propagate into every draft.
+
+`extract_images` is the optional third path: the same shape walk, collecting
+pictures instead of text so a draft can place real deck imagery rather than a
+`（Photo from …）` placeholder the operator has to fill in by hand.
 """
 from __future__ import annotations
 
@@ -105,6 +109,96 @@ def extract_text(path: str | Path) -> tuple[str, int]:
             chunks.append(f"--- 第 {i + 1} 張 ---\n" + "\n".join(parts))
 
     return "\n\n".join(chunks), slide_count
+
+
+def _box(shape) -> tuple[int, int, int, int] | None:
+    """(left, top, right, bottom) in EMU, or None if the shape is unpositioned."""
+    left, top = shape.left, shape.top
+    width, height = shape.width, shape.height
+    if None in (left, top, width, height):
+        return None
+    return (left, top, left + width, top + height)
+
+
+def _gap(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
+    """Shortest distance between two rectangles; 0 when they overlap.
+
+    This is the geometric half of figure/caption pairing as the document-layout
+    literature does it. It is a spatial guess and nothing more: .pptx records
+    where each shape sits, never which caption belongs to which picture.
+    """
+    dx = max(0, a[0] - b[2], b[0] - a[2])
+    dy = max(0, a[1] - b[3], b[1] - a[3])
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def extract_images(path: str | Path, max_nearby_chars: int = 300) -> list[dict]:
+    """Collect every embedded picture, with the context needed to judge it later.
+
+    Returns one dict per picture: slide number, geometry, the raw bytes, the
+    slide heading, and the nearest text on that slide. The nearby text is a
+    proximity guess, so it is labelled as a hint everywhere it surfaces rather
+    than presented as the picture's caption.
+    """
+    from pptx import Presentation
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    prs = Presentation(str(path))
+    out: list[dict] = []
+
+    for i, slide in enumerate(prs.slides):
+        pictures: list = []
+        texts: list[tuple[tuple[int, int, int, int], str]] = []
+
+        def walk(shapes):
+            for shape in shapes:
+                if shape.shape_type == MSO_SHAPE_TYPE.GROUP and hasattr(shape, "shapes"):
+                    walk(shape.shapes)
+                    continue
+                if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                    pictures.append(shape)
+                    continue
+                if shape.has_text_frame:
+                    text = shape.text_frame.text.strip()
+                    box = _box(shape)
+                    if text and box:
+                        texts.append((box, text))
+
+        walk(slide.shapes)
+
+        heading = ""
+        try:
+            if slide.shapes.title is not None:
+                heading = (slide.shapes.title.text or "").strip()
+        except (AttributeError, ValueError):
+            heading = ""
+
+        for shape in pictures:
+            # A linked (not embedded) picture has no blob; skip rather than
+            # crash the whole upload over one broken reference.
+            try:
+                image = shape.image
+                blob, ext = image.blob, (image.ext or "").lower()
+            except (AttributeError, ValueError, KeyError):
+                continue
+
+            box = _box(shape)
+            nearby = ""
+            if box and texts:
+                nearest = min(texts, key=lambda t: _gap(box, t[0]))
+                nearby = nearest[1][:max_nearby_chars]
+
+            out.append({
+                "slide_index": i + 1,
+                "left": shape.left, "top": shape.top,
+                "width": shape.width, "height": shape.height,
+                "blob": blob,
+                "ext": ext,
+                "slide_heading": heading[:200],
+                "nearby_text": nearby,
+            })
+
+    return out
 
 
 def extract_facts(raw_text: str, max_chars: int = 40000) -> dict:

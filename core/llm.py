@@ -73,6 +73,59 @@ def complete(
     return _extract_text(response)
 
 
+MIME_BY_EXT = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+               "gif": "image/gif", "webp": "image/webp"}
+
+
+def supports_image(ext: str) -> bool:
+    """Whether an image format can be sent to the model at all.
+
+    Decks are full of .wmf/.emf vector shapes — logos and PowerPoint clip art.
+    The API takes raster formats only, so those are filtered out before any
+    call is made rather than discovered as a 400 per picture.
+    """
+    return (ext or "").lower().lstrip(".") in MIME_BY_EXT
+
+
+def complete_vision(
+    instructions: str,
+    user_input: str,
+    image_bytes: bytes,
+    image_ext: str,
+    model: str | None = None,
+    timeout: float | None = None,
+) -> str:
+    """Single-shot completion over one image plus text.
+
+    Same endpoint, same key, same model as `complete` — the deployed model is
+    multimodal, so looking at a picture needs no separate vision service.
+    """
+    import base64
+
+    ext = (image_ext or "").lower().lstrip(".")
+    mime = MIME_BY_EXT.get(ext)
+    if mime is None:
+        raise ValueError(f"不支援的圖片格式：{image_ext}")
+
+    client = get_client()
+    if timeout is not None:
+        client = client.with_options(timeout=timeout)
+
+    encoded = base64.b64encode(image_bytes).decode()
+    response = client.responses.create(
+        model=model or settings.LLM_MODEL,
+        instructions=instructions,
+        input=[{
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": user_input},
+                {"type": "input_image", "image_url": f"data:{mime};base64,{encoded}"},
+            ],
+        }],
+    )
+    return _extract_text(response)
+
+
 def _repair_truncated_json(text: str) -> str | None:
     """Close a JSON document that was cut off mid-write.
 
@@ -135,6 +188,26 @@ def complete_json(
     """
     raw = complete(instructions=instructions, user_input=user_input,
                    model=model, timeout=timeout)
+    return parse_json(raw)
+
+
+def complete_json_vision(
+    instructions: str,
+    user_input: str,
+    image_bytes: bytes,
+    image_ext: str,
+    model: str | None = None,
+    timeout: float | None = None,
+) -> dict:
+    """`complete_vision`, parsed with the same defences as `complete_json`."""
+    raw = complete_vision(instructions=instructions, user_input=user_input,
+                          image_bytes=image_bytes, image_ext=image_ext,
+                          model=model, timeout=timeout)
+    return parse_json(raw)
+
+
+def parse_json(raw: str) -> dict:
+    """Recover a JSON object from model output that may be fenced or truncated."""
     cleaned = _strip_fences(raw)
     try:
         data = json.loads(cleaned)

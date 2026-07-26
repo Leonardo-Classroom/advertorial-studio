@@ -79,6 +79,15 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR(f"找不到 StyleGuide #{opts['guide']}"))
             sys.exit(1)
 
+        # An author-scoped guide implies an author-scoped run. Without this the
+        # run would carry an author guide while retrieval drew exemplars from
+        # the whole outlet — an author-level experiment quietly testing
+        # something else. The portal already derives it this way.
+        if author is None and guide is not None and guide.author_id:
+            author = guide.author
+            self.stdout.write(f"（指南 #{guide.pk} 屬於作者 {author.name}，"
+                              f"本次生成與檢索都限定該作者）")
+
         if brief.status != "confirmed":
             self.stdout.write(self.style.WARNING(
                 "⚠ 這份簡報的事實尚未確認。生成仍會進行，但事實正確性沒有把關過。"

@@ -28,7 +28,7 @@ from django.utils.text import slugify
 from briefs.models import Brief
 from briefs.services import ppt_extract
 from corpus.models import StyleGuide
-from studio.models import RETRIEVAL_STRATEGIES, GenerationRun
+from studio.models import SELECTABLE_STRATEGIES, GenerationRun
 from studio.services import generate as generate_service
 
 
@@ -102,7 +102,7 @@ def brief_detail(request, pk):
         "facts_json": json.dumps(brief.facts or {}, ensure_ascii=False, indent=2),
         "uncertain": (brief.facts or {}).get("uncertain") or [],
         "guides": guides,
-        "strategies": RETRIEVAL_STRATEGIES,
+        "strategies": SELECTABLE_STRATEGIES,
         "runs": brief.runs.filter(owner=request.user),
     })
 
@@ -155,7 +155,7 @@ def generate(request, pk):
     # Clamped rather than trusted: these arrive from a form and a rewrite budget
     # of 50 would tie up the model for an hour.
     strategy = request.POST.get("retrieval_strategy", "typical")
-    if strategy not in dict(RETRIEVAL_STRATEGIES):
+    if strategy not in dict(SELECTABLE_STRATEGIES):
         strategy = "typical"
     try:
         rewrites = int(request.POST.get("max_rewrites") or 1)

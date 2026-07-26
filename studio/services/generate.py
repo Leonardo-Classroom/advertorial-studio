@@ -9,12 +9,20 @@ from studio.models import GenerationRun, Revision
 from studio.services import prompts, retrieval
 
 
-def run_generation(run: GenerationRun) -> GenerationRun:
+def run_generation(run: GenerationRun, stop_after_outline: bool = False) -> GenerationRun:
     """Execute one generation run, recording the exact prompt that produced it.
 
     The prompt is persisted rather than rebuilt on demand: an A/B experiment is
     only meaningful if you can go back and see precisely what each arm was fed.
+
+    Dispatches on `run.mode` so Plan A and Plan B share one entry point and can
+    therefore be compared with every other variable held constant.
     """
+    if run.mode == "staged":
+        from studio.services import pipeline
+
+        return pipeline.run_stages(run, stop_after_outline=stop_after_outline)
+
     run.status = "running"
     run.save(update_fields=["status"])
     started = time.time()

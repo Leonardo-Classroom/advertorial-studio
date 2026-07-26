@@ -206,6 +206,40 @@ def search_rows(query_vec: np.ndarray, rows: np.ndarray, top_k: int) -> list[tup
     return [(int(rows[i]), float(scores[i])) for i in top]
 
 
+def outlet_centroid(outlet_id: int, sample: int = 4000) -> np.ndarray | None:
+    """The outlet's stylistic centre of mass, cached per process.
+
+    Used to score how *typical* an article is of the house voice, which is a
+    different question from how topically relevant it is — and, on the
+    evidence so far, the one that actually matters for style imitation.
+    """
+    key = f"centroid:{outlet_id}:{sample}"
+    if key not in _cache:
+        ids = list(
+            Article.objects.filter(outlet_id=outlet_id)
+            .exclude(vector_row__isnull=True)
+            .order_by()
+            .values_list("id", flat=True)[:sample]
+        )
+        _cache[key] = centroid(ids)
+    return _cache[key]  # type: ignore[return-value]
+
+
+def typicality(article_ids: list[int], outlet_id: int) -> dict[int, float]:
+    """Cosine of each article to its outlet centroid, keyed by article id."""
+    centre = outlet_centroid(outlet_id)
+    ids, matrix = load()
+    if centre is None or not ids.size:
+        return {}
+    row_of = {int(a): i for i, a in enumerate(ids.tolist())}
+    out = {}
+    for aid in article_ids:
+        row = row_of.get(aid)
+        if row is not None:
+            out[aid] = float(np.asarray(matrix[row]) @ centre)
+    return out
+
+
 def centroid(article_ids: list[int]) -> np.ndarray | None:
     """Mean normalised vector of the given articles — a style "centre of mass".
 

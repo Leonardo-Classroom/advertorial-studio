@@ -7,7 +7,13 @@ RETRIEVAL_STRATEGIES = [
     ("topical", "主題相似檢索（依簡報內容找同題材範文）"),
     ("random", "隨機抽樣（同媒體/作者內隨機）"),
     ("hybrid", "混合（一半主題相似、一半隨機）"),
+    ("typical", "主題檢索後依「文體代表性」重排（方案 B 預設）"),
     ("none", "不放範例（只用風格指南）"),
+]
+
+GENERATION_MODES = [
+    ("single", "方案 A：單次生成"),
+    ("staged", "方案 B：多階段管線（檢索→重排→摘要→大綱→生成）"),
 ]
 
 
@@ -49,11 +55,19 @@ class GenerationRun(models.Model):
     experiment = models.ForeignKey(Experiment, on_delete=models.SET_NULL,
                                    null=True, blank=True, related_name="runs")
 
+    mode = models.CharField("生成方式", max_length=8, choices=GENERATION_MODES, default="single")
     retrieval_strategy = models.CharField("檢索策略", max_length=16,
                                           choices=RETRIEVAL_STRATEGIES, default="topical")
     exemplar_count = models.IntegerField("範例篇數", default=4)
     exemplars = models.JSONField("實際使用的範例", default=list, blank=True,
                                  help_text="[{id, title, score, author}]")
+
+    # Plan B only. Each stage is recorded so a run can be inspected — and
+    # intervened in — rather than being a single opaque call.
+    stages = models.JSONField("各階段紀錄", default=list, blank=True)
+    notes = models.TextField("重點筆記（摘要階段產出）", blank=True)
+    outline = models.TextField("大綱（可在生成正文前人工修改）", blank=True)
+    outline_approved = models.BooleanField("大綱已確認", default=False)
 
     prompt_instructions = models.TextField(blank=True)
     prompt_input = models.TextField(blank=True)
@@ -77,6 +91,14 @@ class GenerationRun(models.Model):
         """The newest text for this run — the last revision, else the draft."""
         last = self.revisions.order_by("-round").first()
         return last.output if last else self.output
+
+    @property
+    def is_staged(self) -> bool:
+        return self.mode == "staged"
+
+    @property
+    def stage_list(self) -> list[dict]:
+        return self.stages or []
 
 
 class Revision(models.Model):

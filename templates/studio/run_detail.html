@@ -4,6 +4,7 @@
 <h1>生成 #{{ run.pk }}</h1>
 <p class="sub">
   {{ run.brief.title }} → {{ run.outlet.name }}{% if run.author %} / {{ run.author.name }}{% endif %}
+  · <span class="pill">{{ run.get_mode_display }}</span>
   · {{ run.get_retrieval_strategy_display }} · 範例 {{ run.exemplar_count }} 篇
   · {{ run.model }} · {{ run.elapsed_ms|floatformat:0 }}ms
   {% if run.experiment %} · 實驗：<a href="{% url 'studio:experiment_detail' run.experiment.pk %}">{{ run.experiment.name }}</a>{% endif %}
@@ -15,9 +16,45 @@
 
 <div class="grid g2">
   <div>
+    {% if run.is_staged %}
     <div class="card">
-      <h2 style="margin-top:0">初稿</h2>
-      <pre class="doc">{{ run.output }}</pre>
+      <h2 style="margin-top:0">管線階段</h2>
+      <table>
+        {% for s in run.stage_list %}
+        <tr><td class="small">{{ s.label }}</td>
+          <td class="small muted">{{ s.summary|truncatechars:60 }}</td>
+          <td class="small">{{ s.elapsed_ms }}ms</td></tr>
+        {% endfor %}
+      </table>
+      {% if run.notes %}
+        <details style="margin-top:10px"><summary>③ 重點筆記</summary>
+          <pre class="doc" style="margin-top:8px;max-height:400px;overflow:auto">{{ run.notes }}</pre></details>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0">④ 大綱{% if run.outline_approved %}
+        <span class="pill good">已確認</span>{% endif %}</h2>
+      <p class="small muted">在大綱階段改方向，比改完稿便宜得多——這是方案 B 主要的實務價值。</p>
+      <form method="post" action="{% url 'studio:run_outline' run.pk %}">
+        {% csrf_token %}
+        <textarea name="outline" style="min-height:340px" class="mono">{{ run.outline }}</textarea>
+        <div class="row tight" style="margin-top:10px">
+          <button class="btn ghost" style="flex:0">只儲存大綱</button>
+          <button class="btn" name="action" value="generate" style="flex:0">
+            {% if run.output %}依大綱重寫正文{% else %}依大綱寫出正文{% endif %}</button>
+        </div>
+      </form>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <h2 style="margin-top:0">初稿{% if run.is_staged %}（方案 B）{% endif %}</h2>
+      {% if run.output %}
+        <pre class="doc">{{ run.output }}</pre>
+      {% else %}
+        <p class="muted small">尚未寫出正文。請先確認上方大綱，再按「依大綱寫出正文」。</p>
+      {% endif %}
     </div>
 
     {% for rev in revisions %}

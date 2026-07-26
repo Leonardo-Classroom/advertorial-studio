@@ -37,6 +37,9 @@ class Command(BaseCommand):
         parser.add_argument("--guide", type=int, default=None, help="StyleGuide 的 ID")
         parser.add_argument("--strategies", nargs="+", default=["topical", "random"],
                             help="要比較的策略，預設 topical random")
+        parser.add_argument("--modes", nargs="+", default=None,
+                            help="改為比較生成方式（single / staged）。"
+                                 "給了這個就以方式為變因，策略固定用 --strategies 的第一項。")
         parser.add_argument("--repeats", type=int, default=3, help="每種策略跑幾次")
         parser.add_argument("--exemplars", type=int, default=4, help="範例篇數")
         parser.add_argument("--name", default=None, help="實驗名稱")
@@ -77,14 +80,22 @@ class Command(BaseCommand):
             ),
         )
 
+        # One variable at a time: either the retrieval strategy varies and the
+        # mode is fixed, or the mode varies and the strategy is fixed.
+        if opts["modes"]:
+            arms = [(opts["strategies"][0], m) for m in opts["modes"]]
+        else:
+            arms = [(s, "single") for s in opts["strategies"]]
+
         results: dict[str, list[dict]] = {}
-        for strategy in opts["strategies"]:
-            results[strategy] = []
+        for strategy, mode in arms:
+            arm = mode if opts["modes"] else strategy
+            results[arm] = []
             for i in range(opts["repeats"]):
-                self.stdout.write(f"生成中 {strategy} #{i + 1}/{opts['repeats']} …")
+                self.stdout.write(f"生成中 {arm} #{i + 1}/{opts['repeats']} …")
                 run = GenerationRun.objects.create(
                     brief=brief, outlet=outlet, author=author, style_guide=guide,
-                    experiment=experiment, retrieval_strategy=strategy,
+                    experiment=experiment, retrieval_strategy=strategy, mode=mode,
                     exemplar_count=opts["exemplars"],
                 )
                 generate_service.run_generation(run)
@@ -94,7 +105,7 @@ class Command(BaseCommand):
 
                 ev = evaluate_service.evaluate(run, run_judge=not opts["no_judge"])
                 judge_vals = [v for _, v in ev.judge_dimensions]
-                results[strategy].append({
+                results[arm].append({
                     "run": run.pk,
                     "style": ev.style_similarity,
                     "overlap": ev.max_overlap,
@@ -108,13 +119,17 @@ class Command(BaseCommand):
                 self.stdout.write(line)
 
         self.stdout.write("\n" + self.style.SUCCESS(f"=== 實驗 #{experiment.pk} 結果 ==="))
-        self.stdout.write(f"{'策略':<12}{'n':>4}{'風格相似度':>14}{'重疊率':>12}{'評審均分':>12}{'事實覆蓋':>12}")
-        for strategy, rows in results.items():
+        arm_label = "方式" if opts["modes"] else "策略"
+        self.stdout.write(
+            f"{arm_label:<12}{'n':>4}{'風格相似度':>14}"
+            f"{'重疊率':>12}{'評審均分':>12}{'事實覆蓋':>12}"
+        )
+        for arm, rows in results.items():
             if not rows:
-                self.stdout.write(f"{strategy:<12}{0:>4}   （全部失敗）")
+                self.stdout.write(f"{arm:<12}{0:>4}   （全部失敗）")
                 continue
             self.stdout.write(
-                f"{strategy:<12}{len(rows):>4}"
+                f"{arm:<12}{len(rows):>4}"
                 f"{self._avg(rows, 'style'):>14}"
                 f"{self._avg(rows, 'overlap'):>12}"
                 f"{self._avg(rows, 'judge'):>12}"

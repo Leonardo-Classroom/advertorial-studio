@@ -61,6 +61,8 @@ def retrieve(
         return _random(qs, count, seed)
     if strategy == "topical":
         return _topical(qs, query_text, count)
+    if strategy == "typical":
+        return _typical(qs, query_text, count, outlet_id)
     if strategy == "hybrid":
         half = max(1, count // 2)
         topical = _topical(qs, query_text, half)
@@ -78,6 +80,42 @@ def _random(qs, count: int, seed: int | None) -> list[Exemplar]:
     picked = rng.sample(ids, min(count, len(ids)))
     articles = {a.id: a for a in Article.objects.filter(id__in=picked).select_related("author")}
     return [Exemplar(articles[i], 0.0, "隨機抽樣") for i in picked if i in articles]
+
+
+def _typical(qs, query_text: str, count: int, outlet_id: int,
+             pool_factor: int = 4, topic_weight: float = 0.4) -> list[Exemplar]:
+    """Retrieve topically, then re-rank by how typical of the house voice.
+
+    The A/B result motivating this: topical exemplars scored 0.84 similarity to
+    the brief yet produced no style gain over random ones. A plausible reason is
+    that an article about the same campaign is not necessarily written in the
+    outlet's most characteristic voice — a one-off listicle or a wire rewrite
+    can be topically perfect and stylistically atypical.
+
+    So the pool is gathered by topic and then reordered by distance to the
+    outlet centroid, with topic deliberately the minority weight: relevance
+    only has to be good enough to keep the vocabulary domain right.
+    """
+    pool = _topical(qs, query_text, count * pool_factor)
+    if not pool:
+        return []
+
+    typ = index.typicality([e.article.id for e in pool], outlet_id)
+    if not typ:
+        return pool[:count]
+
+    scored = []
+    for e in pool:
+        t = typ.get(e.article.id, 0.0)
+        blended = topic_weight * e.score + (1 - topic_weight) * t
+        scored.append((blended, t, e))
+    scored.sort(key=lambda x: -x[0])
+
+    return [
+        Exemplar(e.article, blended,
+                 f"綜合 {blended:.3f}（主題 {e.score:.3f} / 文體代表性 {t:.3f}）")
+        for blended, t, e in scored[:count]
+    ]
 
 
 def _topical(qs, query_text: str, count: int) -> list[Exemplar]:

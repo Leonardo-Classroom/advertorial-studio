@@ -5,7 +5,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 
 from briefs.models import Brief
 from corpus.models import Article, Author, EmbeddingIndex, Outlet, StyleGuide
-from studio.models import RETRIEVAL_STRATEGIES, Evaluation, Experiment, GenerationRun
+from studio.models import (
+    GENERATION_MODES, RETRIEVAL_STRATEGIES, Evaluation, Experiment, GenerationRun,
+)
 from studio.services import evaluate as evaluate_service
 from studio.services import generate as generate_service
 
@@ -52,18 +54,28 @@ def run_new(request):
         guide_id = request.POST.get("style_guide") or None
         experiment_id = request.POST.get("experiment") or None
 
+        mode = request.POST.get("mode", "single")
+        pause = mode == "staged" and request.POST.get("pause_at_outline") == "on"
+
         run = GenerationRun.objects.create(
             brief=brief,
             outlet=outlet,
             author_id=author_id or None,
             style_guide_id=guide_id or None,
             experiment_id=experiment_id or None,
+            mode=mode,
             retrieval_strategy=request.POST.get("retrieval_strategy", "topical"),
             exemplar_count=int(request.POST.get("exemplar_count") or 4),
         )
-        generate_service.run_generation(run)
+        generate_service.run_generation(run, stop_after_outline=pause)
         if run.status == "failed":
             messages.error(request, f"生成失敗：{run.error}")
+        elif pause:
+            messages.success(
+                request,
+                "大綱已產出，尚未寫正文。請往下確認／修改大綱後再按「依大綱寫出正文」——"
+                "在大綱階段改方向，比改完稿便宜得多。",
+            )
         else:
             messages.success(request, f"生成完成，耗時 {run.elapsed_ms / 1000:.1f} 秒。")
         return redirect("studio:run_detail", pk=run.pk)
@@ -77,6 +89,7 @@ def run_new(request):
         "guides": StyleGuide.objects.select_related("outlet", "author").filter(is_active=True),
         "experiments": Experiment.objects.all(),
         "strategies": RETRIEVAL_STRATEGIES,
+        "modes": GENERATION_MODES,
         "preselect_brief": request.GET.get("brief") or "",
     })
 
@@ -91,6 +104,29 @@ def run_detail(request, pk):
         "revisions": run.revisions.all(),
         "evaluations": run.evaluations.select_related("revision").all(),
     })
+
+
+def run_outline(request, pk):
+    """Save an edited outline, and optionally write the draft from it."""
+    run = get_object_or_404(GenerationRun, pk=pk)
+    if request.method != "POST":
+        return redirect("studio:run_detail", pk=pk)
+
+    run.outline = request.POST.get("outline", run.outline)
+    run.outline_approved = True
+    run.save(update_fields=["outline", "outline_approved"])
+
+    if request.POST.get("action") == "generate":
+        from studio.services import pipeline
+
+        pipeline.continue_from_outline(run)
+        if run.status == "failed":
+            messages.error(request, f"生成失敗：{run.error}")
+        else:
+            messages.success(request, "已依大綱寫出正文。")
+    else:
+        messages.success(request, "大綱已儲存。")
+    return redirect("studio:run_detail", pk=pk)
 
 
 def run_evaluate(request, pk):

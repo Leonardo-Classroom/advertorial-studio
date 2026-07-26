@@ -162,6 +162,14 @@
               {% else %}—{% endif %}</td></tr>
         </table>
 
+        {% if ev.fact_coverage.internal_leakage and not ev.fact_coverage.internal_leakage.clean %}
+          <div class="msg error" style="margin-top:10px">
+            <strong>⚠ 內部語言洩漏：</strong>稿件出現了只有代理商該知道的用語，
+            消費者看到會立刻露餡——<span class="mono">{{ ev.fact_coverage.internal_leakage.terms|join:"、" }}</span>
+          </div>
+        {% elif ev.fact_coverage.internal_leakage %}
+          <p class="small" style="margin-top:8px"><span class="pill good">未出現投放／KPI 等內部用語</span></p>
+        {% endif %}
         {% if ev.missing_facts %}
           <div class="msg warning" style="margin-top:10px"><strong>缺漏的事實：</strong>
             {{ ev.missing_facts|join:"、" }}</div>

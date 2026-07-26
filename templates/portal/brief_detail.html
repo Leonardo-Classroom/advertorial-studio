@@ -31,7 +31,9 @@
     </div>
     <p class="small muted">
       產出的稿件<strong>只會寫這裡有的東西</strong>——品牌、產品型號、合作人選都以此為準，
-      系統不會自己補上沒寫的資訊。有錯就直接改，改完按下方按鈕確認。
+      系統不會自己補上沒寫的資訊。有錯就直接改，改完按下方按鈕確認。<br>
+      <strong>internal_only</strong> 底下是投放計畫、KPI、預算這類內部資訊，
+      系統<strong>不會</strong>把它們寫進稿子，你可以略過不看。
     </p>
     <form method="post" action="{% url 'portal:brief_save_facts' brief.pk %}">
       {% csrf_token %}

@@ -88,7 +88,7 @@ def run_stages(run: GenerationRun, stop_after_outline: bool = False) -> Generati
         notes = llm.complete(
             instructions=prompts.SUMMARIZE_ROLE,
             user_input=prompts.SUMMARIZE_TASK.format(
-                facts=json.dumps(facts, ensure_ascii=False, indent=2)),
+                facts=json.dumps(prompts.writable_facts(facts), ensure_ascii=False, indent=2)),
             timeout=400,
         )
         run.notes = notes
@@ -99,17 +99,19 @@ def run_stages(run: GenerationRun, stop_after_outline: bool = False) -> Generati
         # be named here too. Without it the first staged run dropped a third of
         # them into "刻意不寫" — the same failure mode the revision loop had,
         # just moved one stage earlier.
-        from briefs.models import mandatory_fact_values
+        from briefs.models import required_fact_values
 
         t = time.time()
         structure = _structure_hint(guide)
-        must_cover = mandatory_fact_values(facts)
+        must_cover = required_fact_values(facts)
         outline = llm.complete(
             instructions=prompts.SYNTHESIZE_ROLE,
             user_input=prompts.SYNTHESIZE_TASK.format(
                 notes=notes,
                 structure=structure,
-                deliverables="、".join(facts.get("deliverables") or []) or "（未指定）",
+                # The deliverable list is a media-buy artefact; the outline only
+                # needs to know it is writing one article.
+                deliverables="一篇廣編圖文（含 FB 貼文文案）",
                 must_cover="、".join(must_cover) or "（無）",
             ),
             timeout=400,

@@ -16,35 +16,58 @@ FACT_SCHEMA_HINT = {
 }
 
 
-def mandatory_fact_values(facts: dict) -> list[str]:
-    """The facts that must appear verbatim in a draft.
+def required_fact_values(facts: dict) -> list[str]:
+    """Facts a draft must contain to be considered complete.
 
-    Shared by the generator, the reviser and the evaluator on purpose: when the
-    prompt and the metric disagree about what counts as mandatory, a revision
-    can quietly drop required facts and still look like it followed orders.
-    That is exactly what happened on the first real revision run — the editor
-    feedback said "消化不確定資訊" and the model removed every KOL name, which
-    the coverage check caught only after the fact.
-
-    Prose fields (campaign_context and friends) are excluded: they are meant to
-    be reworded, so absence there is not an error.
+    Narrower than it used to be. It once included every KOL name, and one Oct
+    deck listed 28 of them — so coverage demanded the copy name all 28, which
+    is not an article, it is a roster. Talent is now *available* material, not
+    a checklist: a piece featuring two of the KOLs well beats one that mentions
+    all of them.
     """
     out: list[str] = []
-    for key in ("brand", "slogan"):
-        value = facts.get(key)
-        if isinstance(value, str) and value.strip():
-            out.append(value.strip())
-    for key in ("product", "kol", "mandatory_terms"):
+    brand = facts.get("brand")
+    if isinstance(brand, str) and brand.strip():
+        out.append(brand.strip())
+    for key in ("product", "mandatory_terms"):
         value = facts.get(key)
         if isinstance(value, list):
             out.extend(str(v).strip() for v in value if str(v).strip())
-    # Preserve order while removing duplicates.
+
     seen, unique = set(), []
     for v in out:
         if v not in seen:
             seen.add(v)
             unique.append(v)
     return unique
+
+
+def preservable_fact_values(facts: dict) -> list[str]:
+    """Everything a revision must not silently delete.
+
+    Wider than `required_fact_values`: a rewrite should not be free to drop a
+    KOL the draft already named just because the judge asked it to tighten
+    things up — that is how the first revision run lost all six names — but nor
+    should the first draft be obliged to name every one of them.
+    """
+    out = list(required_fact_values(facts))
+    slogan = facts.get("slogan")
+    if isinstance(slogan, str) and slogan.strip():
+        out.append(slogan.strip())
+    kol = facts.get("kol")
+    if isinstance(kol, list):
+        out.extend(str(v).strip() for v in kol if str(v).strip())
+
+    seen, unique = set(), []
+    for v in out:
+        if v not in seen:
+            seen.add(v)
+            unique.append(v)
+    return unique
+
+
+# Kept as the old name so existing callers keep working.
+mandatory_fact_values = required_fact_values
 
 
 class Brief(models.Model):

@@ -169,9 +169,9 @@ def check_facts(draft: str, facts: dict) -> dict:
     KOL names, mandatory terms) — prose fields like campaign_context are meant
     to be reworded, so absence there is not an error.
     """
-    from briefs.models import mandatory_fact_values
+    from briefs.models import required_fact_values
 
-    checkable = mandatory_fact_values(facts)
+    checkable = required_fact_values(facts)
     normalised = re.sub(r"\s+", "", draft).lower()
     present = [t for t in checkable if re.sub(r"\s+", "", t).lower() in normalised]
     missing = [t for t in checkable if t not in present]
@@ -188,6 +188,31 @@ def check_facts(draft: str, facts: dict) -> dict:
         "forbidden_hits": forbidden,
         "coverage": round(len(present) / len(checkable), 3) if checkable else None,
     }
+
+
+# Vocabulary that belongs in a media plan, never in copy a reader sees. Found
+# the hard way: a draft explained the Pre-heat/Launch/Sustain schedule, listed
+# MRT exits used for out-of-home placement, and twice told the reader what the
+# deck did or did not provide.
+INTERNAL_LANGUAGE = [
+    "campaign", "檔期", "period", "pre-heat", "預熱期", "launch 期", "sustain",
+    "版位", "投放", "曝光規劃", "戶外廣告", "燈箱", "廣告車", "刊期",
+    "聲量", "心佔", "導購", "觸及", "成效", "業績", "kpi", "預算",
+    "簡報中", "簡報未", "簡報尚未", "簡報提到", "根據提案", "本次提案",
+    "目標受眾", "core ta", "potential ta",
+]
+
+
+def internal_leakage(draft: str) -> dict:
+    """Find media-plan vocabulary that reached consumer-facing copy.
+
+    This is a genre failure rather than a style one, so neither the style
+    profile nor the LLM judge reliably catches it — the judge scored such a
+    draft 3/5 on tone while it was busy explaining the out-of-home buy.
+    """
+    lowered = draft.lower()
+    hits = [term for term in INTERNAL_LANGUAGE if term in lowered]
+    return {"terms": hits, "count": len(hits), "clean": not hits}
 
 
 def style_deviation(draft: str, guide_sections: dict) -> dict:
@@ -250,6 +275,7 @@ def evaluate(run: GenerationRun, revision: Revision | None = None,
     exemplar_ids = [e.get("id") for e in (run.exemplars or []) if e.get("id")]
     ev.max_overlap, ev.overlap_source = overlap_against_exemplars(draft, exemplar_ids)
     ev.fact_coverage = check_facts(draft, run.brief.facts or {})
+    ev.fact_coverage["internal_leakage"] = internal_leakage(draft)
 
     # Style-embedding distance, when an index exists for this outlet.
     try:

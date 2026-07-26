@@ -20,6 +20,36 @@ ROLE = """你是一位資深的中文廣編稿（業配圖文）寫手，長期�
 你的專長是：拿到品牌的行銷簡報後，寫出讀起來像該媒體編輯自己寫的文章，而不是像廣告稿。
 全程使用繁體中文（台灣用語）。"""
 
+# Genre rules, derived from the real advertorials in 0424新增/廣編 (Girl Style,
+# Popdaily). Those pieces are consumer-facing throughout: KOL outfits described
+# garment by garment, colourway names, how the shoe feels to walk in, dialogue
+# from the event. What they never contain is the thing the deck is mostly about
+# — media placements, campaign phases, KPIs, budget.
+#
+# Without these rules the model wrote about the media plan: "Pre-heat 預熱期落在
+# 9/25–10/7", "簡報中也提到台北捷運市政府 2 號出口", "簡報尚未提供完整資訊".
+# The style guide cannot prevent that; it only governs tone. This is genre.
+GENRE_RULES = """【廣編稿是什麼】
+這是一篇要直接刊登給**消費者**看的圖文。讀者是想看穿搭、想知道這雙鞋好不好看的人，
+不是品牌窗口，也不是廣告代理商。
+
+**要寫的**：
+- 產品長什麼樣、什麼配色、什麼材質、穿起來是什麼感覺、怎麼搭
+- KOL／藝人穿了什麼（單品逐件寫）、在什麼場景、做了什麼、說了什麼
+- 讀者為什麼會想要這雙鞋
+- 售價、開賣日、哪裡買、活動怎麼參加——如果簡報有給的話
+
+**絕對不能出現的**（讀者不需要知道，寫出來會立刻露餡）：
+- 「campaign」「檔期」「Period」「Pre-heat」「Launch 期」「Sustain」等投放分期用語
+- 版位、媒體通路、OOH／戶外廣告點位、捷運燈箱、廣告車、曝光規劃
+- 預算、KPI、聲量、心佔、導購、業績、成效、觸及
+- 「簡報中提到」「簡報未提供」「根據提案」——**任何指涉簡報本身的句子**
+- 品牌內部目標（例如「強化商品心佔」「帶動周慶業績」）
+
+**寫不出來的時候**：如果簡報只給了投放計畫、沒給產品細節，
+就把文章聚焦在你手上真正有的產品與人物素材，把篇幅寫短一點，
+**不要拿投放計畫充版面**。缺什麼資訊就寫進文末〈待確認〉，正文裡不要提。"""
+
 HARD_RULES = """【絕對規則】
 1. 事實只能來自「簡報事實」區塊。品牌名、產品型號、KOL姓名、活動時間、價格等，
    簡報沒有寫的一律不准出現，也不要用「據悉」「聽說」之類的話含混帶過。
@@ -39,7 +69,9 @@ OUTPUT_SPEC = """【輸出格式】請完全照下列結構輸出，用 Markdown
 （一句，符合該媒體的標題公式）
 
 ## 內文
-（正文。依該媒體慣例分段並下小標；需要放圖的位置用 `（圖說：…）` 標示。）
+（正文。依該媒體慣例分段並下小標。
+需要放圖的位置只寫來源標註，例如 `（Photo from 品牌名）`——
+**不要描述那張圖要拍什麼**，那是給攝影師的指示，不是給讀者看的。）
 
 ## Hashtag
 （一行，空格分隔）
@@ -53,6 +85,8 @@ def build_instructions(style_guide_text: str, outlet_name: str, author_name: str
     guide = style_guide_text.strip() or "（尚未建立風格指南，請依範例文章自行歸納語感）"
     return f"""{ROLE}
 
+{GENRE_RULES}
+
 這次你要模仿的是【{scope}】的寫作風格。以下是該風格的指南，請嚴格遵守：
 
 {guide}
@@ -60,8 +94,19 @@ def build_instructions(style_guide_text: str, outlet_name: str, author_name: str
 {HARD_RULES}"""
 
 
+# Fields the writer must never see. Handing over the media plan and then asking
+# the model not to write about it is a losing game; withholding it is not.
+INTERNAL_FIELDS = {"internal_only", "campaign", "campaign_context",
+                   "publish_schedule", "deliverables", "target_audience", "uncertain"}
+
+
+def writable_facts(facts: dict) -> dict:
+    """The subset of the brief a consumer-facing draft may draw on."""
+    return {k: v for k, v in (facts or {}).items() if k not in INTERNAL_FIELDS}
+
+
 def build_input(facts: dict, exemplars: list, extra_requirements: str = "") -> str:
-    facts_json = json.dumps(facts, ensure_ascii=False, indent=2)
+    facts_json = json.dumps(writable_facts(facts), ensure_ascii=False, indent=2)
 
     if exemplars:
         blocks = []
@@ -80,9 +125,9 @@ def build_input(facts: dict, exemplars: list, extra_requirements: str = "") -> s
 
     extra = f"\n\n【額外要求】\n{extra_requirements.strip()}" if extra_requirements.strip() else ""
 
-    return f"""請依據以下簡報事實，寫一篇廣編稿。
+    return f"""請依據以下素材，寫一篇廣編稿。
 
-【簡報事實（唯一事實來源）】
+【可用素材（唯一事實來源；這裡沒有的一律不准寫）】
 {facts_json}
 
 {exemplar_section}
@@ -166,7 +211,7 @@ SYNTHESIZE_TASK = """依據下方重點筆記與該媒體的風格慣例，訂�
 def build_generate_from_outline(facts: dict, outline: str, exemplars: list,
                                 extra_requirements: str = "") -> str:
     """Stage 5: write the draft against an approved outline."""
-    facts_json = json.dumps(facts, ensure_ascii=False, indent=2)
+    facts_json = json.dumps(writable_facts(facts), ensure_ascii=False, indent=2)
 
     if exemplars:
         blocks = [
@@ -187,7 +232,7 @@ def build_generate_from_outline(facts: dict, outline: str, exemplars: list,
 【大綱（必須照這個骨架寫，不要自行增刪段落）】
 {outline}
 
-【簡報事實（唯一事實來源）】
+【可用素材（唯一事實來源）】
 {facts_json}
 
 {exemplar_section}
@@ -205,9 +250,17 @@ REVISION_ROLE = """你是資深廣編稿寫手，正在依據客戶／編輯的�
 
 
 def build_revision_input(previous_text: str, feedback: str, facts: dict) -> str:
-    from briefs.models import mandatory_fact_values
+    import re as _re
 
-    must_keep = mandatory_fact_values(facts)
+    from briefs.models import preservable_fact_values, required_fact_values
+
+    # Protect what the draft already says, plus what is required regardless.
+    # Listing every KOL in the roster here would push the reviser to cram in
+    # names the draft never featured.
+    flat = _re.sub(r"\s+", "", previous_text).lower()
+    present = [v for v in preservable_fact_values(facts)
+               if _re.sub(r"\s+", "", v).lower() in flat]
+    must_keep = list(dict.fromkeys(required_fact_values(facts) + present))
     keep_block = "、".join(must_keep) if must_keep else "（無）"
 
     return f"""以下是上一版稿件，以及編輯的修改意見。請產出修訂後的完整稿件。
@@ -215,8 +268,8 @@ def build_revision_input(previous_text: str, feedback: str, facts: dict) -> str:
 【修改意見】
 {feedback.strip()}
 
-【簡報事實（唯一事實來源，不得超出此範圍新增事實）】
-{json.dumps(facts, ensure_ascii=False, indent=2)}
+【可用素材（唯一事實來源，不得超出此範圍新增事實）】
+{json.dumps(writable_facts(facts), ensure_ascii=False, indent=2)}
 
 【上一版稿件】
 {previous_text}

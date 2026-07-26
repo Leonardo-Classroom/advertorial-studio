@@ -23,7 +23,9 @@
     </div>
     <p class="small muted">
       這份 JSON 是生成廣編稿時<strong>唯一允許的事實來源</strong>：品牌、型號、KOL 姓名都以此為準，
-      模型不准寫出這裡沒有的事實。抽取後請務必逐項核對再確認。
+      模型不准寫出這裡沒有的事實。抽取後請務必逐項核對再確認。<br>
+      <strong>internal_only</strong> 底下的內容（KPI、版位、檔期分期、預算）
+      <strong>不會</strong>送進寫稿模型——那些是代理商內部資訊，寫進消費者看的稿子會立刻露餡。
     </p>
 
     {% if brief.facts.uncertain %}

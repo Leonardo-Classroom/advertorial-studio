@@ -57,7 +57,7 @@ def run_new(request):
         guide_id = request.POST.get("style_guide") or None
         experiment_id = request.POST.get("experiment") or None
 
-        mode = request.POST.get("mode", "single")
+        mode = request.POST.get("mode", "staged")
         pause = mode == "staged" and request.POST.get("pause_at_outline") == "on"
 
         run = GenerationRun.objects.create(
@@ -67,7 +67,7 @@ def run_new(request):
             style_guide_id=guide_id or None,
             experiment_id=experiment_id or None,
             mode=mode,
-            retrieval_strategy=request.POST.get("retrieval_strategy", "topical"),
+            retrieval_strategy=request.POST.get("retrieval_strategy", "typical"),
             exemplar_count=int(request.POST.get("exemplar_count") or 4),
         )
         generate_service.run_generation(run, stop_after_outline=pause)

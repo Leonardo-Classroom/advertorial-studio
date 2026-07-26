@@ -7,13 +7,16 @@ RETRIEVAL_STRATEGIES = [
     ("topical", "主題相似檢索（依簡報內容找同題材範文）"),
     ("random", "隨機抽樣（同媒體/作者內隨機）"),
     ("hybrid", "混合（一半主題相似、一半隨機）"),
-    ("typical", "主題檢索後依「文體代表性」重排（方案 B 預設）"),
+    ("typical", "主題檢索後依「文體代表性」重排（預設）"),
     ("none", "不放範例（只用風格指南）"),
 ]
 
 GENERATION_MODES = [
-    ("single", "方案 A：單次生成"),
+    # Staged is listed first because it is the default: it scored +0.75 on
+    # advertorial_completeness and +0.50 on reads_as_human against single-shot,
+    # and the operator's own read of the drafts agreed with that direction.
     ("staged", "方案 B：多階段管線（檢索→重排→摘要→大綱→生成）"),
+    ("single", "方案 A：單次生成（較快，結構較鬆）"),
 ]
 
 
@@ -55,9 +58,9 @@ class GenerationRun(models.Model):
     experiment = models.ForeignKey(Experiment, on_delete=models.SET_NULL,
                                    null=True, blank=True, related_name="runs")
 
-    mode = models.CharField("生成方式", max_length=8, choices=GENERATION_MODES, default="single")
+    mode = models.CharField("生成方式", max_length=8, choices=GENERATION_MODES, default="staged")
     retrieval_strategy = models.CharField("檢索策略", max_length=16,
-                                          choices=RETRIEVAL_STRATEGIES, default="topical")
+                                          choices=RETRIEVAL_STRATEGIES, default="typical")
     exemplar_count = models.IntegerField("範例篇數", default=4)
     exemplars = models.JSONField("實際使用的範例", default=list, blank=True,
                                  help_text="[{id, title, score, author}]")

@@ -54,12 +54,13 @@
       </div>
       <div style="flex:0;min-width:auto">
         <label style="white-space:nowrap">
-          <input type="checkbox" name="pause_at_outline" style="width:auto"> 大綱階段先暫停</label>
+          <input type="checkbox" name="pause_at_outline" checked style="width:auto"> 大綱階段先暫停</label>
       </div>
     </div>
     <p class="small muted" style="margin:-4px 0 8px">
-      方案 B 會先產出重點筆記與大綱再寫正文，較慢（約 90 秒 vs 45 秒）但結構較穩。
-      勾選「大綱階段先暫停」可以在寫正文前先人工確認方向。
+      <strong>預設是方案 B</strong>：先產出重點筆記與大綱再寫正文，較慢（約 83 秒 vs 29 秒），
+      但結構完整度實測高 0.75 分。「大綱階段先暫停」也預設開啟——
+      在大綱改方向比改完稿便宜得多；不需要時可取消勾選，一次跑完。
     </p>
 
     <div class="row">
@@ -67,7 +68,7 @@
         <label>檢索策略 *</label>
         <select name="retrieval_strategy">
           {% for value, label in strategies %}
-            <option value="{{ value }}" {% if value == 'topical' %}selected{% endif %}>{{ label }}</option>
+            <option value="{{ value }}" {% if value == 'typical' %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
       </div>

@@ -1,0 +1,33 @@
+from django.contrib import admin
+
+from studio.models import Evaluation, Experiment, GenerationRun, Revision
+
+
+class RevisionInline(admin.TabularInline):
+    model = Revision
+    extra = 0
+
+
+class EvaluationInline(admin.TabularInline):
+    model = Evaluation
+    extra = 0
+    fk_name = "run"
+
+
+@admin.register(GenerationRun)
+class GenerationRunAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "retrieval_strategy", "exemplar_count",
+                    "status", "elapsed_ms", "created_at")
+    list_filter = ("status", "retrieval_strategy", "outlet", "experiment")
+    inlines = [RevisionInline, EvaluationInline]
+
+
+@admin.register(Experiment)
+class ExperimentAdmin(admin.ModelAdmin):
+    list_display = ("name", "created_at")
+
+
+@admin.register(Evaluation)
+class EvaluationAdmin(admin.ModelAdmin):
+    list_display = ("run", "style_similarity", "max_overlap", "human_score", "created_at")
+    list_filter = ("run__outlet",)

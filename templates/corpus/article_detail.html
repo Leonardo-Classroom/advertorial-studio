@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="small"><a href="{% url 'corpus:articles' %}">← 回語料庫</a></p>
+<h1>{{ article.title }}</h1>
+<p class="sub">{{ article.outlet.name }} / {{ article.author.name }} · {{ article.published_on|default:"日期不明" }}
+  · {{ article.char_count }} 字
+  {% if article.url %} · <a href="{{ article.url }}" target="_blank" rel="noopener">原文連結</a>{% endif %}
+</p>
+
+<div class="card"><pre class="doc">{{ article.body }}</pre></div>
+
+<details class="card">
+  <summary>來源與索引資訊</summary>
+  <p class="mono small" style="margin:10px 0 0">{{ article.source_path }}</p>
+  <p class="small muted">向量列號：{{ article.vector_row|default:"未建索引" }}
+    {% if article.indexed_at %}· 索引於 {{ article.indexed_at|date:"Y-m-d H:i" }}{% endif %}</p>
+</details>
+{% endblock %}

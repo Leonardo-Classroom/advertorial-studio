@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>作者</h1>
+<p class="sub">「風格信心度」依樣本數判定。樣本太少的作者不適合單獨建個人風格模型，
+  建議改用該媒體的全站風格指南。</p>
+
+<div class="card">
+  <form method="get" class="row">
+    <div>
+      <label>媒體</label>
+      <select name="outlet" onchange="this.form.submit()">
+        <option value="">全部</option>
+        {% for o in outlets %}
+          <option value="{{ o.pk }}" {% if sel_outlet == o.pk|stringformat:"s" %}selected{% endif %}>{{ o.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="scroll"><table>
+    <tr><th>作者</th><th>媒體</th><th>文章數</th><th>風格信心度</th><th></th></tr>
+    {% for a in page %}
+    <tr>
+      <td>{{ a.name }}</td>
+      <td class="small">{{ a.outlet.name }}</td>
+      <td>{{ a.article_count }}</td>
+      <td>
+        {% if a.style_confidence == 'high' %}<span class="pill good">高</span>
+        {% elif a.style_confidence == 'medium' %}<span class="pill warn">中</span>
+        {% else %}<span class="pill bad">低</span>{% endif %}
+      </td>
+      <td><a class="small" href="{% url 'corpus:articles' %}?author={{ a.pk }}">看文章</a></td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% if page.has_other_pages %}
+  <div class="row tight" style="margin-top:14px">
+    <div class="small muted">第 {{ page.number }} / {{ page.paginator.num_pages }} 頁</div>
+    <div style="flex:0;display:flex;gap:8px">
+      {% if page.has_previous %}<a class="btn sm ghost" href="?page={{ page.previous_page_number }}&outlet={{ sel_outlet }}">上一頁</a>{% endif %}
+      {% if page.has_next %}<a class="btn sm ghost" href="?page={{ page.next_page_number }}&outlet={{ sel_outlet }}">下一頁</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,95 @@
+{% load static %}<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}廣編稿生成系統{% endblock %}</title>
+<style>
+:root{
+  --bg:#fbfbfa; --panel:#fff; --ink:#1f2328; --muted:#656d76; --line:#e4e6ea;
+  --accent:#2b5cff; --accent-soft:#eef2ff; --good:#1a7f4b; --warn:#b45309; --bad:#c0362c;
+}
+@media (prefers-color-scheme:dark){
+  :root{ --bg:#15171a; --panel:#1c1f23; --ink:#e8eaed; --muted:#9aa2ad; --line:#2c3037;
+         --accent:#7d9bff; --accent-soft:#23293a; --good:#4ade80; --warn:#fbbf24; --bad:#f87171; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.65 -apple-system,"Segoe UI","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;}
+a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+header.top{background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+.topwrap{max-width:1180px;margin:0 auto;padding:0 20px;display:flex;align-items:center;gap:22px;height:56px}
+.brand{font-weight:700;font-size:16px;letter-spacing:.3px;color:var(--ink)}
+.brand:hover{text-decoration:none}
+nav.main{display:flex;gap:18px;flex-wrap:wrap}
+nav.main a{color:var(--muted);font-size:14px;padding:4px 0;border-bottom:2px solid transparent}
+nav.main a:hover{color:var(--ink);text-decoration:none}
+nav.main a.on{color:var(--ink);border-bottom-color:var(--accent)}
+main{max-width:1180px;margin:0 auto;padding:26px 20px 80px}
+h1{font-size:22px;margin:0 0 4px} h2{font-size:17px;margin:26px 0 10px}
+h3{font-size:15px;margin:18px 0 8px}
+.sub{color:var(--muted);font-size:13.5px;margin:0 0 20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:16px}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(165px,1fr))}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.stat .n{font-size:26px;font-weight:650;letter-spacing:-.5px}
+.stat .l{color:var(--muted);font-size:12.5px;margin-top:2px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.4px}
+tr:last-child td{border-bottom:none}
+.scroll{overflow-x:auto}
+.btn{display:inline-block;background:var(--accent);color:#fff;border:none;border-radius:7px;
+  padding:8px 15px;font-size:14px;cursor:pointer;font-family:inherit}
+.btn:hover{filter:brightness(1.08);text-decoration:none;color:#fff}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+.btn.sm{padding:5px 11px;font-size:13px}
+input[type=text],input[type=number],input[type=file],select,textarea{
+  width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:7px;
+  background:var(--bg);color:var(--ink);font:inherit;font-size:14px}
+textarea{min-height:110px;resize:vertical;line-height:1.6}
+label{display:block;font-size:13px;color:var(--muted);margin:12px 0 5px}
+.pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:12px;
+  background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.pill.good{background:color-mix(in srgb,var(--good) 15%,transparent);color:var(--good)}
+.pill.warn{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.pill.bad{background:color-mix(in srgb,var(--bad) 14%,transparent);color:var(--bad)}
+.muted{color:var(--muted)} .small{font-size:13px} .mono{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12.5px}
+.msg{padding:11px 15px;border-radius:8px;margin-bottom:14px;font-size:14px;border:1px solid var(--line)}
+.msg.success{background:color-mix(in srgb,var(--good) 10%,transparent);border-color:var(--good)}
+.msg.error{background:color-mix(in srgb,var(--bad) 10%,transparent);border-color:var(--bad)}
+.msg.warning{background:color-mix(in srgb,var(--warn) 10%,transparent);border-color:var(--warn)}
+pre.doc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:14px 16px;
+  white-space:pre-wrap;word-break:break-word;font:inherit;font-size:14px;line-height:1.75;margin:0}
+details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.row>*{flex:1;min-width:150px}
+.row.tight{align-items:center}
+.bar{height:6px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:5px}
+.bar>i{display:block;height:100%;background:var(--accent)}
+.empty{text-align:center;padding:40px 20px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header class="top"><div class="topwrap">
+  <a class="brand" href="{% url 'studio:home' %}">廣編稿生成系統</a>
+  <nav class="main">
+    <a href="{% url 'studio:home' %}" class="{% if section == 'home' %}on{% endif %}">總覽</a>
+    <a href="{% url 'corpus:articles' %}" class="{% if section == 'corpus' %}on{% endif %}">語料庫</a>
+    <a href="{% url 'corpus:guides' %}" class="{% if section == 'guides' %}on{% endif %}">風格指南</a>
+    <a href="{% url 'briefs:list' %}" class="{% if section == 'briefs' %}on{% endif %}">簡報</a>
+    <a href="{% url 'studio:runs' %}" class="{% if section == 'runs' %}on{% endif %}">生成紀錄</a>
+    <a href="{% url 'studio:experiments' %}" class="{% if section == 'experiments' %}on{% endif %}">A/B 實驗</a>
+  </nav>
+</div></header>
+<main>
+  {% if messages %}{% for m in messages %}
+    <div class="msg {{ m.tags }}">{{ m }}</div>
+  {% endfor %}{% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

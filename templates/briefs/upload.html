@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="small"><a href="{% url 'briefs:list' %}">← 回簡報列表</a></p>
+<h1>上傳簡報</h1>
+<p class="sub">支援 .pptx。系統會抽出所有文字，包含表格與備忘稿——提案簡報的重點常常藏在那裡。</p>
+
+<div class="card" style="max-width:620px">
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <label>名稱（留空則用檔名）</label>
+    <input type="text" name="title" placeholder="例如：NB 2026 Grey Days Campaign">
+    <label>簡報檔（.pptx）</label>
+    <input type="file" name="source_file" accept=".pptx" required>
+    <div style="margin-top:16px"><button class="btn">上傳並解析</button></div>
+  </form>
+</div>
+{% endblock %}

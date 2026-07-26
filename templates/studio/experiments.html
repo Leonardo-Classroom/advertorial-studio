@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>A/B 實驗</h1>
+<p class="sub">
+  用來回答計畫裡懸而未決的那個問題：<strong>「依主題相似度挑範例」到底有沒有比較好？</strong><br>
+  arXiv:2509.14543 在英文非正式語料上發現主題相似挑選反而<em>降低</em>風格辨識度，
+  但那份研究的語境與本專案（中文、時尚媒體、術語本身就是風格標記）不同，
+  所以必須用自己的語料實測，不能直接沿用任一方的結論。
+</p>
+
+<div class="card" style="max-width:620px">
+  <h2 style="margin-top:0">建立實驗</h2>
+  <form method="post">
+    {% csrf_token %}
+    <label>實驗名稱</label>
+    <input type="text" name="name" placeholder="例如：COOL-STYLE 範例挑選策略 topical vs random" required>
+    <label>說明</label>
+    <textarea name="description" style="min-height:70px"
+      placeholder="控制變因：同一份簡報、同一份風格指南、同樣 4 篇範例，只改檢索策略。"></textarea>
+    <button class="btn" style="margin-top:10px">建立</button>
+  </form>
+</div>
+
+<div class="card">
+  {% if experiments %}
+    <table>
+      <tr><th>名稱</th><th>生成數</th><th>建立</th></tr>
+      {% for e in experiments %}
+      <tr>
+        <td><a href="{% url 'studio:experiment_detail' e.pk %}">{{ e.name }}</a>
+          {% if e.description %}<div class="small muted">{{ e.description|truncatechars:80 }}</div>{% endif %}</td>
+        <td>{{ e.n }}</td>
+        <td class="small muted">{{ e.created_at|date:"Y-m-d" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <div class="empty">還沒有實驗。</div>
+  {% endif %}
+</div>
+{% endblock %}

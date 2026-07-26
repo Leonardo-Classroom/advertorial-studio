@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>新增生成</h1>
+<p class="sub">選定簡報與目標風格後生成廣編稿。要跑 A/B 實驗的話，把「檢索策略」以外的欄位全部保持一致，
+  只改策略，並掛在同一個實驗底下。</p>
+
+<div class="card" style="max-width:760px">
+  <form method="post">
+    {% csrf_token %}
+    <div class="row">
+      <div>
+        <label>簡報 *</label>
+        <select name="brief" required>
+          <option value="">— 請選擇 —</option>
+          {% for b in briefs %}
+            <option value="{{ b.pk }}" {% if preselect_brief == b.pk|stringformat:"s" %}selected{% endif %}>
+              {{ b.title }}{% if b.status != 'confirmed' %}（事實未確認）{% endif %}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>目標媒體 *</label>
+        <select name="outlet" required>
+          {% for o in outlets %}<option value="{{ o.pk }}">{{ o.name }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>目標作者（可留空＝全站風格）</label>
+        <select name="author">
+          <option value="">— 不指定 —</option>
+          {% for a in authors %}
+            <option value="{{ a.pk }}">{{ a.outlet.name }} / {{ a.name }}（{{ a.article_count }} 篇）</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>風格指南</label>
+        <select name="style_guide">
+          <option value="">— 不使用（只靠範例）—</option>
+          {% for g in guides %}<option value="{{ g.pk }}">{{ g.scope_label }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>檢索策略 *</label>
+        <select name="retrieval_strategy">
+          {% for value, label in strategies %}
+            <option value="{{ value }}" {% if value == 'topical' %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>範例篇數</label>
+        <input type="number" name="exemplar_count" value="4" min="0" max="10">
+      </div>
+      <div>
+        <label>掛到 A/B 實驗（可留空）</label>
+        <select name="experiment">
+          <option value="">— 不掛 —</option>
+          {% for e in experiments %}<option value="{{ e.pk }}">{{ e.name }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="msg" style="margin-top:18px">
+      <strong>提醒：</strong>主題相似檢索需要先建立向量索引。若尚未建立，請改用「隨機抽樣」或先執行
+      <code class="mono">python manage.py build_index</code>。生成會即時呼叫模型，需要數十秒到數分鐘。
+    </div>
+
+    <button class="btn" style="margin-top:6px">開始生成</button>
+  </form>
+</div>
+{% endblock %}

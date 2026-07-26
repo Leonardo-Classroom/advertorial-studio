@@ -1,0 +1,8 @@
+Django>=5.0,<6.0
+openai>=1.100
+numpy>=1.26
+python-pptx>=1.0
+python-docx>=1.0
+PyYAML>=6.0
+# 本機向量後端（EMBED_BACKEND=local）。需要 torch；有 GPU 會自動使用。
+sentence-transformers>=5.0

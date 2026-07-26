@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="small"><a href="{% url 'studio:runs' %}">← 回生成紀錄</a></p>
+<h1>生成 #{{ run.pk }}</h1>
+<p class="sub">
+  {{ run.brief.title }} → {{ run.outlet.name }}{% if run.author %} / {{ run.author.name }}{% endif %}
+  · {{ run.get_retrieval_strategy_display }} · 範例 {{ run.exemplar_count }} 篇
+  · {{ run.model }} · {{ run.elapsed_ms|floatformat:0 }}ms
+  {% if run.experiment %} · 實驗：<a href="{% url 'studio:experiment_detail' run.experiment.pk %}">{{ run.experiment.name }}</a>{% endif %}
+</p>
+
+{% if run.status == 'failed' %}
+  <div class="msg error"><strong>生成失敗：</strong>{{ run.error }}</div>
+{% endif %}
+
+<div class="grid g2">
+  <div>
+    <div class="card">
+      <h2 style="margin-top:0">初稿</h2>
+      <pre class="doc">{{ run.output }}</pre>
+    </div>
+
+    {% for rev in revisions %}
+    <div class="card">
+      <h2 style="margin-top:0">第 {{ rev.round }} 稿</h2>
+      <details><summary>修改意見</summary>
+        <pre class="doc" style="margin-top:8px">{{ rev.feedback }}</pre></details>
+      <pre class="doc" style="margin-top:12px">{{ rev.output }}</pre>
+    </div>
+    {% endfor %}
+
+    <div class="card">
+      <h2 style="margin-top:0">提出修改意見（產生下一稿）</h2>
+      <p class="small muted">這裡的每一輪都會被保留。除了走完現有的初稿→Feedback→二稿流程，
+        這些「修改前／修改後」配對本身就是日後做偏好微調（方案 D）需要的資料。</p>
+      <form method="post" action="{% url 'studio:run_revise' run.pk %}">
+        {% csrf_token %}
+        <textarea name="feedback" placeholder="例如：第二段的產品描述太像官方文案，改得更像編輯自己的觀察；標題的驚嘆號拿掉一個。"></textarea>
+        <button class="btn" style="margin-top:10px">產生下一稿</button>
+      </form>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2 style="margin-top:0">使用的範例</h2>
+      {% if run.exemplars %}
+        <table>
+          {% for e in run.exemplars %}
+          <tr>
+            <td><a href="{% url 'corpus:article_detail' e.id %}">{{ e.title|truncatechars:40 }}</a>
+              <div class="small muted">{{ e.author }} · {{ e.reason }}</div></td>
+          </tr>
+          {% endfor %}
+        </table>
+      {% else %}
+        <p class="muted small">本次未使用範例。</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <div class="row tight" style="margin-bottom:10px">
+        <h2 style="margin:0;flex:1">評估</h2>
+      </div>
+      <form method="post" action="{% url 'studio:run_evaluate' run.pk %}">
+        {% csrf_token %}
+        <div class="row tight">
+          <select name="revision" style="flex:1">
+            <option value="">初稿</option>
+            {% for rev in revisions %}<option value="{{ rev.pk }}">第 {{ rev.round }} 稿</option>{% endfor %}
+          </select>
+          <label style="flex:0;margin:0;white-space:nowrap">
+            <input type="checkbox" name="judge" checked style="width:auto"> LLM 評審</label>
+          <button class="btn sm" style="flex:0">執行評估</button>
+        </div>
+      </form>
+
+      {% for ev in evaluations %}
+      <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
+        <p class="small muted" style="margin:0 0 8px">
+          {% if ev.revision %}第 {{ ev.revision.round }} 稿{% else %}初稿{% endif %}
+          · {{ ev.created_at|date:"m-d H:i" }}</p>
+        <table>
+          <tr><td>風格向量相似度</td><td>{{ ev.style_similarity|default:"—" }}
+            <span class="small muted">（與該媒體語料重心）</span></td></tr>
+          <tr><td>與範例相似度</td><td>{{ ev.exemplar_similarity|default:"—" }}</td></tr>
+          <tr><td>與範例最大重疊</td>
+            <td>{% if ev.has_overlap_score %}{{ ev.max_overlap|floatformat:3 }}
+              {% if ev.overlap_warning %}<span class="pill bad">照抄疑慮</span>{% else %}<span class="pill good">正常</span>{% endif %}
+              {% else %}—{% endif %}</td></tr>
+          <tr><td>事實覆蓋</td>
+            <td>{% if ev.fact_coverage.checked %}{{ ev.fact_coverage.coverage }}
+              （{{ ev.fact_coverage.present|length }}/{{ ev.fact_coverage.checked }}）
+              {% else %}—{% endif %}</td></tr>
+        </table>
+
+        {% if ev.missing_facts %}
+          <div class="msg warning" style="margin-top:10px"><strong>缺漏的事實：</strong>
+            {{ ev.missing_facts|join:"、" }}</div>
+        {% endif %}
+        {% if ev.fact_coverage.forbidden_hits %}
+          <div class="msg error" style="margin-top:10px"><strong>出現禁用字：</strong>
+            {{ ev.fact_coverage.forbidden_hits|join:"、" }}</div>
+        {% endif %}
+
+        {% if ev.judge_dimensions or ev.deviation %}
+        <details style="margin-top:8px" open><summary>LLM 評審明細</summary>
+          <table style="margin-top:8px">
+            {% for k, v in ev.judge_dimensions %}
+              <tr><td class="small">{{ k }}</td><td class="small">{{ v }} / 5</td></tr>
+            {% endfor %}
+          </table>
+          {% if ev.judge_weakest %}
+            <p class="small" style="margin:10px 0 4px"><strong>最弱的一項</strong><br>{{ ev.judge_weakest }}</p>
+          {% endif %}
+          {% if ev.judge_fixes %}
+            <p class="small" style="margin:10px 0 4px"><strong>具體修改建議</strong></p>
+            <ul class="small" style="margin:0;padding-left:20px">
+              {% for f in ev.judge_fixes %}<li>{{ f }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+          {% if ev.deviation %}
+            <p class="small" style="margin:12px 0 4px"><strong>與該媒體統計特徵的偏離</strong></p>
+            <table>
+              {% for k, v in ev.deviation.items %}
+              <tr><td class="small">{{ k }}</td>
+                <td class="small">本稿 {{ v.本稿 }} / 目標 {{ v.目標 }}
+                  <span class="pill">{{ v.偏離 }}</span></td></tr>
+              {% endfor %}
+            </table>
+          {% endif %}
+        </details>
+        {% endif %}
+
+        {% if ev.judge_comment %}<p class="small" style="margin-top:8px">{{ ev.judge_comment }}</p>{% endif %}
+        {% if ev.human_score %}
+          <p class="small" style="margin-top:8px"><span class="pill">人工 {{ ev.human_score }}/5</span>
+            {{ ev.human_comment }}</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0">人工評分</h2>
+      <p class="small muted">論文（arXiv:2508.06374）的結論是任何單一指標都不可靠，
+        指標組合才準——所以自動分數之外仍需要你的判斷。</p>
+      <form method="post" action="{% url 'studio:run_score' run.pk %}">
+        {% csrf_token %}
+        <label>像不像目標媒體？（1 完全不像 – 5 難以分辨）</label>
+        <select name="human_score">
+          {% for i in "12345" %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
+        </select>
+        <label>意見</label>
+        <textarea name="human_comment" style="min-height:80px"></textarea>
+        <button class="btn" style="margin-top:10px">記錄評分</button>
+      </form>
+    </div>
+
+    <details class="card">
+      <summary>檢視實際送出的 Prompt</summary>
+      <h3>System（instructions）</h3>
+      <pre class="doc mono" style="max-height:300px;overflow:auto">{{ run.prompt_instructions }}</pre>
+      <h3>User（input）</h3>
+      <pre class="doc mono" style="max-height:400px;overflow:auto">{{ run.prompt_input }}</pre>
+    </details>
+  </div>
+</div>
+{% endblock %}

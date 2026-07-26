@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="small"><a href="{% url 'corpus:guides' %}">← 回風格指南列表</a></p>
+<h1>{{ guide.scope_label }}</h1>
+<p class="sub">取樣 {{ guide.sample_size }} 篇 · {{ guide.model }} · 更新於 {{ guide.updated_at|date:"Y-m-d H:i" }}</p>
+
+<div class="grid g2">
+  <div class="card">
+    <h2 style="margin-top:0">指南內容（可編輯）</h2>
+    <p class="small muted">這段文字會原封不動放進生成的 system prompt。改得越貼近你的判斷，生成越準。</p>
+    <form method="post">
+      {% csrf_token %}
+      <textarea name="content" style="min-height:520px" class="mono">{{ guide.content }}</textarea>
+      <div class="row tight" style="margin-top:12px">
+        <label style="flex:1;margin:0">
+          <input type="checkbox" name="is_active" {% if guide.is_active %}checked{% endif %} style="width:auto"> 啟用中
+        </label>
+        <button class="btn" style="flex:0">儲存</button>
+      </div>
+    </form>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2 style="margin-top:0">客觀統計（量測值）</h2>
+      <p class="small muted">這些數字是直接數出來的，不是模型推測的，也是評估稿件時的比對基準。</p>
+      {% if measured %}
+        <table>
+          <tr><th colspan="2">內文</th></tr>
+          {% for label, value in body_rows %}
+            <tr><td>{{ label }}</td><td>{{ value }}</td></tr>
+          {% endfor %}
+          <tr><th colspan="2">每 100 字標點</th></tr>
+          {% for label, value in punctuation %}
+            <tr><td>{{ label }}</td><td>{{ value }}</td></tr>
+          {% endfor %}
+          <tr><th colspan="2">其他</th></tr>
+          <tr><td>每 1000 字 emoji</td><td>{{ measured.emoji_per_1000_chars }}</td></tr>
+          <tr><td>英文字母佔比</td><td>{{ measured.latin_ratio }}</td></tr>
+          <tr><td>統計樣本</td><td>{{ measured.sample_size }} 篇</td></tr>
+        </table>
+      {% else %}
+        <p class="muted small">沒有統計資料。</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0">高辨識度用詞</h2>
+      <p class="small muted">相對於另一家目標媒體明顯偏好的詞（括號為偏好倍數）。</p>
+      {% if terms %}
+        <p style="line-height:2.2">
+        {% for t in terms %}<span class="pill">{{ t.0 }} ×{{ t.1 }}</span> {% endfor %}
+        </p>
+      {% else %}
+        <p class="muted small">沒有對照資料（需要兩個目標媒體都已匯入）。</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

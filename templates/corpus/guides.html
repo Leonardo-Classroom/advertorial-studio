@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>風格指南</h1>
+<p class="sub">由語料歸納出的「怎麼寫」說明書。每份都可以直接編輯——生成時採用的是你編輯後的版本。</p>
+
+<div class="card">
+  <h3 style="margin-top:0">如何產生</h3>
+  <p class="small muted" style="margin:0">在專案目錄執行（conda 環境 leo3.10）：</p>
+  <pre class="doc mono" style="margin-top:8px">python manage.py extract_style_guide --outlet COOL-STYLE
+python manage.py extract_style_guide --outlet GQ --author "Daniel Hsu"
+python manage.py extract_style_guide --outlet COOL-STYLE --all-authors --min-articles 500</pre>
+</div>
+
+<div class="card">
+  {% if guides %}
+    <div class="scroll"><table>
+      <tr><th>範圍</th><th>取樣</th><th>模型</th><th>狀態</th><th>更新</th></tr>
+      {% for g in guides %}
+      <tr>
+        <td><a href="{% url 'corpus:guide_detail' g.pk %}">{{ g.scope_label }}</a></td>
+        <td>{{ g.sample_size }} 篇</td>
+        <td class="small muted">{{ g.model }}</td>
+        <td>{% if g.is_active %}<span class="pill good">啟用</span>{% else %}<span class="pill">停用</span>{% endif %}</td>
+        <td class="small muted">{{ g.updated_at|date:"Y-m-d H:i" }}</td>
+      </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <div class="empty">還沒有風格指南。請用上面的指令產生。</div>
+  {% endif %}
+</div>
+{% endblock %}

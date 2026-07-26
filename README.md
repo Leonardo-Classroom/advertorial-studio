@@ -1,0 +1,151 @@
+# 廣編稿生成系統
+
+依 PPT 簡報內容自動撰寫廣編稿，並模仿 **GQ** / **COOL-STYLE** 的寫作風格。
+實作的是《制定計畫(論文).md》定案的**方案 A**：輕量 RAG（檢索範文）＋ 風格萃取（風格指南）＋ 單次生成。
+
+---
+
+## 環境
+
+conda 環境 **leo3.10**（Python 3.10）。所有指令都在專案根目錄執行：
+
+```bash
+conda activate leo3.10
+cd "/mnt/d/OneDrive/Desktop/Alan/廣編系統"
+pip install -r requirements.txt      # 首次（含 sentence-transformers，首次執行會下載約 2GB 模型）
+```
+
+### 模型設定（`.env`）
+
+`.env` 已建立好，可直接用。要換模型只改這個檔，程式碼不用動。
+
+| 設定 | 目前值 | 說明 |
+|---|---|---|
+| `LLM_BASE_URL` | Azure AI Services 端點 | OpenAI 相容的 Responses API |
+| `LLM_MODEL` | `gpt-5.4` | 生成與評審模型 |
+| `EMBED_BACKEND` | `local` | 向量模型跑在本機 GPU |
+| `EMBED_LOCAL_MODEL` | `BAAI/bge-m3` | 1024 維，中英混寫語料表現好 |
+| `EMBED_MODEL` | `embed-v-4-0` | 僅在 `EMBED_BACKEND=api` 時使用 |
+| `CORPUS_ROOT` | `…/news report/dataset` | 爬蟲產出的語料 |
+
+> **為什麼向量模型跑本機**：Azure 上的 Cohere `embed-v-4-0` 是免費層，
+> 限制 **50 requests／天**（每次約 17 篇 = 每天 850 篇），索引 COOL-STYLE 要 20 天、
+> 全語料要 54 天，實務上無法使用。改用本機 BGE-M3 跑在 RTX 4090 上，無額度限制。
+> 若之後開了付費 Azure 部署，把 `EMBED_BACKEND` 改成 `api` 即可切回去。
+>
+> 選 BGE-M3 而非中文專用模型，是因為這批語料是真正的中英混寫
+> （「sacai x Nike LDWaffle」「204L」），英文品牌與型號承載了大量主題訊號。
+>
+> 其他實測發現：這個 Azure 資源上**沒有部署** `text-embedding-3-*`（回 `unknown_model`）；
+> 原本 shell 環境變數裡的 `OPENAI_BASE_URL`（leo260601-resource）**DNS 已無法解析**，
+> 目前 `.env` 用的是可正常連線的 leo-test-0627-ai 端點（生成模型仍走這裡）。
+
+---
+
+## 建置流程（第一次）
+
+```bash
+python manage.py migrate
+
+# 1. 匯入語料（GQ + COOL-STYLE，約 5.6 萬篇；資料在 D: 掛載點上，會跑一段時間）
+python manage.py ingest_corpus --target
+
+# 2. 建立向量索引（主題相似檢索才需要；可先小規模試跑）
+python manage.py build_index --outlet COOL-STYLE
+python manage.py build_index --outlet GQ --limit-per-author 300
+
+# 3. 產生風格指南
+python manage.py extract_style_guide --outlet COOL-STYLE
+python manage.py extract_style_guide --outlet GQ
+python manage.py extract_style_guide --outlet COOL-STYLE --all-authors --min-articles 1000
+
+# 4. 啟動
+python manage.py runserver
+```
+
+開 <http://127.0.0.1:8000/>。管理後台 `/admin/`（需 `createsuperuser`）。
+
+各指令都可加 `--help` 看完整參數。`ingest_corpus` 與 `build_index` 都是**可重複執行**的
+（依內容雜湊／既有向量跳過已處理的部分），中斷後直接再跑一次即可續做。
+
+---
+
+## 操作流程
+
+1. **簡報** → 上傳 `.pptx` → 按「用 AI 抽取事實」→ **逐項人工核對** → 「儲存並確認事實」。
+   這份 JSON 是之後所有稿件**唯一允許的事實來源**，模型不准寫出這裡沒有的品牌／型號／人名。
+2. **風格指南** → 打開對應的指南，內容可以直接編輯。生成時採用的是你編輯後的版本。
+3. **新增生成** → 選簡報、目標媒體／作者、風格指南、檢索策略 → 生成。
+4. **生成紀錄** → 看初稿、執行評估、提出修改意見產生下一稿、記錄人工評分。
+
+---
+
+## 系統怎麼運作
+
+```
+PPT ──► 文字抽取(python-pptx) ──► LLM 結構化 ──► 事實 JSON（人工確認）
+                                                      │
+語料 ──► 清洗 ──► 向量索引 ──┐                        │
+          └──► 風格指南（統計量測 + LLM 歸納，可編輯）  │
+                             │                        │
+                             ▼                        ▼
+                      檢索範文（4 種策略）─────► 組 Prompt ──► 生成初稿
+                                                              │
+                                                    評估（4 種指標）
+                                                              │
+                                                    人工 Feedback ──► 下一稿
+```
+
+### 檢索策略（可切換，這是要做 A/B 的變因）
+
+| 策略 | 做法 |
+|---|---|
+| `topical` | 依簡報內容做向量檢索，找同題材的範文 |
+| `random` | 同媒體／作者內隨機抽（對照組） |
+| `hybrid` | 一半主題相似、一半隨機 |
+| `none` | 不放範例，只用風格指南 |
+
+之所以四種都實作，是因為 arXiv:2509.14543 在英文非正式語料上發現「依主題相似度挑範例」
+反而**降低**風格辨識度，與 RAG 慣例相反。該研究的語境與本專案不同（中文、時尚媒體、
+產業術語本身就是風格標記），所以必須用自己的語料實測，不能直接沿用任一方的結論。
+「A/B 實驗」頁面就是為了得出這個答案。
+
+### 評估指標（四個分開看，不合併成單一分數）
+
+| 指標 | 檢查什麼 |
+|---|---|
+| 風格向量相似度 | 與該媒體語料重心的距離——像不像這家媒體平常的寫法 |
+| 與範例最大重疊率 | **抄襲防護**：12 字元 shingle 比對，過高代表照抄範文 |
+| 事實覆蓋 | 簡報事實有沒有漏、有沒有出現禁用字 |
+| LLM 評審 + 統計偏離 | 標題／語氣／節奏／用詞的質性評分，加上標點與句長的量化偏離 |
+| 人工評分 | 你的判斷，1–5 分 |
+
+分開呈現是有依據的：arXiv:2508.06374 比較各種風格評估法後發現，
+任何單一指標都不夠可靠，指標**組合**才準——所以這裡不提供「總分」。
+
+---
+
+## 專案結構
+
+```
+config/          Django 設定（.env 由 settings.py 直接解析，不依賴 python-dotenv）
+core/            模型抽換層：llm.py（生成）、embeddings.py（向量）
+corpus/          語料庫：Outlet / Author / Article / StyleGuide / EmbeddingIndex
+  services/      ingest（解析清洗）、index（向量）、stats（統計量測）、styleguide（風格歸納）
+briefs/          簡報上傳與事實抽取
+studio/          生成、修訂、評估、A/B 實驗
+  services/      retrieval（4 種策略）、prompts（提示詞組裝）、generate、evaluate
+var/index/       向量矩陣（.npy）
+```
+
+向量刻意**不用**向量資料庫：5.6 萬篇的規模下，一個正規化 float32 矩陣加一次 numpy 矩陣乘法
+就能在毫秒內回答查詢，而且整條檢索路徑是可檢視的——這對誠實比較不同檢索策略是必要的。
+
+---
+
+## 目前狀態與後續
+
+- 已完成：方案 A 的完整端到端流程 + 操作介面 + A/B 實驗與評估架構。
+- 未做（依計畫刻意不做）：方案 B 多階段管線、方案 C 風格嵌入校正、方案 D 偏好微調。
+  其中方案 D 需要的「修改前／修改後」配對資料，已經由本系統的修訂功能自然累積，
+  日後要啟動時不需另外收集。

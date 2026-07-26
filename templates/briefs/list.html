@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row tight" style="margin-bottom:6px">
+  <h1 style="flex:1;margin:0">簡報</h1>
+  <a class="btn" style="flex:0" href="{% url 'briefs:upload' %}">上傳簡報</a>
+</div>
+<p class="sub">上傳 Media Brief／Proposal 的 .pptx，抽出結構化事實後作為寫稿的唯一事實來源。</p>
+
+<div class="card">
+  {% if briefs %}
+    <div class="scroll"><table>
+      <tr><th>名稱</th><th>投影片</th><th>狀態</th><th>建立</th><th></th></tr>
+      {% for b in briefs %}
+      <tr>
+        <td><a href="{% url 'briefs:detail' b.pk %}">{{ b.title }}</a></td>
+        <td>{{ b.slide_count }}</td>
+        <td>{% if b.status == 'confirmed' %}<span class="pill good">已確認</span>
+          {% elif b.status == 'extracted' %}<span class="pill warn">待人工確認</span>
+          {% else %}<span class="pill">待抽取</span>{% endif %}</td>
+        <td class="small muted">{{ b.created_at|date:"Y-m-d H:i" }}</td>
+        <td>{% if b.status == 'confirmed' %}
+          <a class="small" href="{% url 'studio:run_new' %}?brief={{ b.pk }}">生成廣編稿 →</a>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <div class="empty">還沒有簡報。<br><br><a class="btn" href="{% url 'briefs:upload' %}">上傳第一份</a></div>
+  {% endif %}
+</div>
+{% endblock %}

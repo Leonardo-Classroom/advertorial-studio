@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="small"><a href="{% url 'studio:experiments' %}">← 回實驗列表</a></p>
+<h1>{{ experiment.name }}</h1>
+<p class="sub">{{ experiment.description|default:"（無說明）" }}</p>
+
+<div class="card">
+  <h2 style="margin-top:0">依檢索策略彙總</h2>
+  <p class="small muted">四個指標分開看，不合併成單一分數——因為沒有任何一個單獨可靠。
+    樣本數太少時（每組少於 5 筆）差異多半是雜訊，不要急著下結論。</p>
+  <div class="scroll"><table>
+    <tr><th>策略</th><th>樣本數</th><th>風格向量相似度</th><th>平均重疊率</th><th>LLM 評審均分</th><th>人工均分</th></tr>
+    {% for row in rows %}
+    <tr>
+      <td>{{ row.label }}</td>
+      <td>{{ row.n }}{% if row.n < 5 %} <span class="pill warn">樣本偏少</span>{% endif %}</td>
+      <td>{{ row.style|floatformat:4|default:"—" }}</td>
+      <td>{{ row.overlap|floatformat:4|default:"—" }}</td>
+      <td>{{ row.judge|default:"—" }}</td>
+      <td>{{ row.human|floatformat:2|default:"—" }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="6"><div class="empty">這個實驗底下還沒有生成紀錄。<br><br>
+      <a class="btn" href="{% url 'studio:run_new' %}">新增生成並掛到此實驗</a></div></td></tr>
+    {% endfor %}
+  </table></div>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">個別生成</h2>
+  <div class="scroll"><table>
+    <tr><th>#</th><th>策略</th><th>目標風格</th><th>風格相似度</th><th>人工分</th><th>狀態</th></tr>
+    {% for r in runs %}
+    <tr>
+      <td><a href="{% url 'studio:run_detail' r.pk %}">#{{ r.pk }}</a></td>
+      <td class="small">{{ r.get_retrieval_strategy_display|truncatechars:18 }}</td>
+      <td class="small">{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</td>
+      <td class="small">{% for ev in r.evaluations.all %}{{ ev.style_similarity|default:"—" }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
+      <td class="small">{% for ev in r.evaluations.all %}{{ ev.human_score|default:"—" }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</td>
+      <td>{% if r.status == 'done' %}<span class="pill good">完成</span>
+        {% else %}<span class="pill bad">{{ r.get_status_display }}</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endblock %}

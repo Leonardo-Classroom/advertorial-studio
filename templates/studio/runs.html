@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row tight" style="margin-bottom:6px">
+  <h1 style="flex:1;margin:0">生成紀錄</h1>
+  <a class="btn" style="flex:0" href="{% url 'studio:run_new' %}">新增生成</a>
+</div>
+<p class="sub">每一次生成都保留了完整的 prompt 與所用範例，方便回頭比對是什麼造成了差異。</p>
+
+<div class="card">
+  {% if page %}
+    <div class="scroll"><table>
+      <tr><th>#</th><th>簡報</th><th>目標風格</th><th>策略</th><th>範例</th><th>實驗</th><th>狀態</th><th>時間</th></tr>
+      {% for r in page %}
+      <tr>
+        <td><a href="{% url 'studio:run_detail' r.pk %}">#{{ r.pk }}</a></td>
+        <td>{{ r.brief.title|truncatechars:30 }}</td>
+        <td class="small">{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</td>
+        <td class="small">{{ r.get_retrieval_strategy_display|truncatechars:16 }}</td>
+        <td class="small">{{ r.exemplar_count }}</td>
+        <td class="small">{% if r.experiment %}{{ r.experiment.name|truncatechars:16 }}{% else %}—{% endif %}</td>
+        <td>{% if r.status == 'done' %}<span class="pill good">完成</span>
+          {% elif r.status == 'failed' %}<span class="pill bad">失敗</span>
+          {% else %}<span class="pill">{{ r.get_status_display }}</span>{% endif %}</td>
+        <td class="small muted">{{ r.created_at|date:"m-d H:i" }}</td>
+      </tr>
+      {% endfor %}
+    </table></div>
+    {% if page.has_other_pages %}
+    <div class="row tight" style="margin-top:14px">
+      <div class="small muted">第 {{ page.number }} / {{ page.paginator.num_pages }} 頁</div>
+      <div style="flex:0;display:flex;gap:8px">
+        {% if page.has_previous %}<a class="btn sm ghost" href="?page={{ page.previous_page_number }}">上一頁</a>{% endif %}
+        {% if page.has_next %}<a class="btn sm ghost" href="?page={{ page.next_page_number }}">下一頁</a>{% endif %}
+      </div>
+    </div>
+    {% endif %}
+  {% else %}
+    <div class="empty">還沒有生成紀錄。<br><br><a class="btn" href="{% url 'studio:run_new' %}">開始第一次生成</a></div>
+  {% endif %}
+</div>
+{% endblock %}

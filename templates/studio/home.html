@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>總覽</h1>
+<p class="sub">方案 A：輕量 RAG（依主題／隨機檢索範文）＋ 風格指南 ＋ 單次生成</p>
+
+<div class="grid g4">
+  <div class="stat"><div class="n">{{ total_articles }}</div><div class="l">語料文章</div></div>
+  <div class="stat"><div class="n">{{ total_authors }}</div><div class="l">作者</div></div>
+  <div class="stat"><div class="n">{{ guide_count }}</div><div class="l">風格指南</div></div>
+  <div class="stat"><div class="n">{{ run_count }}</div><div class="l">生成紀錄</div></div>
+</div>
+
+<div class="grid g2" style="margin-top:16px">
+  <div class="card">
+    <h2 style="margin-top:0">語料與索引狀態</h2>
+    {% if outlets %}
+      <table>
+        <tr><th>媒體</th><th>文章數</th><th></th></tr>
+        {% for o in outlets %}
+        <tr>
+          <td>{{ o.name }}{% if o.is_target %} <span class="pill">模仿目標</span>{% endif %}</td>
+          <td>{{ o.n }}</td>
+          <td><a class="small" href="{% url 'corpus:articles' %}?outlet={{ o.pk }}">瀏覽</a></td>
+        </tr>
+        {% endfor %}
+      </table>
+      <h3>向量索引</h3>
+      {% if index %}
+        <p class="small muted" style="margin:0">
+          {{ index.model }} · {{ index.dimensions }} 維 · {{ index.vector_count }} 筆向量
+          · 更新於 {{ index.built_at|date:"Y-m-d H:i" }}
+        </p>
+        <div class="bar"><i style="width:{{ index_pct }}%"></i></div>
+        <p class="small muted">已索引 {{ indexed }} / {{ total_articles }} 篇（{{ index_pct }}%）</p>
+      {% else %}
+        <p class="small muted">尚未建立。主題相似檢索需要索引：<br>
+          <code class="mono">python manage.py build_index --outlet COOL-STYLE</code></p>
+      {% endif %}
+    {% else %}
+      <p class="muted small">語料庫是空的。先執行：<br>
+        <code class="mono">python manage.py ingest_corpus --target</code></p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">風格指南</h2>
+    {% if guides %}
+      <table>
+        {% for g in guides %}
+        <tr>
+          <td><a href="{% url 'corpus:guide_detail' g.pk %}">{{ g.scope_label }}</a></td>
+          <td class="muted small">取樣 {{ g.sample_size }} 篇</td>
+        </tr>
+        {% endfor %}
+      </table>
+      <p style="margin-top:12px"><a class="small" href="{% url 'corpus:guides' %}">全部風格指南 →</a></p>
+    {% else %}
+      <p class="small muted">尚未產生。執行：<br>
+        <code class="mono">python manage.py extract_style_guide --outlet COOL-STYLE</code></p>
+    {% endif %}
+
+    <h2>簡報</h2>
+    {% if briefs %}
+      <table>
+        {% for b in briefs %}
+        <tr>
+          <td><a href="{% url 'briefs:detail' b.pk %}">{{ b.title }}</a></td>
+          <td class="small">{% if b.status == 'confirmed' %}<span class="pill good">已確認</span>
+            {% elif b.status == 'extracted' %}<span class="pill warn">待確認</span>
+            {% else %}<span class="pill">待抽取</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    {% else %}
+      <p class="small muted">還沒有簡報。</p>
+    {% endif %}
+    <p style="margin-top:12px"><a class="btn sm" href="{% url 'briefs:upload' %}">上傳簡報</a></p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row tight" style="margin-bottom:8px">
+    <h2 style="margin:0;flex:1">最近生成</h2>
+    <a class="btn sm" style="flex:0" href="{% url 'studio:run_new' %}">新增生成</a>
+  </div>
+  {% if runs %}
+    <div class="scroll"><table>
+      <tr><th>#</th><th>簡報</th><th>目標風格</th><th>檢索策略</th><th>狀態</th><th>時間</th></tr>
+      {% for r in runs %}
+      <tr>
+        <td><a href="{% url 'studio:run_detail' r.pk %}">#{{ r.pk }}</a></td>
+        <td>{{ r.brief.title|truncatechars:34 }}</td>
+        <td>{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</td>
+        <td class="small">{{ r.get_retrieval_strategy_display }}</td>
+        <td>{% if r.status == 'done' %}<span class="pill good">完成</span>
+          {% elif r.status == 'failed' %}<span class="pill bad">失敗</span>
+          {% else %}<span class="pill">{{ r.get_status_display }}</span>{% endif %}</td>
+        <td class="muted small">{{ r.created_at|date:"m-d H:i" }}</td>
+      </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <div class="empty">還沒有生成紀錄。<br><br>
+      <a class="btn" href="{% url 'studio:run_new' %}">開始第一次生成</a></div>
+  {% endif %}
+</div>
+{% endblock %}

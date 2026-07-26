@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="small"><a href="{% url 'briefs:list' %}">← 回簡報列表</a></p>
+<div class="row tight" style="margin-bottom:6px">
+  <h1 style="flex:1;margin:0">{{ brief.title }}</h1>
+  {% if brief.status == 'confirmed' %}
+    <a class="btn" style="flex:0" href="{% url 'studio:run_new' %}?brief={{ brief.pk }}">生成廣編稿 →</a>
+  {% endif %}
+</div>
+<p class="sub">{{ brief.slide_count }} 張投影片 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}
+  · {% if brief.status == 'confirmed' %}<span class="pill good">已確認</span>
+    {% elif brief.status == 'extracted' %}<span class="pill warn">待人工確認</span>
+    {% else %}<span class="pill">待抽取</span>{% endif %}</p>
+
+<div class="grid g2">
+  <div class="card">
+    <div class="row tight" style="margin-bottom:10px">
+      <h2 style="margin:0;flex:1">結構化事實</h2>
+      <form method="post" action="{% url 'briefs:extract' brief.pk %}" style="flex:0">
+        {% csrf_token %}
+        <button class="btn sm ghost">{% if brief.facts %}重新抽取{% else %}用 AI 抽取事實{% endif %}</button>
+      </form>
+    </div>
+    <p class="small muted">
+      這份 JSON 是生成廣編稿時<strong>唯一允許的事實來源</strong>：品牌、型號、KOL 姓名都以此為準，
+      模型不准寫出這裡沒有的事實。抽取後請務必逐項核對再確認。
+    </p>
+
+    {% if brief.facts.uncertain %}
+      <div class="msg warning">
+        <strong>模型標記的不確定處：</strong>
+        <ul style="margin:6px 0 0;padding-left:20px">
+          {% for u in brief.facts.uncertain %}<li>{{ u }}</li>{% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <form method="post" action="{% url 'briefs:save_facts' brief.pk %}">
+      {% csrf_token %}
+      <textarea name="facts" class="mono" style="min-height:460px">{{ facts_json }}</textarea>
+      <div class="row tight" style="margin-top:12px">
+        <button class="btn ghost" style="flex:0">只儲存</button>
+        <button class="btn" name="confirm" value="1" style="flex:0">儲存並確認事實</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">簡報原文</h2>
+    <p class="small muted">從 .pptx 抽出的全部文字（含表格與備忘稿），供你核對上面的事實是否正確。</p>
+    {% if brief.raw_text %}
+      <pre class="doc" style="max-height:620px;overflow:auto">{{ brief.raw_text }}</pre>
+    {% else %}
+      <p class="muted small">沒有解析到文字內容。</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>語料庫</h1>
+<p class="sub">GQ／COOL-STYLE 的原始文章，是風格指南與檢索範例的來源。
+  <a href="{% url 'corpus:authors' %}">依作者瀏覽 →</a></p>
+
+<div class="card">
+  <form method="get" class="row">
+    <div style="flex:2">
+      <label>關鍵字（標題或內文）</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="例如：聯乘、灰色、New Balance">
+    </div>
+    <div>
+      <label>媒體</label>
+      <select name="outlet">
+        <option value="">全部</option>
+        {% for o in outlets %}
+          <option value="{{ o.pk }}" {% if sel_outlet == o.pk|stringformat:"s" %}selected{% endif %}>{{ o.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>作者</label>
+      <select name="author">
+        <option value="">全部</option>
+        {% for a in authors %}
+          <option value="{{ a.pk }}" {% if sel_author == a.pk|stringformat:"s" %}selected{% endif %}>
+            {{ a.name }}（{{ a.article_count }}）</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="flex:0;min-width:auto">
+      <label><input type="checkbox" name="indexed" value="1" {% if indexed_only %}checked{% endif %}
+        style="width:auto"> 只看已建索引</label>
+    </div>
+    <div style="flex:0;min-width:auto"><button class="btn">篩選</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <p class="small muted" style="margin-top:0">共 {{ page.paginator.count }} 篇</p>
+  <div class="scroll"><table>
+    <tr><th>日期</th><th>標題</th><th>媒體 / 作者</th><th>字數</th><th>索引</th></tr>
+    {% for a in page %}
+    <tr>
+      <td class="muted small" style="white-space:nowrap">{{ a.published_on|default:"—" }}</td>
+      <td><a href="{% url 'corpus:article_detail' a.pk %}">{{ a.title|truncatechars:52 }}</a></td>
+      <td class="small">{{ a.outlet.name }} / {{ a.author.name }}</td>
+      <td class="small">{{ a.char_count }}</td>
+      <td>{% if a.is_indexed %}<span class="pill good">✓</span>{% else %}<span class="muted small">—</span>{% endif %}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="5"><div class="empty">沒有符合條件的文章。</div></td></tr>
+    {% endfor %}
+  </table></div>
+
+  {% if page.has_other_pages %}
+  <div class="row tight" style="margin-top:14px">
+    <div class="small muted">第 {{ page.number }} / {{ page.paginator.num_pages }} 頁</div>
+    <div style="flex:0;display:flex;gap:8px">
+      {% if page.has_previous %}<a class="btn sm ghost"
+        href="?page={{ page.previous_page_number }}&q={{ q }}&outlet={{ sel_outlet }}&author={{ sel_author }}{% if indexed_only %}&indexed=1{% endif %}">上一頁</a>{% endif %}
+      {% if page.has_next %}<a class="btn sm ghost"
+        href="?page={{ page.next_page_number }}&q={{ q }}&outlet={{ sel_outlet }}&author={{ sel_author }}{% if indexed_only %}&indexed=1{% endif %}">下一頁</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

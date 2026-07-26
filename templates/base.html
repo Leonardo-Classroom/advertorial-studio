@@ -72,13 +72,19 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
    beside the label, which reads as a gap on <a class="btn"> because inline
    content aligns left. Size buttons from their text instead. */
 .row>*{flex:1;min-width:150px}
-.row>.btn{flex:0 0 auto;min-width:auto}
 .row.tight{align-items:center}
-/* Sized from content. Written as `.row>.toggle` rather than `.toggle` so it
-   does not depend on appearing after `.row>*{min-width:150px}` in the sheet —
-   equal specificity means source order decides, and this exact rule silently
-   lost that race in the portal stylesheet after working in the admin one. */
-.row>.toggle,.toggle{flex:0 0 auto;min-width:auto;width:fit-content}
+/* Row children fall into two kinds: *fields*, which should share the width,
+   and *actions* (buttons, toggles, a form wrapping one button), which should be
+   as wide as their label. min-width:150px above is for the fields; applied to an
+   action it leaves dead space beside the text, which is the gap that has now
+   been reported three times — on .btn, on .toggle, and on a <form> around a
+   button.
+   A form here means "an action needing a POST": every form in this codebase
+   that carries fields is itself the .row, so `:not(.row)` separates the two.
+   Written with `.row>` for higher specificity so it does not matter where in
+   the sheet this block sits — the toggle rule silently lost that race once. */
+.row>.btn,.row>.toggle,.row>form:not(.row),.row>button{flex:0 0 auto;min-width:auto}
+.row>.toggle,.toggle{width:fit-content}
 .bar{height:6px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:5px}
 .bar>i{display:block;height:100%;background:var(--accent)}
 .empty{text-align:center;padding:40px 20px;color:var(--muted)}

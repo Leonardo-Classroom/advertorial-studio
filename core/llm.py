@@ -31,6 +31,11 @@ def current_model() -> str:
     return settings.LLM_MODEL
 
 
+def judge_model() -> str:
+    """The model used for evaluation, held apart from the writing model."""
+    return getattr(settings, "LLM_JUDGE_MODEL", None) or settings.LLM_MODEL
+
+
 def _extract_text(response) -> str:
     text = getattr(response, "output_text", None)
     if text:

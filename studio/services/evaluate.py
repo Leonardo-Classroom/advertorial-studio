@@ -106,12 +106,14 @@ def pairwise_judge(run_a, run_b, guide_text: str, max_chars: int = 7000,
     first = llm.complete_json(
         instructions=PAIRWISE_INSTRUCTIONS,
         user_input=PAIRWISE_TASK.format(guide=guide, a=text_a, b=text_b),
+        model=llm.judge_model(),
         timeout=300,
     )
     # Swapped run: what the judge called "A" is now run_b.
     second_raw = llm.complete_json(
         instructions=PAIRWISE_INSTRUCTIONS,
         user_input=PAIRWISE_TASK.format(guide=guide, a=text_b, b=text_a),
+        model=llm.judge_model(),
         timeout=300,
     )
     second = {k: (_FLIP.get(v, v) if isinstance(v, str) and v in _FLIP else v)
@@ -282,12 +284,11 @@ def evaluate(run: GenerationRun, revision: Revision | None = None,
         if index.is_built():
             from core import embeddings
 
-            outlet_ids = list(
-                Article.objects.filter(outlet_id=run.outlet_id)
-                .exclude(vector_row__isnull=True)
-                .values_list("id", flat=True)[:4000]
-            )
-            centre = index.centroid(outlet_ids)
+            # Use the cached centroid rather than re-deriving it from a fresh
+            # id query on every draft: the uncached path re-read thousands of
+            # rows from the memmap each time, which on a network-mounted disk
+            # dominated the cost of scoring a draft.
+            centre = index.outlet_centroid(run.outlet_id, run.author_id)
             draft_vec = embeddings.embed_texts([draft[:2000]], input_type="document",
                                                concurrency=1)[0]
             if centre is not None:
@@ -306,6 +307,7 @@ def evaluate(run: GenerationRun, revision: Revision | None = None,
                 user_input=JUDGE_TASK.format(
                     guide=run.style_guide.content[:6000], draft=draft[:8000]
                 ),
+                model=llm.judge_model(),
                 timeout=300,
             )
             ev.judge_scores = scores

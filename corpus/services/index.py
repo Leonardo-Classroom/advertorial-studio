@@ -235,13 +235,26 @@ def typicality(article_ids: list[int], outlet_id: int,
     ids, matrix = load()
     if centre is None or not ids.size:
         return {}
-    row_of = {int(a): i for i, a in enumerate(ids.tolist())}
+    row_of = row_map()
     out = {}
     for aid in article_ids:
         row = row_of.get(aid)
         if row is not None:
             out[aid] = float(np.asarray(matrix[row]) @ centre)
     return out
+
+
+def row_map() -> dict[int, int]:
+    """article id -> matrix row, built once per process.
+
+    Rebuilding this cost more than everything else in evaluation: it is a
+    46k-entry dict, and it was being reconstructed twice for every draft
+    scored.
+    """
+    if "row_map" not in _cache:
+        ids, _ = load()
+        _cache["row_map"] = {int(a): i for i, a in enumerate(ids.tolist())}
+    return _cache["row_map"]  # type: ignore[return-value]
 
 
 def centroid(article_ids: list[int]) -> np.ndarray | None:
@@ -253,7 +266,7 @@ def centroid(article_ids: list[int]) -> np.ndarray | None:
     ids, matrix = load()
     if not ids.size:
         return None
-    row_of = {int(a): i for i, a in enumerate(ids.tolist())}
+    row_of = row_map()
     rows = [row_of[a] for a in article_ids if a in row_of]
     if not rows:
         return None

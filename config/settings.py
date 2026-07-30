@@ -137,6 +137,9 @@ RUNSERVER_PORT = env("RUNSERVER_PORT", "5860")
 LLM_BASE_URL = env("LLM_BASE_URL", "https://leo-test-0627-ai.services.ai.azure.com/openai/v1")
 LLM_API_KEY = env("LLM_API_KEY")
 LLM_MODEL = env("LLM_MODEL", "gpt-5.4")
+# The judge is pinned separately. Comparing two writing models while the marker
+# changes with them measures nothing — each model would be graded by itself.
+LLM_JUDGE_MODEL = env("LLM_JUDGE_MODEL", "") or LLM_MODEL
 LLM_TIMEOUT = env_int("LLM_TIMEOUT", 180)
 LLM_SEND_TEMPERATURE = env_bool("LLM_SEND_TEMPERATURE", False)
 LLM_TEMPERATURE = float(env("LLM_TEMPERATURE", "0.8") or 0.8)

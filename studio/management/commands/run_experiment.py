@@ -55,11 +55,21 @@ class Command(BaseCommand):
         parser.add_argument("--exemplars", type=int, default=4, help="範例篇數")
         parser.add_argument("--name", default=None, help="實驗名稱")
         parser.add_argument("--no-judge", action="store_true", help="跳過 LLM 評審（省成本）")
+        parser.add_argument("--model", default=None,
+                            help="這次生成改用哪個模型（覆寫 .env 的 LLM_MODEL）。"
+                                 "評審模型不受影響，仍用 LLM_JUDGE_MODEL，"
+                                 "否則換模型等於同時換掉出題者與改題者。")
         parser.add_argument("--concurrency", type=int, default=4,
                             help="同時跑幾篇（預設 4）。實測生成端點在 8 並行下"
                                  "每次延遲不變，瓶頸不在 API；設 1 可回到序列執行。")
 
     def handle(self, *args, **opts):
+        if opts["model"]:
+            from django.conf import settings
+
+            self.stdout.write(f"生成模型：{opts['model']}（評審固定用 {settings.LLM_JUDGE_MODEL}）")
+            settings.LLM_MODEL = opts["model"]
+
         try:
             brief = Brief.objects.get(pk=opts["brief"])
             outlet = Outlet.objects.get(name=opts["outlet"])

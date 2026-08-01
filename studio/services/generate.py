@@ -36,7 +36,7 @@ def run_generation(run: GenerationRun, stop_after_outline: bool = False,
     started = time.time()
 
     try:
-        facts = run.brief.facts or {}
+        facts = run.facts
         query = brief_query_text(facts) or run.brief.title
 
         exemplars = retrieval.retrieve(
@@ -126,7 +126,7 @@ def run_revision(run: GenerationRun, feedback: str) -> Revision:
     try:
         revision.output = llm.complete(
             instructions=prompts.REVISION_ROLE,
-            user_input=prompts.build_revision_input(previous_text, feedback, run.brief.facts or {}),
+            user_input=prompts.build_revision_input(previous_text, feedback, run.facts),
             timeout=600,
         )
     except Exception as exc:  # noqa: BLE001

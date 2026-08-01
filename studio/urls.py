@@ -6,6 +6,7 @@ app_name = "studio"
 
 urlpatterns = [
     path("", views.home, name="home"),
+    path("advanced/", views.advanced, name="advanced"),
     path("runs/", views.runs, name="runs"),
     path("runs/new/", views.run_new, name="run_new"),
     path("runs/<int:pk>/", views.run_detail, name="run_detail"),

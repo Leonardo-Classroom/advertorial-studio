@@ -4,120 +4,150 @@
 <h1>{{ brief.title }}</h1>
 <p class="sub">{{ brief.slide_count }} 張投影片 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}</p>
 
-<div class="steps">
-  <div class="step done"><div class="n">步驟 1</div>上傳簡報 ✓</div>
-  <div class="step {% if brief.status != 'confirmed' %}on{% else %}done{% endif %}">
-    <div class="n">步驟 2</div>核對抽出的內容 {% if brief.status == 'confirmed' %}✓{% endif %}</div>
-  <div class="step {% if brief.status == 'confirmed' %}on{% endif %}">
-    <div class="n">步驟 3</div>選風格、產稿</div>
-</div>
-
-{% if uncertain %}
-<div class="msg warning">
-  <strong>這幾處系統不確定，請你確認：</strong>
-  <ul style="margin:6px 0 0;padding-left:20px">
-    {% for u in uncertain %}<li>{{ u }}</li>{% endfor %}
-  </ul>
-</div>
+{% if runs %}
+<details class="card">
+  <summary>
+    <h2>這份簡報的稿件</h2>
+    <span class="small muted">{{ runs|length }} 篇</span>
+  </summary>
+  <table>
+    {% for r in runs %}
+    <tr>
+      <td><a href="{% url 'portal:draft_detail' r.pk %}">{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</a>
+        <div class="small muted">{{ r.created_at|date:"Y-m-d H:i" }}{% if r.facts_version %} · 用 {{ r.facts_version.label }} 的內容{% endif %}</div></td>
+      <td>{% if r.status == 'done' %}<span class="pill good">完成</span>
+        {% else %}<span class="pill">{{ r.get_status_display }}</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</details>
 {% endif %}
 
 <div class="grid g2">
-  <div class="card">
-    <div class="row tight" style="margin-bottom:8px">
-      <h2 style="margin:0;flex:1">抽出的內容</h2>
-      <form method="post" action="{% url 'portal:brief_extract' brief.pk %}" data-loading="extract">
-        {% csrf_token %}<button class="btn sm ghost">重新讀取</button>
-      </form>
-    </div>
-    <p class="small muted">
-      產出的稿件<strong>只會寫這裡有的東西</strong>——品牌、產品型號、合作人選都以此為準，
-      系統不會自己補上沒寫的資訊。有錯就直接改，改完按下方按鈕確認。<br>
-      <strong>internal_only</strong> 底下是投放計畫、KPI、預算這類內部資訊，
-      系統<strong>不會</strong>把它們寫進稿子，你可以略過不看。
-    </p>
-    <form method="post" action="{% url 'portal:brief_save_facts' brief.pk %}">
-      {% csrf_token %}
-      <textarea name="facts" class="mono" style="min-height:420px">{{ facts_json }}</textarea>
-      <div class="row tight" style="margin-top:12px">
-        <button class="btn ghost">只儲存</button>
-        <button class="btn" name="confirm" value="1">確認無誤</button>
-      </div>
-    </form>
+  <div class="card pane" id="facts-pane" data-url="{% url 'portal:brief_detail' brief.pk %}">
+    {% include "portal/_facts_pane.html" %}
   </div>
 
-  <div>
-    <div class="card">
-      <h2 style="margin-top:0">產出廣編稿</h2>
-      {% if brief.status != 'confirmed' %}
-        <p class="small muted">請先在左邊核對內容並按「確認無誤」。</p>
-      {% elif not guides %}
-        <p class="small muted">目前沒有可用的風格，請聯繫系統管理者。</p>
-      {% else %}
-        <form method="post" action="{% url 'portal:generate' brief.pk %}" data-loading="generate">
-          {% csrf_token %}
+  <form class="card pane" method="post" action="{% url 'portal:brief_facts_update' brief.pk %}"
+        data-loading="factsupdate">
+    {% csrf_token %}
+    <h2 style="margin:0 0 8px">要更正什麼？</h2>
+    <p class="small muted" style="margin:0 0 10px">
+      用平常說話的方式寫就好{% if uncertain %}，左邊編號的問題可以直接用「1. …」「2. …」回答{% endif %}。
+    </p>
+    <textarea id="correction" name="correction" required
+              placeholder="例如：品牌名要改成 XX；合作的是陳○○不是陳○；開賣日是 9/15。"></textarea>
+    {% if versions|length > 1 %}
+    <div class="row tight" style="margin-top:12px;flex:0 0 auto">
+      <label class="small muted" for="base_version">根據版本更新</label>
+      <select id="base_version" name="base_version" style="width:auto">
+        {% for ver in versions %}
+          <option value="{{ ver.version }}">{{ ver.label }}{% if forloop.first %}（最新）{% endif %}</option>
+        {% endfor %}
+      </select>
+      <span class="small muted">改動會套在這一版上，存成新的一版。</span>
+    </div>
+    {% endif %}
+    <div class="row tight" style="margin-top:12px;flex:0 0 auto">
+      <button class="btn">更新</button>
+      <span class="small muted">{% if confirm_updates %}更新後會先讓你看改了哪些地方，確認才會存成新版本。
+        {% else %}會存成新的一版，舊版本都留著，產稿時可以指定用哪一版。{% endif %}</span>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">產出廣編稿</h2>
+  {% if not guides %}
+    <p class="small muted">目前沒有可用的風格，請聯繫系統管理者。</p>
+  {% else %}
+    <form method="post" action="{% url 'portal:generate' brief.pk %}" data-loading="generate">
+      {% csrf_token %}
+      <div class="row">
+        <div>
           <label>要模仿哪個媒體的風格？</label>
           <select name="style_guide" required>
             {% for g in guides %}<option value="{{ g.pk }}">{{ g.scope_label }}</option>{% endfor %}
           </select>
-
-          <label>檢索策略 *</label>
-          <select name="retrieval_strategy">
-            {% for value, label in strategies %}
-              <option value="{{ value }}" {% if value == 'typical' %}selected{% endif %}>{{ label }}</option>
+        </div>
+        {% if versions|length > 1 %}
+        <div>
+          <label>以哪一版的內容產稿？</label>
+          <select name="facts_version">
+            {% for ver in versions %}
+              <option value="{{ ver.pk }}">{{ ver.label }}{% if forloop.first %}（最新）{% endif %}
+                · {{ ver.created_at|date:"m/d H:i" }}</option>
             {% endfor %}
           </select>
-          <p class="small muted" style="margin:4px 0 0">
-            決定拿哪幾篇該媒體的文章當語感範例。實測 81 篇、跨 4 份簡報與 5 位作者，
-            三種做法產出的稿件<strong>分不出差異</strong>（評審分數全距 0.02），
-            所以這一項可以直接用預設值。「不放範例」的好處是完全沒有照抄範文的可能，
-            且速度快約兩成。
-          </p>
-
-          <label>生成評估後重寫次數</label>
-          <input type="number" name="max_rewrites" value="1" min="0" max="3">
-          <p class="small muted" style="margin:4px 0 0">
-            0 = 只寫初稿（快，約 90 秒）；1（預設）= 寫完後自動潤一次（約 150 秒）。
-            實測第 1 次潤稿有效、第 2 次 12 篇中 0 篇被採納，所以設超過 1 只是多等。
-            潤稿若造成內容流失或沒有進步會自動停止並保留前一版。
-          </p>
-
-          <label style="margin-top:14px">
-            <input type="checkbox" name="review_outline" style="width:auto"> 先讓我確認大綱再寫正文
-          </label>
-          <p class="small muted" style="margin:4px 0 0">
-            勾選後會先產出文章大綱讓你確認方向，確認後才寫正文。
-            方向如果抓錯，在大綱階段調整比整篇重寫省事得多。
-          </p>
-          <button class="btn" style="margin-top:16px;width:100%">產出稿件</button>
-          <p class="small muted" style="margin:10px 0 0">產稿需 1.5–3 分鐘，請不要關閉頁面。</p>
-        </form>
-      {% endif %}
-    </div>
-
-    {% if runs %}
-    <div class="card">
-      <h2 style="margin-top:0">這份簡報的稿件</h2>
-      <table>
-        {% for r in runs %}
-        <tr>
-          <td><a href="{% url 'portal:draft_detail' r.pk %}">{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</a>
-            <div class="small muted">{{ r.created_at|date:"Y-m-d H:i" }}</div></td>
-          <td>{% if r.status == 'done' %}<span class="pill good">完成</span>
-            {% elif r.status == 'pending' %}<span class="pill warn">待確認大綱</span>
-            {% else %}<span class="pill">{{ r.get_status_display }}</span>{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </table>
-    </div>
-    {% endif %}
-
-    <details class="card">
-      <summary>簡報原文</summary>
-      <pre class="doc" style="margin-top:10px;max-height:400px;overflow:auto">{{ brief.raw_text }}</pre>
-    </details>
-  </div>
+        </div>
+        {% endif %}
+        <button class="btn">產出稿件</button>
+      </div>
+      <p class="small muted" style="margin:12px 0 0">
+        產稿需 1.5–3 分鐘，請不要關閉頁面。{% if latest_uncertain %}
+        還有 {{ latest_uncertain|length }} 處系統不確定，沒確認也可以產稿。{% endif %}
+      </p>
+    </form>
+  {% endif %}
 </div>
 
 {% url 'portal:brief_images' brief.pk as image_action_url %}
 {% include "briefs/_image_review.html" with action_url=image_action_url %}
+
+<script>
+// Version switching and the comparison redraw this one card in place. A full
+// reload would throw away whatever is typed in the correction box beside it,
+// which is exactly what someone is doing when they check an older version.
+(function () {
+  const pane = document.getElementById('facts-pane');
+  if (!pane || !window.fetch) return;
+  pane.classList.add('live');   // hides the no-JS 套用 button
+
+  let inFlight = 0;
+
+  pane.addEventListener('change', function (event) {
+    if (!event.target.matches('[data-facts-control]')) return;
+
+    const params = new URLSearchParams();
+    const version = pane.querySelector('[name=v]');
+    const diff = pane.querySelector('[name=diff]');
+    const base = pane.querySelector('[name=base]');
+    if (version) params.set('v', version.value);
+    if (diff && diff.checked) {
+      params.set('diff', '1');
+      // Absent on the first tick — the select only exists once the comparison
+      // is on — and the view falls back to v1, which is what it defaults to.
+      if (base) params.set('base', base.value);
+    }
+
+    const token = ++inFlight;
+    pane.setAttribute('aria-busy', 'true');
+    fetch(pane.dataset.url + '?' + params + '&partial=1', {
+      headers: {'X-Requested-With': 'fetch'},
+      credentials: 'same-origin',
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error(response.status);
+        return response.text();
+      })
+      .then(function (html) {
+        // A slow first request must not overwrite a later, faster one.
+        if (token !== inFlight) return;
+        pane.innerHTML = html;
+        pane.classList.add('live');
+        // Keep the address bar honest, so a reload shows what is on screen.
+        history.replaceState(null, '', pane.dataset.url +
+          (params.toString() ? '?' + params : ''));
+      })
+      .catch(function () {
+        // Fall back to the thing that always works rather than leaving the
+        // card showing a version the controls no longer describe.
+        if (token === inFlight) window.location = pane.dataset.url + '?' + params;
+      })
+      .then(function () {
+        if (token === inFlight) pane.removeAttribute('aria-busy');
+      });
+  });
+})();
+</script>
 {% endblock %}

@@ -61,7 +61,7 @@ def run_stages(run: GenerationRun, stop_after_outline: bool = False) -> Generati
     started = time.time()
 
     try:
-        facts = run.brief.facts or {}
+        facts = run.facts
         guide = run.style_guide
         guide_text = guide.content if guide else ""
 
@@ -146,7 +146,7 @@ def continue_from_outline(run: GenerationRun) -> GenerationRun:
     run.status = "running"
     run.save(update_fields=["status"])
     try:
-        facts = run.brief.facts or {}
+        facts = run.facts
         guide_text = run.style_guide.content if run.style_guide else ""
         exemplars = _rehydrate_exemplars(run)
         return _generate_from_outline(run, exemplars, guide_text, facts, started)

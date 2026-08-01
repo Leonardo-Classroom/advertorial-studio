@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>高級設定</h1>
+<p class="sub">產稿參數的預設值。使用者端不再詢問這些，一律套用這裡的設定。</p>
+
+<div class="card" style="max-width:680px">
+  <form method="post">
+    {% csrf_token %}
+
+    <label>檢索策略</label>
+    <select name="retrieval_strategy">
+      {% for value, label in strategies %}
+        <option value="{{ value }}" {% if value == settings.retrieval_strategy %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <p class="small muted" style="margin:4px 0 16px">
+      決定拿哪幾篇該媒體的舊文章當語感範例。實測 81 篇、跨 4 份簡報與 5 位作者，
+      三種策略產出<strong>分不出差異</strong>（評審分數全距 0.02）。
+      「不放範例」品質相同、快約 20%、每篇省 14% 成本，且完全排除照抄範文的可能。
+    </p>
+
+    <div class="row">
+      <div>
+        <label>範例篇數</label>
+        <input type="number" name="exemplar_count" value="{{ settings.exemplar_count }}" min="0" max="10">
+      </div>
+      <div>
+        <label>生成評估後重寫次數</label>
+        <input type="number" name="max_rewrites" value="{{ settings.max_rewrites }}" min="0" max="3">
+      </div>
+    </div>
+    <p class="small muted" style="margin:4px 0 0">
+      0 = 只寫初稿（約 90 秒）；1（預設）= 寫完後依評審意見自動潤一次（約 150 秒）。
+      實測第 2 次重寫 12 篇中 0 篇被採納。重寫若造成事實流失或分數沒提升會自動停止並保留前一版。<br>
+      潤稿讓評審分數上升 0.19，但那個數字有循環論證的成分——系統拿評審的批評去改寫，
+      再讓同一個評審評分。不經 LLM 的風格相似度只動了 0.003，目前沒有獨立證據證明潤稿改善了品質。
+    </p>
+
+    <label style="display:flex;align-items:flex-start;gap:8px;margin-top:22px;font-weight:normal;cursor:pointer">
+      <input type="checkbox" name="confirm_fact_updates" value="on" style="width:auto;margin-top:3px"
+             {% if settings.confirm_fact_updates %}checked{% endif %}>
+      <span>更正事實前先確認差異
+        <span class="small muted" style="display:block;margin-top:2px">
+          使用者用自然語言更正抽出的內容後，先顯示前後對照，按確認才存成新版本。
+          預設關閉：更正多半是改一個名字，中途插一個確認頁比它想防的錯誤更煩人，
+          而且每一版都留著，產稿時可以指定用哪一版。
+          若日後出現「模型把沒提到的欄位一起改掉」的情形，就把這個打開。
+        </span>
+      </span>
+    </label>
+
+    <button class="btn" style="margin-top:20px">儲存</button>
+  </form>
+</div>
+
+<div class="card" style="max-width:680px">
+  <h2 style="margin-top:0">不在這裡的東西</h2>
+  <p class="small muted" style="margin:0">
+    <strong>模型與金鑰設在 <code class="mono">.env</code></strong>（<code class="mono">LLM_MODEL</code>、
+    <code class="mono">LLM_JUDGE_MODEL</code> 等），不放進網頁。評審模型尤其不能隨手換——
+    換了之後整批評分就不可比。<br>
+    <strong>要掃不同參數組合請用</strong> <code class="mono">python manage.py run_experiment</code>，
+    它可以逐一變動策略與重寫次數，不受這裡的預設值限制。<br>
+    這裡的設定只在<strong>建立生成紀錄的當下</strong>被複製進該筆紀錄，改了不會影響任何既有稿件。
+  </p>
+</div>
+{% endblock %}

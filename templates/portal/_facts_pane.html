@@ -1,0 +1,108 @@
+{% comment %}
+  The facts card's whole interior — header controls included, because the
+  comparison dropdown appears and disappears with the checkbox above it.
+  Swapped in by fetch from brief_detail.html; also rendered by the plain page
+  load, so the two can never drift apart.
+{% endcomment %}
+<div class="row tight" style="margin-bottom:8px">
+  <h2 style="margin:0;flex:1">抽出的內容</h2>
+  {% if versions|length > 1 %}
+  <form method="get" class="facts-controls">
+    <label class="small muted" for="v">檢視版本</label>
+    <div class="fc-line">
+      <select id="v" name="v" data-facts-control style="width:auto">
+        {% for ver in versions %}
+          <option value="{{ ver.version }}" {% if ver.pk == viewing.pk %}selected{% endif %}>
+            {{ ver.label }}{% if forloop.first %}（最新）{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+      <label class="small muted fc-check">
+        <input type="checkbox" name="diff" value="1" data-facts-control
+               {% if show_diff %}checked{% endif %}> 版本差異
+      </label>
+      <button class="btn sm ghost facts-apply">套用</button>
+    </div>
+
+    {% if show_diff and base_options %}
+    <label class="small muted" for="base">比較版本</label>
+    <div class="fc-line">
+      <select id="base" name="base" data-facts-control style="width:auto">
+        {% for ver in base_options %}
+          <option value="{{ ver.version }}" {% if ver.pk == base.pk %}selected{% endif %}>{{ ver.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+  </form>
+  {% endif %}
+</div>
+
+<div class="pane-body">
+  {% if show_diff %}
+    {% if base %}
+      <p class="small muted" style="margin:0 0 12px">
+        {{ viewing.label }} 與 {{ base.label }} 相比：<span class="d-add">綠色是新增</span>、<span class="d-del">紅色是刪除</span>。
+      </p>
+    {% else %}
+      <p class="small muted" style="margin:0 0 12px">只有這一個版本，沒有可以比較的對象。</p>
+    {% endif %}
+  {% endif %}
+
+  {% if viewing.source == 'user_update' %}
+    <p class="small muted" style="margin:0 0 10px">
+      {{ viewing.label }} 是{% if viewing.branched %}以 {{ viewing.parent.label }} 為基礎、{% endif %}依你這句話更新的：「{{ viewing.user_input }}」
+    </p>
+  {% endif %}
+
+  {% if marked_uncertain %}
+  <div class="msg warning" style="margin-bottom:14px">
+    <strong>這幾處系統不確定，請你確認：</strong>
+    <ol style="margin:6px 0 0;padding-left:22px">
+      {% for u in marked_uncertain %}<li class="d-{{ u.mark }}">{{ u.text }}</li>{% endfor %}
+    </ol>
+  </div>
+  {% elif uncertain %}
+  <div class="msg warning" style="margin-bottom:14px">
+    <strong>這幾處系統不確定，請你確認：</strong>
+    <ol style="margin:6px 0 0;padding-left:22px">
+      {% for u in uncertain %}<li>{{ u }}</li>{% endfor %}
+    </ol>
+  </div>
+  {% endif %}
+
+  <p class="small muted">
+    產出的稿件<strong>只會寫這裡有的東西</strong>——品牌、產品型號、合作人選都以此為準，
+    系統不會自己補上沒寫的資訊。有錯就寫在右邊，不必自己動格式。
+  </p>
+
+  {% if marked_sections %}
+    <dl class="facts">
+      {% for s in marked_sections %}
+        <dt>{{ s.label }}{% if s.changed %} <span class="d-flag">不一樣</span>{% endif %}</dt>
+        <dd>
+          {% if s.lines|length > 1 %}
+            <ul>{% for line in s.lines %}<li class="d-{{ line.mark }}">{{ line.text }}</li>{% endfor %}</ul>
+          {% else %}
+            <span class="d-{{ s.lines.0.mark }}">{{ s.lines.0.text }}</span>
+          {% endif %}
+        </dd>
+      {% endfor %}
+    </dl>
+  {% elif sections %}
+    <dl class="facts">
+      {% for s in sections %}
+        <dt>{{ s.label }}</dt>
+        <dd>
+          {% if s.lines|length > 1 %}
+            <ul>{% for line in s.lines %}<li>{{ line }}</li>{% endfor %}</ul>
+          {% else %}
+            {{ s.lines.0 }}
+          {% endif %}
+        </dd>
+      {% endfor %}
+    </dl>
+  {% else %}
+    <p class="small muted">這一版沒有抽出任何內容。</p>
+  {% endif %}
+</div>

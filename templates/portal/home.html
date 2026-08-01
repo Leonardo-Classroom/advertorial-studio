@@ -15,14 +15,12 @@
   <h2 style="margin-top:0">簡報</h2>
   {% if briefs %}
     <table>
-      <tr><th>名稱</th><th>投影片</th><th>狀態</th><th>上傳時間</th></tr>
+      <tr><th>名稱</th><th>投影片</th><th>內容版本</th><th>上傳時間</th></tr>
       {% for b in briefs %}
       <tr>
         <td><a href="{% url 'portal:brief_detail' b.pk %}">{{ b.title }}</a></td>
         <td>{{ b.slide_count }}</td>
-        <td>{% if b.status == 'confirmed' %}<span class="pill good">已確認</span>
-          {% elif b.status == 'extracted' %}<span class="pill warn">待核對</span>
-          {% else %}<span class="pill">處理中</span>{% endif %}</td>
+        <td><span class="pill">{{ b.latest_facts.label }}</span></td>
         <td class="muted small">{{ b.created_at|date:"Y-m-d H:i" }}</td>
       </tr>
       {% endfor %}
@@ -44,7 +42,6 @@
         <td class="small">{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</td>
         <td>{% if r.status == 'done' %}<span class="pill good">完成</span>
           {% elif r.status == 'failed' %}<span class="pill" style="color:var(--bad)">失敗</span>
-          {% elif r.status == 'pending' %}<span class="pill warn">待確認大綱</span>
           {% else %}<span class="pill">處理中</span>{% endif %}</td>
         <td class="muted small">{{ r.created_at|date:"m-d H:i" }}</td>
       </tr>

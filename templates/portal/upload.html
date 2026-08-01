@@ -9,6 +9,20 @@
   <div class="step"><div class="n">步驟 3</div>選風格、產稿</div>
 </div>
 
+{% if retry_brief %}
+<div class="card" style="max-width:600px;margin-bottom:16px">
+  <h2 style="margin-top:0">「{{ retry_brief.title }}」還沒讀完</h2>
+  <p class="small muted">
+    檔案本身沒問題，{{ retry_brief.slide_count }} 張投影片的文字都已經讀進來了，
+    是接下來整理內容的那一步失敗。不必重新上傳，直接再試一次就好。
+  </p>
+  <form method="post" action="{% url 'portal:upload_retry' retry_brief.pk %}" data-loading="extract">
+    {% csrf_token %}
+    <button class="btn">再試一次</button>
+  </form>
+</div>
+{% endif %}
+
 <div class="card" style="max-width:600px">
   <form method="post" enctype="multipart/form-data" data-loading="upload">
     {% csrf_token %}

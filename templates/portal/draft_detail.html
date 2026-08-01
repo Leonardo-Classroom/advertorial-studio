@@ -13,21 +13,6 @@
   <div class="msg error"><strong>產稿失敗：</strong>{{ run.error }}</div>
 {% endif %}
 
-{% if run.outline and not run.output %}
-<div class="card">
-  <h2 style="margin-top:0">先確認大綱</h2>
-  <p class="small muted">這是文章的骨架。方向對了再往下寫；要調整就直接改，改完按下面的按鈕。</p>
-  <form method="post" action="{% url 'portal:draft_outline' run.pk %}">
-    {% csrf_token %}
-    <textarea name="outline" style="min-height:400px" class="mono">{{ run.outline }}</textarea>
-    <div class="row tight" style="margin-top:12px">
-      <button class="btn ghost">只儲存</button>
-      <button class="btn" name="action" value="generate" data-loading="outline">依大綱寫出正文</button>
-    </div>
-  </form>
-</div>
-{% endif %}
-
 {% if run.output %}
 <div class="card">
   <div class="row tight" style="margin-bottom:10px">
@@ -86,7 +71,7 @@
       依意見重寫{% if not revision_enabled %}（待開發）{% endif %}</button>
   </form>
 </div>
-{% elif not run.outline %}
+{% else %}
 <div class="card"><div class="empty">還沒有內容。</div></div>
 {% endif %}
 {% endblock %}

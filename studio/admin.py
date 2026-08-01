@@ -2,7 +2,19 @@ from django.contrib import admin
 
 from studio.models import (
     Evaluation, Experiment, GenerationRun, PairwiseComparison, Revision,
+    SiteSettings,
 )
+
+
+@admin.register(SiteSettings)
+class SiteSettingsAdmin(admin.ModelAdmin):
+    """Also editable at /manage/advanced/, which is where staff actually go."""
+
+    def has_add_permission(self, request):
+        return not SiteSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class RevisionInline(admin.TabularInline):

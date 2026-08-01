@@ -218,7 +218,12 @@ class Revision(models.Model):
     fine-tuning) would later need — no separate annotation effort required.
     """
 
-    SOURCES = [("human", "人工意見"), ("auto", "LLM 評審意見（自動重寫）")]
+    # `manual` is not a rewrite at all — nobody asked the model for anything.
+    # It is the user editing the delivered text directly, kept as a revision so
+    # the model's own output survives underneath it: the evaluations point at
+    # that text, and overwriting it would quietly change what they measured.
+    SOURCES = [("human", "人工意見"), ("auto", "LLM 評審意見（自動重寫）"),
+               ("manual", "人工直接編輯")]
 
     run = models.ForeignKey(GenerationRun, on_delete=models.CASCADE, related_name="revisions")
     round = models.IntegerField("稿次", default=2)

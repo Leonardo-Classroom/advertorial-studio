@@ -172,6 +172,25 @@ def writable_facts(facts: dict) -> dict:
     return {k: v for k, v in (facts or {}).items() if k not in INTERNAL_FIELDS}
 
 
+def title_directive(facts: dict) -> str:
+    """The headline, when the deck already decided it.
+
+    Proposal decks often set an angle per outlet — that is a decision someone
+    made with the client, not a gap for the model to fill. When one is present
+    the model is told to use it verbatim rather than to write "in that
+    direction", because a headline rewritten "in the direction of" the agreed
+    one is a different headline. Empty when the deck said nothing, and then the
+    model writes its own as before.
+    """
+    angle = str((facts or {}).get("angle") or "").strip()
+    if not angle:
+        return ""
+    return ("\n\n【文章標題（簡報已決定，不要自己重擬）】\n"
+            f"{angle}\n"
+            "請把這句話**逐字**放進〈文章標題〉區塊。若它明顯是一段方向描述而不是一句標題，"
+            "就依它的方向下標，並在〈待確認〉說明你為什麼沒有照用。")
+
+
 def build_input(facts: dict, exemplars: list, extra_requirements: str = "") -> str:
     facts_json = json.dumps(writable_facts(facts), ensure_ascii=False, indent=2)
 
@@ -195,7 +214,7 @@ def build_input(facts: dict, exemplars: list, extra_requirements: str = "") -> s
     return f"""請依據以下素材，寫一篇廣編稿。
 
 【可用素材（唯一事實來源；這裡沒有的一律不准寫）】
-{facts_json}
+{facts_json}{title_directive(facts)}
 
 {exemplar_section}
 {extra}
@@ -250,11 +269,11 @@ SYNTHESIZE_TASK = """依據下方重點筆記與該媒體的風格慣例，訂�
 
 【必須被寫進稿子的項目——大綱要為它們安排位置，一個都不能列入「刻意不寫」】
 {must_cover}
-{images}
+{images}{title}
 請輸出 Markdown 大綱：
 
 ## 標題候選
-3 個，符合該媒體的標題公式。
+3 個，符合該媒體的標題公式。若上面已經指定了標題，這一節就只寫那一句，不要另外提案。
 
 ## 段落架構
 逐段列出，每段寫：
@@ -301,7 +320,7 @@ def build_generate_from_outline(facts: dict, outline: str, exemplars: list,
 {outline}
 
 【可用素材（唯一事實來源）】
-{facts_json}
+{facts_json}{title_directive(facts)}
 
 {exemplar_section}{build_image_section(images)}
 {extra}

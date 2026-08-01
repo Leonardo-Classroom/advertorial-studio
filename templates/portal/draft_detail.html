@@ -22,11 +22,67 @@
               data-target="d{{ run.pk }}">手機</button>
       <button type="button" data-view="article" data-target="d{{ run.pk }}">文章</button>
       <button type="button" data-view="raw" data-target="d{{ run.pk }}">純文字</button>
+      <button type="button" data-view="edit" data-target="d{{ run.pk }}">編輯</button>
     </div>
   </div>
+  {% if edited %}
+    <p class="small muted" style="margin:0 0 10px">
+      這是你編輯過的版本。模型原本寫的內容仍保留在紀錄裡。
+    </p>
+  {% endif %}
   <div id="d{{ run.pk }}" class="phone">
     <div data-render="article">{{ draft_text|article:run.brief }}</div>
     <pre class="doc" data-render="raw" hidden>{{ draft_text }}</pre>
+
+    <form method="post" action="{% url 'portal:draft_edit' run.pk %}"
+          data-render="edit" class="post edit-form" hidden>
+      {% csrf_token %}
+      {% for section in edit_sections %}
+        <div class="edit-section">
+          {% if section.heading_name %}
+            <div class="edit-label">小標</div>
+            <input type="text" name="{{ section.heading_name }}" value="{{ section.heading }}"
+                   class="edit-sub">
+          {% else %}
+            <div class="edit-label">{{ section.label }}</div>
+          {% endif %}
+          {% for block in section.blocks %}
+            {% if block.image %}
+              <div class="edit-image">
+                <img src="{{ block.image.file.url }}" alt="{{ block.image.display_caption }}">
+                <span class="small muted">{{ block.image.display_caption|default:"簡報圖片" }}（圖片位置不可改）</span>
+              </div>
+            {% elif block.items %}
+              <ul class="edit-list">
+                {% for item in block.items %}
+                  <li>
+                    <div class="edit-rich" contenteditable="true" data-for="{{ item.name }}"
+                         role="textbox" aria-label="項目">{{ item.html }}</div>
+                    <input type="hidden" name="{{ item.name }}" value="{{ item.value }}">
+                  </li>
+                {% endfor %}
+              </ul>
+            {% elif section.single_line %}
+              <input type="text" name="{{ block.name }}" value="{{ block.value }}"
+                     class="edit-title">
+            {% else %}
+              <div class="edit-rich" contenteditable="true" data-for="{{ block.name }}"
+                   role="textbox" aria-multiline="true" aria-label="{{ section.label }}">{{ block.html }}</div>
+              <input type="hidden" name="{{ block.name }}" value="{{ block.value }}">
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% empty %}
+        <p class="small muted">這篇稿子沒有可編輯的內容。</p>
+      {% endfor %}
+      {% if edit_sections %}
+      <div class="row tight" style="margin-top:18px">
+        <button class="btn">儲存</button>
+        <span class="small muted">選取文字後按 Ctrl/⌘+B 可以加粗或取消。
+          儲存後「文章」「手機」「純文字」都會顯示你改過的版本。</span>
+      </div>
+      {% endif %}
+    </form>
   </div>
 </div>
 
@@ -74,4 +130,70 @@
 {% else %}
 <div class="card"><div class="empty">還沒有內容。</div></div>
 {% endif %}
+
+<script>
+// The edit boxes hold rich text, not markdown: `**俐落都會感**` on screen is a
+// formatting instruction the reader has to decode, and four characters they can
+// break by deleting one. So bold shows as bold, Ctrl/⌘+B toggles it, and the
+// asterisks are put back only when the form is submitted.
+(function () {
+  const form = document.querySelector('.edit-form');
+  if (!form) return;
+
+  // Ask the browser for <b> rather than a styled <span>; the serialiser below
+  // understands tags, and a span carrying font-weight is not a tag it can read.
+  try { document.execCommand('styleWithCSS', false, false); } catch (e) { /* older browsers */ }
+
+  form.addEventListener('keydown', function (event) {
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'b') return;
+    if (!event.target.classList.contains('edit-rich')) return;
+    event.preventDefault();
+    document.execCommand('bold');
+  });
+
+  // Paste as plain text. Copying a paragraph out of the brief otherwise brings
+  // its fonts, colours and links along, none of which survive to the draft.
+  form.addEventListener('paste', function (event) {
+    if (!event.target.classList.contains('edit-rich')) return;
+    event.preventDefault();
+    const text = (event.clipboardData || window.clipboardData).getData('text/plain');
+    document.execCommand('insertText', false, text);
+  });
+
+  function toMarkdown(node) {
+    let out = '';
+    node.childNodes.forEach(function (child) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        out += child.nodeValue;
+        return;
+      }
+      if (child.nodeType !== Node.ELEMENT_NODE) return;
+      const tag = child.tagName.toLowerCase();
+      if (tag === 'br') {
+        out += '\n';
+        return;
+      }
+      const inner = toMarkdown(child);
+      if (tag === 'b' || tag === 'strong') {
+        // ** ** around spaces is not bold in markdown, so the padding moves out.
+        const trimmed = inner.trim();
+        out += trimmed ? inner.replace(trimmed, '**' + trimmed + '**') : inner;
+        return;
+      }
+      // Any other element the browser invented (div, p, span from a paste) is
+      // structure, not content: keep the words, keep the line break.
+      out += (tag === 'div' || tag === 'p') && out && !out.endsWith('\n')
+        ? '\n' + inner : inner;
+    });
+    return out;
+  }
+
+  form.addEventListener('submit', function () {
+    form.querySelectorAll('.edit-rich').forEach(function (box) {
+      const field = form.querySelector('input[name="' + box.dataset.for + '"]');
+      if (field) field.value = toMarkdown(box).replace(/ /g, ' ').trim();
+    });
+  });
+})();
+</script>
 {% endblock %}

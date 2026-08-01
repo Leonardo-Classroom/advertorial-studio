@@ -30,7 +30,8 @@ from django.utils.text import slugify
 from briefs.models import Brief
 from briefs.services import facts_text, facts_update, ppt_extract
 from corpus.models import StyleGuide
-from studio.models import GenerationRun, SiteSettings
+from studio.models import GenerationRun, Revision, SiteSettings
+from studio.services import draft_edit as draft_edit_service
 from studio.services import generate as generate_service
 
 
@@ -415,6 +416,12 @@ def generate(request, pk):
     return redirect("portal:draft_detail", pk=run.pk)
 
 
+def _manual_edit(run):
+    """The user's own edit of the delivered text, if they made one."""
+    return (run.revisions.filter(source="manual", accepted=True)
+            .order_by("-round").first())
+
+
 def _delivered_draft(run) -> str:
     """The text the run actually hands over as its first draft.
 
@@ -429,6 +436,13 @@ def _delivered_draft(run) -> str:
     machinery, and folding rounds together there would hide what an experiment
     is measuring.
     """
+    # A hand edit wins outright: the user has read the delivered text and said
+    # what it should say. It is not another draft to compare against, it is the
+    # draft.
+    edited = _manual_edit(run)
+    if edited:
+        return edited.output
+
     last_auto = (run.revisions.filter(source="auto", accepted=True)
                  .order_by("-round").first())
     return last_auto.output if last_auto else run.output
@@ -450,13 +464,47 @@ def _human_revisions(run) -> list:
 @login_required
 def draft_detail(request, pk):
     run = get_object_or_404(_my_runs(request).select_related("brief", "outlet", "style_guide"), pk=pk)
+    draft_text = _delivered_draft(run)
     return render(request, "portal/draft_detail.html", {
         "nav": "drafts",
         "run": run,
-        "draft_text": _delivered_draft(run),
+        "draft_text": draft_text,
+        "edit_sections": draft_edit_service.to_fields(draft_text, run.brief),
+        "edited": _manual_edit(run),
         "revisions": _human_revisions(run),
         "revision_enabled": REVISION_ENABLED,
     })
+
+
+@login_required
+def draft_edit(request, pk):
+    """Save the draft as the user retyped it, paragraph by paragraph."""
+    run = get_object_or_404(_my_runs(request), pk=pk)
+    if request.method != "POST":
+        return redirect("portal:draft_detail", pk=pk)
+
+    before = _delivered_draft(run)
+    after = draft_edit_service.from_fields(before, request.POST)
+    if after.strip() == before.strip():
+        messages.info(request, "內容沒有變動，未儲存。")
+        return redirect("portal:draft_detail", pk=pk)
+
+    edited = _manual_edit(run)
+    if edited:
+        # One standing edit, not a chain of them: every save is the same person
+        # continuing to fix the same draft, and a stack of 第 4 稿／第 5 稿 for
+        # three typo fixes is a worse record than the current text plus the
+        # model's original.
+        edited.output = after
+        edited.save(update_fields=["output"])
+    else:
+        last = run.revisions.order_by("-round").first()
+        Revision.objects.create(
+            run=run, round=(last.round + 1) if last else 2,
+            source="manual", feedback="（在稿件頁直接編輯）", output=after,
+        )
+    messages.success(request, "已儲存你的修改。模型原本寫的版本仍保留在紀錄裡。")
+    return redirect("portal:draft_detail", pk=pk)
 
 
 @login_required

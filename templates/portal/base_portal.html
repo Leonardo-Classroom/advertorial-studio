@@ -216,6 +216,31 @@ li.d-add,li.d-del{display:list-item;padding:1px 6px}
 .post-body p{margin:0 0 16px}
 .post-body ul,.post-body ol{margin:0 0 16px;padding-left:22px}
 .post-body li{margin:5px 0}
+/* The edit view keeps the article's measure and rhythm so the fields sit where
+   the paragraphs were. Editing copy is judging copy, and a box that is a
+   different width from the page reads at a different speed. */
+.edit-section{margin-bottom:20px}
+.edit-label{font-size:12px;color:var(--muted);margin-bottom:6px}
+/* Rich-text boxes, styled to look like the fields they replace so the form
+   still reads as a form. They hold bold as bold — the asterisks go back on at
+   submit — which is why they are contenteditable rather than a textarea. */
+.edit-rich{width:100%;line-height:1.8;margin-bottom:8px;padding:8px 10px;
+  border:1px solid var(--line);border-radius:7px;background:var(--panel);
+  color:var(--ink);font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}
+.edit-rich:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.edit-rich strong{font-weight:650}
+.edit-form input.edit-title{width:100%;font-size:20px;font-weight:650;line-height:1.5}
+.edit-form input.edit-sub{width:100%;font-size:16px;font-weight:650;margin-bottom:8px}
+/* One box per bullet. The dash stays in the markup where it belongs — a list
+   typed into a single field is a list someone eventually breaks by deleting a
+   hyphen they did not know was load-bearing. */
+.edit-list{list-style:none;margin:0 0 8px;padding:0}
+.edit-list li{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.edit-list li::before{content:"・";color:var(--muted);flex:0 0 auto}
+.edit-list .edit-rich{margin-bottom:0;padding:5px 9px}
+.edit-image{display:flex;align-items:center;gap:10px;margin-bottom:10px;
+  padding:8px;border:1px dashed var(--line);border-radius:8px}
+.edit-image img{width:96px;height:64px;object-fit:contain;background:#f4f4f6;border-radius:4px}
 .post-figure{margin:22px 0;text-align:center}
 .post-figure img{max-width:100%;height:auto;border-radius:6px}
 .post-figure figcaption{margin-top:7px;font-size:12.5px;color:var(--muted);line-height:1.6}

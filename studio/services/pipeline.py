@@ -115,6 +115,7 @@ def run_stages(run: GenerationRun, stop_after_outline: bool = False) -> Generati
                 deliverables="一篇廣編圖文（含 FB 貼文文案）",
                 must_cover="、".join(must_cover) or "（無）",
                 images=prompts.build_outline_image_section(images),
+                title=prompts.title_directive(facts),
             ),
             timeout=400,
         )

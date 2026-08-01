@@ -28,6 +28,7 @@ SECTIONS: list[tuple[str, str]] = [
     ("product", "產品"),
     ("product_details", "產品特徵"),
     ("slogan", "主標語"),
+    ("angle", "簡報指定的切角／標題"),
     ("key_message", "想傳達的重點"),
     ("kol", "合作人選"),
     ("kol_content", "KOL 演繹內容"),

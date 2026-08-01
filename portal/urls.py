@@ -22,6 +22,7 @@ urlpatterns = [
     path("briefs/<int:pk>/generate/", views.generate, name="generate"),
 
     path("drafts/<int:pk>/", views.draft_detail, name="draft_detail"),
+    path("drafts/<int:pk>/edit/", views.draft_edit, name="draft_edit"),
     path("drafts/<int:pk>/revise/", views.draft_revise, name="draft_revise"),
     path("drafts/<int:pk>/download/", views.draft_download, name="draft_download"),
 ]

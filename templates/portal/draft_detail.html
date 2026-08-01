@@ -2,91 +2,42 @@
 {% load mdformat %}
 {% block content %}
 <p class="small"><a href="{% url 'portal:brief_detail' run.brief.pk %}">← 回 {{ run.brief.title|truncatechars:30 }}</a></p>
-<div class="row tight" style="margin-bottom:6px">
-  <h1 style="flex:1;margin:0">廣編稿</h1>
-  {% if run.output %}<a class="btn ghost" href="{% url 'portal:draft_download' run.pk %}">下載 .md</a>{% endif %}
-</div>
-<p class="sub">{{ run.brief.title }} · 模仿 {{ run.outlet.name }}{% if run.author %} / {{ run.author.name }}{% endif %}
+<h1>{{ run.brief.title }}</h1>
+<p class="sub">模仿 {{ run.outlet.name }}{% if run.author %} / {{ run.author.name }}{% endif %}
   · {{ run.created_at|date:"Y-m-d H:i" }}</p>
 
 {% if run.status == 'failed' %}
   <div class="msg error"><strong>產稿失敗：</strong>{{ run.error }}</div>
 {% endif %}
 
-{% if run.output %}
-<div class="card">
-  <div class="row tight" style="margin-bottom:10px">
-    <h2 style="margin:0;flex:1">初稿</h2>
-    <div class="toggle">
-      <button type="button" class="on" data-view="mobile" data-render-as="article"
-              data-target="d{{ run.pk }}">手機</button>
-      <button type="button" data-view="article" data-target="d{{ run.pk }}">文章</button>
-      <button type="button" data-view="raw" data-target="d{{ run.pk }}">純文字</button>
-      <button type="button" data-view="edit" data-target="d{{ run.pk }}">編輯</button>
+{% if run.in_progress %}
+<div class="card waiting" id="waiting" data-url="{% url 'portal:draft_status' run.pk %}">
+  <div class="row tight" style="gap:12px">
+    <span class="spin big" aria-hidden="true"></span>
+    <div style="flex:1">
+      <h2 style="margin:0 0 2px" id="waiting-title">
+        {% if run.status == 'pending' %}排隊中{% else %}產稿中{% endif %}</h2>
+      <p class="small muted" style="margin:0" id="waiting-step">
+        {% if run.status == 'pending' %}前面還有稿件在產，輪到就會開始。
+        {% else %}正在寫，通常需要 1.5–3 分鐘。{% endif %}</p>
     </div>
   </div>
-  {% if edited %}
-    <p class="small muted" style="margin:0 0 10px">
-      這是你編輯過的版本。模型原本寫的內容仍保留在紀錄裡。
-    </p>
-  {% endif %}
-  <div id="d{{ run.pk }}" class="phone">
-    <div data-render="article">{{ draft_text|article:run.brief }}</div>
-    <pre class="doc" data-render="raw" hidden>{{ draft_text }}</pre>
+  <ol class="waiting-steps" id="waiting-steps">
+    {% for label in run.stage_labels %}<li>{{ label }}</li>{% endfor %}
+  </ol>
+  <p class="small muted" style="margin:12px 0 0">
+    寫完會自動出現在這裡，這個分頁可以先放著。關掉也沒關係——稿子照樣會寫完，
+    之後在簡報頁的「這份簡報的稿件」找得到。
+  </p>
+</div>
+{% endif %}
 
-    <form method="post" action="{% url 'portal:draft_edit' run.pk %}"
-          data-render="edit" class="post edit-form" hidden>
-      {% csrf_token %}
-      {% for section in edit_sections %}
-        <div class="edit-section">
-          {% if section.heading_name %}
-            <div class="edit-label">小標</div>
-            <input type="text" name="{{ section.heading_name }}" value="{{ section.heading }}"
-                   class="edit-sub">
-          {% else %}
-            <div class="edit-label">{{ section.label }}</div>
-          {% endif %}
-          {% for block in section.blocks %}
-            {% if block.image %}
-              <div class="edit-image">
-                <img src="{{ block.image.file.url }}" alt="{{ block.image.display_caption }}">
-                <span class="small muted">{{ block.image.display_caption|default:"簡報圖片" }}（圖片位置不可改）</span>
-              </div>
-            {% elif block.items %}
-              <ul class="edit-list">
-                {% for item in block.items %}
-                  <li>
-                    <div class="edit-rich" contenteditable="true" data-for="{{ item.name }}"
-                         role="textbox" aria-label="項目">{{ item.html }}</div>
-                    <input type="hidden" name="{{ item.name }}" value="{{ item.value }}">
-                  </li>
-                {% endfor %}
-              </ul>
-            {% elif section.single_line %}
-              <input type="text" name="{{ block.name }}" value="{{ block.value }}"
-                     class="edit-title">
-            {% else %}
-              <div class="edit-rich" contenteditable="true" data-for="{{ block.name }}"
-                   role="textbox" aria-multiline="true" aria-label="{{ section.label }}">{{ block.html }}</div>
-              <input type="hidden" name="{{ block.name }}" value="{{ block.value }}">
-            {% endif %}
-          {% endfor %}
-        </div>
-      {% empty %}
-        <p class="small muted">這篇稿子沒有可編輯的內容。</p>
-      {% endfor %}
-      {% if edit_sections %}
-      <div class="row tight" style="margin-top:18px">
-        <button class="btn">儲存</button>
-        <span class="small muted">選取文字後按 Ctrl/⌘+B 可以加粗或取消。
-          儲存後「文章」「手機」「純文字」都會顯示你改過的版本。</span>
-      </div>
-      {% endif %}
-    </form>
-  </div>
+{% if viewing and not run.in_progress %}
+<div class="card" id="draft-pane" data-url="{% url 'portal:draft_detail' run.pk %}">
+  {% include "portal/_draft_pane.html" %}
 </div>
 
-{% with notes=run.latest_text|article_notes %}{% if notes %}
+{% with notes=draft_text|article_notes %}{% if notes %}
 <div class="card" style="border-style:dashed">
   <h2 style="margin-top:0">待確認 <span class="pill warn">不隨稿件刊出</span></h2>
   <p class="small muted" style="margin:0 0 10px">
@@ -95,43 +46,112 @@
 </div>
 {% endif %}{% endwith %}
 
-{% for rev in revisions %}
-<div class="card">
-  <div class="row tight" style="margin-bottom:10px">
-    <h2 style="margin:0;flex:1">第 {{ rev.display_round }} 稿</h2>
-    <div class="toggle">
-      <button type="button" class="on" data-view="mobile" data-render-as="article"
-              data-target="r{{ rev.pk }}">手機</button>
-      <button type="button" data-view="article" data-target="r{{ rev.pk }}">文章</button>
-      <button type="button" data-view="raw" data-target="r{{ rev.pk }}">純文字</button>
-    </div>
-  </div>
-  <details style="margin-bottom:10px"><summary>你提出的修改意見</summary>
-    <pre class="doc" style="margin-top:8px">{{ rev.feedback }}</pre></details>
-  <div id="r{{ rev.pk }}" class="phone">
-    <div data-render="article">{{ rev.output|article:run.brief }}</div>
-    <pre class="doc" data-render="raw" hidden>{{ rev.output }}</pre>
-  </div>
-</div>
-{% endfor %}
-
 <div class="card">
   <h2 style="margin-top:0">要改哪裡？</h2>
-  <p class="small muted">{% if revision_enabled %}寫下想調整的地方，系統會依你的意見重寫一版。原本的稿件會保留。
-    {% else %}這項功能還在開發中，暫時無法使用。{% endif %}</p>
+  <p class="small muted">寫下想調整的地方，系統會依你的意見重寫一版。原本的版本都會留著。</p>
   <form method="post" action="{% url 'portal:draft_revise' run.pk %}">
     {% csrf_token %}
-    <textarea name="feedback" {% if not revision_enabled %}disabled{% endif %}
+    <textarea name="feedback"
               placeholder="例如：第二段太像官方新聞稿，改得更口語一點；標題想強調價格。"></textarea>
-    <button class="btn" style="margin-top:10px" {% if not revision_enabled %}disabled{% endif %}>
-      依意見重寫{% if not revision_enabled %}（待開發）{% endif %}</button>
+    {% if versions|length > 1 %}
+    <div class="row tight" style="margin-top:12px;flex:0 0 auto">
+      <label class="small muted" for="rev_base">根據版本更新</label>
+      <select id="rev_base" name="base_version" style="width:auto">
+        {% for ver in versions %}
+          <option value="{{ ver.version }}" {% if ver.pk == viewing.pk %}selected{% endif %}>{{ ver.label }}{% if forloop.first %}（最新）{% endif %}</option>
+        {% endfor %}
+      </select>
+      <span class="small muted">改動會套在這一版上，存成新的一版。</span>
+    </div>
+    {% else %}
+      <input type="hidden" name="base_version" value="{{ viewing.version }}">
+    {% endif %}
+    <button class="btn" style="margin-top:12px">依意見重寫</button>
+    <span class="small muted" style="margin-left:8px">重寫需 1–2 分鐘，會在背景進行。</span>
   </form>
 </div>
-{% else %}
+{% elif not run.in_progress %}
 <div class="card"><div class="empty">還沒有內容。</div></div>
 {% endif %}
 
 <script>
+// Version switching and the comparison redraw the draft card in place, the same
+// way the facts card does — a full reload would lose whatever is half-typed in
+// 要改哪裡 below it.
+(function () {
+  const pane = document.getElementById('draft-pane');
+  if (!pane || !window.fetch) return;
+  pane.classList.add('live');
+  let inFlight = 0;
+
+  pane.addEventListener('change', function (event) {
+    if (!event.target.matches('[data-draft-control]')) return;
+    const params = new URLSearchParams();
+    const version = pane.querySelector('[name=v]');
+    const diff = pane.querySelector('[name=diff]');
+    const base = pane.querySelector('[name=base]');
+    if (version) params.set('v', version.value);
+    if (diff && diff.checked) {
+      params.set('diff', '1');
+      if (base) params.set('base', base.value);
+    }
+    const token = ++inFlight;
+    pane.setAttribute('aria-busy', 'true');
+    fetch(pane.dataset.url + '?' + params + '&partial=1', {
+      headers: {'X-Requested-With': 'fetch'}, credentials: 'same-origin',
+    })
+      .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
+      .then(function (html) {
+        if (token !== inFlight) return;
+        pane.innerHTML = html;
+        pane.classList.add('live');
+        history.replaceState(null, '', pane.dataset.url +
+          (params.toString() ? '?' + params : ''));
+      })
+      .catch(function () {
+        if (token === inFlight) window.location = pane.dataset.url + '?' + params;
+      })
+      .then(function () {
+        if (token === inFlight) pane.removeAttribute('aria-busy');
+      });
+  });
+})();
+
+// Waiting on a run started in a worker thread. Polls its own status and
+// reloads once, when there is something to show.
+(function () {
+  const box = document.getElementById('waiting');
+  if (!box || !window.fetch) return;
+  const title = document.getElementById('waiting-title');
+  const step = document.getElementById('waiting-step');
+  const steps = document.getElementById('waiting-steps');
+
+  (function poll() {
+    fetch(box.dataset.url, {headers: {'X-Requested-With': 'fetch'},
+                            credentials: 'same-origin'})
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (data) {
+        if (!data.in_progress) {
+          window.location.reload();
+          return;
+        }
+        title.textContent = data.queued ? '排隊中' : '產稿中';
+        step.textContent = data.queued
+          ? '前面還有稿件在產，輪到就會開始。'
+          : (data.stages.length
+              ? '已完成：' + data.stages[data.stages.length - 1]
+              : '正在寫，通常需要 1.5–3 分鐘。');
+        steps.innerHTML = data.stages.map(function (s) {
+          const li = document.createElement('li');
+          li.textContent = s;
+          return li.outerHTML;
+        }).join('');
+        setTimeout(poll, 3000);
+      })
+      .catch(function () { setTimeout(poll, 6000); });
+  })();
+})();
+
 // The edit boxes hold rich text, not markdown: `**俐落都會感**` on screen is a
 // formatting instruction the reader has to decode, and four characters they can
 // break by deleting one. So bold shows as bold, Ctrl/⌘+B toggles it, and the

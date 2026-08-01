@@ -1,0 +1,32 @@
+{% comment %}
+  The drafts this brief has produced. Open by default while anything is still
+  running: a collapsed card is a fine home for finished work, but hiding the
+  thing the user is currently waiting for behind a click is not.
+  Refreshed in place by brief_detail.html while any run is unfinished.
+{% endcomment %}
+{% if runs %}
+<details class="card" id="runs-card" {% if runs_active %}open{% endif %}
+         data-url="{% url 'portal:brief_detail' brief.pk %}"
+         data-active="{% if runs_active %}1{% else %}0{% endif %}">
+  <summary>
+    <h2>這份簡報的稿件</h2>
+    <span class="small muted">{{ runs|length }} 篇</span>
+  </summary>
+  <table>
+    {% for r in runs %}
+    <tr>
+      <td><a href="{% url 'portal:draft_detail' r.pk %}" {% if r.in_progress %}target="_blank"{% endif %}>{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</a>
+        <div class="small muted">{{ r.created_at|date:"Y-m-d H:i" }}{% if r.facts_version %} · 用 {{ r.facts_version.label }} 的內容{% endif %}</div></td>
+      <td>
+        {% if r.status == 'done' %}<span class="pill good">完成</span>
+        {% elif r.status == 'failed' %}<span class="pill">失敗</span>
+        {% else %}
+          <span class="pill running"><span class="spin" aria-hidden="true"></span>
+            {% if r.status == 'pending' %}排隊中{% else %}產稿中{% endif %}</span>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</details>
+{% endif %}

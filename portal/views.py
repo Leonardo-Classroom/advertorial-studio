@@ -9,9 +9,10 @@ scored within 0.02 of each other across 81 runs, and a second rewrite was
 accepted zero times out of twelve. A control that cannot change the outcome
 still costs the user the time it takes to wonder about it.
 
-Facts are versioned rather than edited in place: corrections arrive as a
-sentence, a model folds them in, and the user confirms the diff. Nothing here
-writes a version without that confirmation.
+Both the facts and the drafts are versioned rather than edited in place.
+Corrections arrive as a sentence, a model folds them in, and the result becomes
+a new version; nothing is ever overwritten, so every screen can offer "which
+version" as an ordinary choice.
 
 Everything is scoped to `request.user`: a portal user sees only their own
 briefs and drafts. Staff see everything through /manage/ instead.
@@ -22,7 +23,7 @@ from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.text import slugify
@@ -30,18 +31,11 @@ from django.utils.text import slugify
 from briefs.models import Brief
 from briefs.services import facts_text, facts_update, ppt_extract
 from corpus.models import StyleGuide
-from studio.models import GenerationRun, Revision, SiteSettings
+from studio.models import GenerationRun, SiteSettings
 from studio.services import draft_edit as draft_edit_service
 from studio.services import generate as generate_service
-
-
-# The feedback-driven rewrite is not finished, so the portal does not offer it
-# yet. Both the form and the view read this: a disabled button is only a hint to
-# the browser, and the URL stays reachable by hand or from a tab opened before
-# the change, so the refusal has to exist server-side to mean anything. Staff
-# keep the loop under /manage/, which is where it is being worked on.
-# Flip to True to release it — the form re-enables with it.
-REVISION_ENABLED = False
+from studio.services import drafts as draft_service
+from studio.services import runner
 
 
 def _my_briefs(request):
@@ -215,6 +209,10 @@ def brief_detail(request, pk):
                 or next((v for v in others if v.version == 1), None)
                 or others[-1])
 
+    runs = list(brief.runs.filter(owner=request.user).select_related("outlet", "author",
+                                                                     "facts_version"))
+    runner.reap_stale(runs)
+
     context = {
         "nav": "briefs",
         "brief": brief,
@@ -231,13 +229,16 @@ def brief_detail(request, pk):
         "latest_uncertain": facts_text.uncertain_items(latest.data if latest else {}),
         "guides": StyleGuide.objects.filter(is_active=True).select_related("outlet", "author"),
         "confirm_updates": SiteSettings.load().confirm_fact_updates,
-        "runs": brief.runs.filter(owner=request.user),
+        "runs": runs,
+        "runs_active": any(r.in_progress for r in runs),
         "brief_images": brief.images.all(),
     }
     # Switching version or turning the comparison on replaces this one card, not
     # the page: the correction box beside it is often half-written by then.
     if request.GET.get("partial") == "1":
         return render(request, "portal/_facts_pane.html", context)
+    if request.GET.get("partial") == "runs":
+        return render(request, "portal/_runs_card.html", context)
     return render(request, "portal/brief_detail.html", context)
 
 
@@ -407,45 +408,11 @@ def generate(request, pk):
         exemplar_count=defaults.exemplar_count,
         max_rewrites=max(0, min(defaults.max_rewrites, 3)),
     )
-    generate_service.run_generation(run)
-
-    if run.status == "failed":
-        messages.error(request, f"產稿失敗：{run.error}")
-    else:
-        messages.success(request, "稿件已產出。")
+    # Handed to a worker rather than run here: this response opens in a new tab
+    # and the user goes straight back to the brief, where they may well ask for
+    # another one before this finishes.
+    runner.submit(run)
     return redirect("portal:draft_detail", pk=run.pk)
-
-
-def _manual_edit(run):
-    """The user's own edit of the delivered text, if they made one."""
-    return (run.revisions.filter(source="manual", accepted=True)
-            .order_by("-round").first())
-
-
-def _delivered_draft(run) -> str:
-    """The text the run actually hands over as its first draft.
-
-    The rewrite budget makes the generator revise its own work before handing
-    anything back. That is the generator finishing the job, not a second draft:
-    the user asked for a piece of copy, and showing them the version that exists
-    only because the machine disagreed with itself invites them to compare two
-    texts they never asked to choose between. So the accepted auto-rewrite *is*
-    the first draft here.
-
-    /manage/ still shows every round — that view exists to inspect the
-    machinery, and folding rounds together there would hide what an experiment
-    is measuring.
-    """
-    # A hand edit wins outright: the user has read the delivered text and said
-    # what it should say. It is not another draft to compare against, it is the
-    # draft.
-    edited = _manual_edit(run)
-    if edited:
-        return edited.output
-
-    last_auto = (run.revisions.filter(source="auto", accepted=True)
-                 .order_by("-round").first())
-    return last_auto.output if last_auto else run.output
 
 
 def _human_revisions(run) -> list:
@@ -461,19 +428,71 @@ def _human_revisions(run) -> list:
     return revisions
 
 
+def _chosen_version(run, wanted):
+    """The draft version a form or link named, else the newest."""
+    versions = draft_service.versions(run)
+    if not versions:
+        return draft_service.ensure_first_version(run)
+    return next((v for v in versions if str(v.version) == str(wanted)), versions[0])
+
+
+@login_required
+def draft_status(request, pk):
+    """Where a run has got to, for the pages waiting on it."""
+    run = get_object_or_404(_my_runs(request), pk=pk)
+    runner.reap_stale([run])
+    return JsonResponse({
+        "status": run.status,
+        "label": run.get_status_display(),
+        "in_progress": run.in_progress,
+        "stages": run.stage_labels,
+        "queued": run.status == "pending",
+    })
+
+
 @login_required
 def draft_detail(request, pk):
     run = get_object_or_404(_my_runs(request).select_related("brief", "outlet", "style_guide"), pk=pk)
-    draft_text = _delivered_draft(run)
-    return render(request, "portal/draft_detail.html", {
+    runner.reap_stale([run])
+    if not run.in_progress:
+        # Runs that finished before drafts were versioned get their v1 here.
+        draft_service.ensure_first_version(run)
+
+    versions = draft_service.versions(run)
+    latest = versions[0] if versions else None
+
+    viewing = latest
+    wanted = request.GET.get("v")
+    if wanted:
+        viewing = next((v for v in versions if str(v.version) == wanted), latest)
+
+    show_diff = request.GET.get("diff") == "1"
+    others = [v for v in versions if viewing and v.pk != viewing.pk]
+    base = None
+    if show_diff and others:
+        wanted_base = request.GET.get("base")
+        base = (next((v for v in others if str(v.version) == wanted_base), None)
+                or next((v for v in others if v.version == 1), None)
+                or others[-1])
+
+    draft_text = viewing.text if viewing else ""
+    context = {
         "nav": "drafts",
         "run": run,
+        "versions": versions,
+        "viewing": viewing,
+        "latest": latest,
+        "base": base,
+        "base_options": others,
+        "show_diff": show_diff,
+        "marked": draft_service.mark_paragraphs(base.text, draft_text) if base else None,
         "draft_text": draft_text,
         "edit_sections": draft_edit_service.to_fields(draft_text, run.brief),
-        "edited": _manual_edit(run),
         "revisions": _human_revisions(run),
-        "revision_enabled": REVISION_ENABLED,
-    })
+    }
+    if request.GET.get("partial") == "1":
+        return render(request, "portal/_draft_pane.html", context)
+    return render(request, "portal/draft_detail.html", context)
 
 
 @login_required
@@ -483,38 +502,27 @@ def draft_edit(request, pk):
     if request.method != "POST":
         return redirect("portal:draft_detail", pk=pk)
 
-    before = _delivered_draft(run)
-    after = draft_edit_service.from_fields(before, request.POST)
-    if after.strip() == before.strip():
+    base = _chosen_version(run, request.POST.get("base_version"))
+    if base is None:
+        messages.error(request, "這篇稿子還沒有內容可以編輯。")
+        return redirect("portal:draft_detail", pk=pk)
+
+    after = draft_edit_service.from_fields(base.text, request.POST)
+    if after.strip() == base.text.strip():
         messages.info(request, "內容沒有變動，未儲存。")
         return redirect("portal:draft_detail", pk=pk)
 
-    edited = _manual_edit(run)
-    if edited:
-        # One standing edit, not a chain of them: every save is the same person
-        # continuing to fix the same draft, and a stack of 第 4 稿／第 5 稿 for
-        # three typo fixes is a worse record than the current text plus the
-        # model's original.
-        edited.output = after
-        edited.save(update_fields=["output"])
-    else:
-        last = run.revisions.order_by("-round").first()
-        Revision.objects.create(
-            run=run, round=(last.round + 1) if last else 2,
-            source="manual", feedback="（在稿件頁直接編輯）", output=after,
-        )
-    messages.success(request, "已儲存你的修改。模型原本寫的版本仍保留在紀錄裡。")
+    version = draft_service.add_version(run, after, source="manual", parent=base)
+    messages.success(request, f"已依 {base.label} 存成 {version.label}。"
+                              f"{base.label} 仍然留著，可以從上方切回去看。")
     return redirect("portal:draft_detail", pk=pk)
 
 
 @login_required
 def draft_revise(request, pk):
+    """Ask the model to rewrite one version against the user's notes."""
     run = get_object_or_404(_my_runs(request), pk=pk)
     if request.method != "POST":
-        return redirect("portal:draft_detail", pk=pk)
-
-    if not REVISION_ENABLED:
-        messages.info(request, "「依意見重寫」還在開發中，暫時無法使用。")
         return redirect("portal:draft_detail", pk=pk)
 
     feedback = (request.POST.get("feedback") or "").strip()
@@ -522,16 +530,30 @@ def draft_revise(request, pk):
         messages.error(request, "請寫下要修改的地方。")
         return redirect("portal:draft_detail", pk=pk)
 
-    revision = generate_service.run_revision(run, feedback)
-    messages.success(request, f"已依你的意見產出第 {revision.round} 稿。")
+    base = _chosen_version(run, request.POST.get("base_version"))
+    if base is None:
+        messages.error(request, "這篇稿子還沒有內容可以重寫。")
+        return redirect("portal:draft_detail", pk=pk)
+    if run.in_progress:
+        messages.info(request, "這篇稿子還在處理中，等它完成再試。")
+        return redirect("portal:draft_detail", pk=pk)
+
+    # Same queue as generation: it is the same size of model call, and the same
+    # reason not to hold a request open for it.
+    runner.submit_rewrite(run, base, feedback)
+    messages.success(request, f"已排入重寫，依據 {base.label}。寫好會出現在這一頁。")
     return redirect("portal:draft_detail", pk=pk)
 
 
 @login_required
 def draft_download(request, pk):
     run = get_object_or_404(_my_runs(request), pk=pk)
+    # Whichever version is on screen, not simply the newest: someone comparing
+    # two of them downloads the one they are looking at.
+    version = _chosen_version(run, request.GET.get("v"))
     name = slugify(run.brief.title) or f"draft-{run.pk}"
-    response = HttpResponse(run.latest_text, content_type="text/markdown; charset=utf-8")
+    text = version.text if version else run.latest_text
+    response = HttpResponse(text, content_type="text/markdown; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{name}-{run.pk}.md"'
     return response
 

@@ -4,24 +4,7 @@
 <h1>{{ brief.title }}</h1>
 <p class="sub">{{ brief.slide_count }} 張投影片 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}</p>
 
-{% if runs %}
-<details class="card">
-  <summary>
-    <h2>這份簡報的稿件</h2>
-    <span class="small muted">{{ runs|length }} 篇</span>
-  </summary>
-  <table>
-    {% for r in runs %}
-    <tr>
-      <td><a href="{% url 'portal:draft_detail' r.pk %}">{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</a>
-        <div class="small muted">{{ r.created_at|date:"Y-m-d H:i" }}{% if r.facts_version %} · 用 {{ r.facts_version.label }} 的內容{% endif %}</div></td>
-      <td>{% if r.status == 'done' %}<span class="pill good">完成</span>
-        {% else %}<span class="pill">{{ r.get_status_display }}</span>{% endif %}</td>
-    </tr>
-    {% endfor %}
-  </table>
-</details>
-{% endif %}
+{% include "portal/_runs_card.html" %}
 
 <div class="grid g2">
   <div class="card pane" id="facts-pane" data-url="{% url 'portal:brief_detail' brief.pk %}">
@@ -61,7 +44,7 @@
   {% if not guides %}
     <p class="small muted">目前沒有可用的風格，請聯繫系統管理者。</p>
   {% else %}
-    <form method="post" action="{% url 'portal:generate' brief.pk %}" data-loading="generate">
+    <form method="post" action="{% url 'portal:generate' brief.pk %}" target="_blank" id="generate-form">
       {% csrf_token %}
       <div class="row">
         <div>
@@ -84,7 +67,7 @@
         <button class="btn">產出稿件</button>
       </div>
       <p class="small muted" style="margin:12px 0 0">
-        產稿需 1.5–3 分鐘，請不要關閉頁面。{% if latest_uncertain %}
+        會在新分頁產出，需 1.5–3 分鐘。這一頁不會被佔住，可以繼續改內容或再產一篇。{% if latest_uncertain %}
         還有 {{ latest_uncertain|length }} 處系統不確定，沒確認也可以產稿。{% endif %}
       </p>
     </form>
@@ -95,6 +78,61 @@
 {% include "briefs/_image_review.html" with action_url=image_action_url %}
 
 <script>
+// The drafts card follows its own runs. Generation happens in a worker now, so
+// this page has nothing to block on — but it does have to notice when a draft
+// opened in another tab finishes, including ones queued behind it.
+(function () {
+  const POLL_MS = 4000;
+  let timer = null;
+
+  function card() { return document.getElementById('runs-card'); }
+
+  function refresh() {
+    const el = card();
+    if (!el) return;
+    fetch(el.dataset.url + '?partial=runs', {
+      headers: {'X-Requested-With': 'fetch'}, credentials: 'same-origin',
+    })
+      .then(function (r) { return r.ok ? r.text() : Promise.reject(r.status); })
+      .then(function (html) {
+        const now = card();
+        if (!now) return;
+        // Keep it open if the user opened it themselves; the fresh markup only
+        // forces `open` while something is running.
+        const wasOpen = now.open;
+        const holder = document.createElement('div');
+        holder.innerHTML = html;
+        const fresh = holder.querySelector('#runs-card');
+        if (!fresh) return;
+        if (wasOpen) fresh.open = true;
+        now.replaceWith(fresh);
+        schedule();
+      })
+      .catch(function () { schedule(); });   // a blip should not stop the watch
+  }
+
+  function schedule() {
+    clearTimeout(timer);
+    const el = card();
+    if (el && el.dataset.active === '1') timer = setTimeout(refresh, POLL_MS);
+  }
+
+  schedule();
+
+  // A draft asked for in a new tab does not change this page by itself, so the
+  // watch has to start when the request is made rather than when it lands.
+  const form = document.getElementById('generate-form');
+  if (form) {
+    form.addEventListener('submit', function () {
+      const el = card();
+      if (el) el.dataset.active = '1';
+      // Long enough for the new tab's POST to have created the row.
+      clearTimeout(timer);
+      timer = setTimeout(refresh, 1200);
+    });
+  }
+})();
+
 // Version switching and the comparison redraw this one card in place. A full
 // reload would throw away whatever is typed in the correction box beside it,
 // which is exactly what someone is doing when they check an older version.

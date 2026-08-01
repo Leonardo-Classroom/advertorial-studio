@@ -60,6 +60,8 @@ def advanced(request):
         try:
             settings_row.exemplar_count = max(0, min(int(request.POST.get("exemplar_count") or 4), 10))
             settings_row.max_rewrites = max(0, min(int(request.POST.get("max_rewrites") or 1), 3))
+            settings_row.max_parallel_runs = max(
+                1, min(int(request.POST.get("max_parallel_runs") or 2), 8))
         except ValueError:
             messages.error(request, "數值格式不正確，未儲存。")
             return redirect("studio:advanced")

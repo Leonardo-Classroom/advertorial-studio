@@ -75,9 +75,6 @@
         </div>
       </div>
       {% endfor %}
-      {# No submit button: every change saves itself. Kept as a <form> anyway —
-         it is still what carries the CSRF token and the field names, and without
-         JS the Enter key in a caption field still posts the lot. #}
     </form>
   {% else %}
     <p class="small muted">

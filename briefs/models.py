@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from django.conf import settings
 from django.db import models
 
@@ -109,6 +111,11 @@ class Brief(models.Model):
 
     def __str__(self):
         return self.title
+
+    @property
+    def original_filename(self) -> str:
+        """Just the filename, for display — `source_file.name` is a storage path."""
+        return Path(self.source_file.name).name if self.source_file else ""
 
     def latest_facts(self):
         """The newest facts version, or None for a brief that never extracted."""

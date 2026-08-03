@@ -4,7 +4,20 @@
 <h1>{{ brief.title }}</h1>
 <p class="sub">{{ brief.slide_count }} 張投影片 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}</p>
 
-{% include "portal/_runs_card.html" %}
+<div class="grid g2">
+  <div class="card">
+    <h2 style="margin-top:0">原始檔案</h2>
+    {% if brief.source_file %}
+      <p><a href="{{ brief.source_file.url }}" download>{{ brief.original_filename }}</a></p>
+    {% else %}
+      <p class="small muted">找不到原始檔案。</p>
+    {% endif %}
+    <p class="small muted" style="margin:0">
+      {{ brief.slide_count }} 張投影片 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}</p>
+  </div>
+
+  {% include "portal/_runs_card.html" %}
+</div>
 
 <div class="grid g2">
   <div class="card pane" id="facts-pane" data-url="{% url 'portal:brief_detail' brief.pk %}">
@@ -38,6 +51,9 @@
     </div>
   </form>
 </div>
+
+{% url 'portal:brief_images' brief.pk as image_action_url %}
+{% include "briefs/_image_review.html" with action_url=image_action_url %}
 
 <div class="card">
   <h2 style="margin-top:0">產出廣編稿</h2>
@@ -73,9 +89,6 @@
     </form>
   {% endif %}
 </div>
-
-{% url 'portal:brief_images' brief.pk as image_action_url %}
-{% include "briefs/_image_review.html" with action_url=image_action_url %}
 
 <script>
 // The drafts card follows its own runs. Generation happens in a worker now, so

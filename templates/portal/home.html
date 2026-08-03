@@ -12,7 +12,7 @@
 </div>
 
 <div class="card" style="margin-top:16px">
-  <h2 style="margin-top:0">簡報</h2>
+  <h2 style="margin-top:0">專案</h2>
   {% if briefs %}
     <table>
       <tr><th>名稱</th><th>投影片</th><th>內容版本</th><th>上傳時間</th></tr>
@@ -35,10 +35,10 @@
   <h2 style="margin-top:0">產出的稿件</h2>
   {% if runs %}
     <table>
-      <tr><th>簡報</th><th>模仿風格</th><th>狀態</th><th>時間</th></tr>
+      <tr><th>名稱</th><th>模仿風格</th><th>狀態</th><th>時間</th></tr>
       {% for r in runs %}
       <tr>
-        <td><a href="{% url 'portal:draft_detail' r.pk %}">{{ r.brief.title|truncatechars:36 }}</a></td>
+        <td><a href="{% url 'portal:draft_detail' r.pk %}" title="{{ r.brief.title }}">{{ r.brief.title|truncatechars:36 }}</a></td>
         <td class="small">{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</td>
         <td>{% if r.status == 'done' %}<span class="pill good">完成</span>
           {% elif r.status == 'failed' %}<span class="pill" style="color:var(--bad)">失敗</span>

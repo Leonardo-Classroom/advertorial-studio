@@ -67,14 +67,31 @@ def _iter_block_items(parent):
             yield Table(child, parent)
 
 
-def _table_lines(table) -> list[str]:
-    """One line per row, cells joined — same shape `ppt_extract` uses."""
-    lines = []
-    for row in table.rows:
-        cells = [c.text.strip() for c in row.cells]
-        if any(cells):
-            lines.append(" | ".join(cells))
-    return lines
+def _annotated(document) -> list[tuple[int, str, str, str]]:
+    """The document as a flat (block, heading, kind, value) list.
+
+    Both `extract_text` and `extract_images` read this rather than counting
+    blocks for themselves. When they each did their own counting they drifted
+    apart the moment one of them learned to look inside tables, and a picture
+    filed under 第 1 段 while the text called the same place 第 2 段 is the
+    kind of disagreement nobody notices until the review page is confusing.
+    """
+    events = list(_walk(document))
+    first_heading = next((i for i, (kind, _) in enumerate(events)
+                          if kind == "heading"), len(events))
+    # Content before the first heading is a block in its own right, so the
+    # first heading becomes block 2. A document that opens with a heading has
+    # no such preamble and starts at 1.
+    block = 1 if any(kind != "heading" for kind, _ in events[:first_heading]) else 0
+
+    heading = ""
+    out: list[tuple[int, str, str, str]] = []
+    for kind, value in events:
+        if kind == "heading":
+            block += 1
+            heading = value
+        out.append((max(block, 1), heading, kind, value))
+    return out
 
 
 def extract_text(path: str | Path) -> tuple[str, int]:
@@ -87,29 +104,21 @@ def extract_text(path: str | Path) -> tuple[str, int]:
     import docx
 
     document = docx.Document(str(path))
-    blocks: list[tuple[str, list[str]]] = [("", [])]
+    blocks: dict[int, tuple[str, list[str]]] = {}
 
-    for item in _iter_block_items(document):
-        if hasattr(item, "rows"):                       # a table
-            blocks[-1][1].extend(_table_lines(item))
+    for block, heading, kind, value in _annotated(document):
+        if kind == "image":
             continue
-        text = item.text.strip()
-        if not text:
-            continue
-        if _is_heading(item):
-            # The heading goes in the block's label, not its body — repeating it
-            # would spend the model's context saying the same thing twice.
-            blocks.append((text, []))
-        else:
-            blocks[-1][1].append(text)
-
-    # A leading empty block only exists when the document opens with a heading.
-    if not blocks[0][1]:
-        blocks.pop(0)
+        entry = blocks.setdefault(block, (heading, []))
+        # A heading goes in its block's label, not its body — repeating it
+        # would spend the model's context saying the same thing twice.
+        if kind == "text":
+            entry[1].append(value)
 
     chunks = []
-    for i, (heading, lines) in enumerate(blocks, 1):
-        label = f"--- 第 {i} 段：{heading} ---" if heading else f"--- 第 {i} 段 ---"
+    for i, key in enumerate(sorted(blocks), 1):
+        heading, lines = blocks[key]
+        label = f"--- 第 {key} 段：{heading} ---" if heading else f"--- 第 {key} 段 ---"
         chunks.append(label + "\n" + "\n".join(lines))
 
     return "\n\n".join(chunks), len(blocks)
@@ -149,6 +158,51 @@ def _blob(part, rid: str) -> tuple[bytes, str] | None:
     return blob, ext
 
 
+def _walk(container):
+    """Yield ('heading'|'text'|'image', value) over `container`, in document order."""
+    for item in _iter_block_items(container):
+        if hasattr(item, "rows"):                       # a table
+            yield from _walk_table(item)
+            continue
+
+        text = item.text.strip()
+        if text and _is_heading(item):
+            yield ("heading", text)
+            continue
+        if text:
+            yield ("text", text)
+        for rid in _relationship_ids(item):
+            yield ("image", rid)
+
+
+def _walk_table(table):
+    """A table's rows as joined lines, plus any pictures inside its cells.
+
+    The text keeps its row shape — `售價 | NT$4,280` reads as one fact, which
+    is how `ppt_extract` renders deck tables too — but the cells are also
+    descended into for pictures, because a proposal's product shots are as
+    likely to sit in a spec table as in the body, and a picture that never
+    surfaces is indistinguishable from a document that had none.
+    """
+    for row in table.rows:
+        cells, seen = [], set()
+        for cell in row.cells:
+            # A merged cell is returned once per grid position it spans;
+            # taking it each time would repeat its text and its pictures.
+            if id(cell._tc) in seen:
+                continue
+            seen.add(id(cell._tc))
+            cells.append(cell)
+
+        texts = [c.text.strip() for c in cells]
+        if any(texts):
+            yield ("text", " | ".join(texts))
+        for cell in cells:
+            for kind, value in _walk(cell):
+                if kind == "image":
+                    yield ("image", value)
+
+
 def extract_images(path: str | Path, max_nearby_chars: int = NEARBY_CHARS) -> list[dict]:
     """Collect every embedded picture, with the context needed to judge it.
 
@@ -162,67 +216,33 @@ def extract_images(path: str | Path, max_nearby_chars: int = NEARBY_CHARS) -> li
 
     document = docx.Document(str(path))
     part = document.part
-
-    # One pass to lay the document out flat, so a picture can see both the
-    # paragraph before it and the one after — the latter is not yet known
-    # while walking forward.
-    items: list[dict] = []
-    block_index = 0
-    heading = ""
-    seen_content = False
-
-    for item in _iter_block_items(document):
-        if hasattr(item, "rows"):                       # a table
-            for line in _table_lines(item):
-                items.append({"kind": "text", "text": line,
-                              "block": max(block_index, 1), "heading": heading})
-                seen_content = True
-            continue
-
-        if _is_heading(item) and item.text.strip():
-            block_index += 1
-            heading = item.text.strip()
-            items.append({"kind": "text", "text": heading,
-                          "block": block_index, "heading": heading})
-            seen_content = True
-            continue
-
-        if not seen_content:
-            block_index = 1                             # content before any heading
-            seen_content = True
-        current = max(block_index, 1)
-
-        text = item.text.strip()
-        if text:
-            items.append({"kind": "text", "text": text,
-                          "block": current, "heading": heading})
-        for rid in _relationship_ids(item):
-            items.append({"kind": "image", "rid": rid,
-                          "block": current, "heading": heading})
+    # Flat and materialised, so a picture can see both the text before it and
+    # the text after — the latter is not yet known while walking forward.
+    items = _annotated(document)
 
     def nearby_for(position: int) -> str:
         """Nearest text before, then after — whichever exists."""
-        before = next((items[j]["text"] for j in range(position - 1, -1, -1)
-                       if items[j]["kind"] == "text"), "")
-        after = next((items[j]["text"] for j in range(position + 1, len(items))
-                      if items[j]["kind"] == "text"), "")
+        before = next((items[j][3] for j in range(position - 1, -1, -1)
+                       if items[j][2] != "image"), "")
+        after = next((items[j][3] for j in range(position + 1, len(items))
+                      if items[j][2] != "image"), "")
         joined = "\n".join(t for t in (before, after) if t)
         return joined[:max_nearby_chars]
 
     out: list[dict] = []
-    for i, item in enumerate(items):
-        if item["kind"] != "image":
+    for i, (block, heading, kind, value) in enumerate(items):
+        if kind != "image":
             continue
-        found = _blob(part, item["rid"])
+        found = _blob(part, value)
         if found is None:
             continue                                    # linked, or not an image
         blob, ext = found
         out.append({
-            "slide_index": item["block"],
+            "slide_index": block,
             "left": None, "top": None, "width": None, "height": None,
             "blob": blob,
             "ext": ext,
-            "slide_heading": item["heading"][:200],
+            "slide_heading": heading[:200],
             "nearby_text": nearby_for(i),
         })
 

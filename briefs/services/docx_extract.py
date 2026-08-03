@@ -26,10 +26,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# python-docx does not carry the VML namespace in its nsmap, so `qn()` cannot
-# resolve it and the URI is spelled out here.
+# python-docx carries neither the VML nor the markup-compatibility namespace in
+# its nsmap, so `qn()` cannot resolve them and the URIs are spelled out here.
 VML_NS = "urn:schemas-microsoft-com:vml"
 VML_IMAGEDATA = f"{{{VML_NS}}}imagedata"
+
+MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+MC_ALTERNATE = f"{{{MC_NS}}}AlternateContent"
+MC_CHOICE = f"{{{MC_NS}}}Choice"
+MC_FALLBACK = f"{{{MC_NS}}}Fallback"
 
 # How much text either side of a picture is worth keeping as a hint.
 NEARBY_CHARS = 300
@@ -124,20 +129,65 @@ def extract_text(path: str | Path) -> tuple[str, int]:
     return "\n\n".join(chunks), len(blocks)
 
 
-def _relationship_ids(paragraph) -> list[str]:
-    """Every image relationship id referenced by this paragraph, in order."""
+def _paragraph_contents(paragraph) -> list[tuple[str, str]]:
+    """('text'|'image', value) for what is anchored inside one paragraph.
+
+    Covers the two things that hide below paragraph level and that
+    `Paragraph.text` cannot see:
+
+      **Text boxes.** Their words live in a `w:txbxContent` nested inside a
+      run, so a callout holding the price and the on-sale date — exactly the
+      consumer-facing facts this system exists to capture — was being dropped
+      without trace.
+
+      **Floating pictures.** Word writes these twice, a modern `mc:Choice` and
+      a legacy `mc:Fallback` describing the same object, so only one branch is
+      read. Reading both took every floating picture twice over.
+    """
     from docx.oxml.ns import qn
 
-    ids: list[str] = []
-    for blip in paragraph._p.iter(qn("a:blip")):
-        rid = blip.get(qn("r:embed"))
-        if rid:
-            ids.append(rid)
-    for imagedata in paragraph._p.iter(VML_IMAGEDATA):
-        rid = imagedata.get(qn("r:id"))
-        if rid:
-            ids.append(rid)
-    return ids
+    blip_tag, embed_attr = qn("a:blip"), qn("r:embed")
+    rid_attr, para_tag, text_tag = qn("r:id"), qn("w:p"), qn("w:t")
+    txbx_tag = qn("w:txbxContent")
+
+    out: list[tuple[str, str]] = []
+
+    def scan(node, want_text: bool) -> None:
+        tag = node.tag
+        if tag == MC_ALTERNATE:
+            branch = node.find(MC_CHOICE)
+            if branch is None:
+                branch = node.find(MC_FALLBACK)
+            if branch is not None:
+                for child in branch:
+                    scan(child, want_text)
+            return
+        if tag == blip_tag:
+            rid = node.get(embed_attr)
+            if rid:
+                out.append(("image", rid))
+            return
+        if tag == VML_IMAGEDATA:
+            rid = node.get(rid_attr)
+            if rid:
+                out.append(("image", rid))
+            return
+        if tag == txbx_tag:
+            if want_text:
+                for para in node.iter(para_tag):
+                    text = "".join(t.text or "" for t in para.iter(text_tag)).strip()
+                    if text:
+                        out.append(("text", text))
+            # Keep descending for pictures inside the box, but not for its
+            # words again — the `iter` above already took every nested one.
+            for child in node:
+                scan(child, want_text=False)
+            return
+        for child in node:
+            scan(child, want_text)
+
+    scan(paragraph._p, want_text=True)
+    return out
 
 
 def _blob(part, rid: str) -> tuple[bytes, str] | None:
@@ -171,8 +221,7 @@ def _walk(container):
             continue
         if text:
             yield ("text", text)
-        for rid in _relationship_ids(item):
-            yield ("image", rid)
+        yield from _paragraph_contents(item)
 
 
 def _walk_table(table):

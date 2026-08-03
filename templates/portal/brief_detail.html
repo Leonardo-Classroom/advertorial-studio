@@ -2,22 +2,11 @@
 {% block content %}
 <p class="small"><a href="{% url 'portal:home' %}">← 回我的稿件</a></p>
 <h1>{{ brief.title }}</h1>
-<p class="sub">{{ brief.slide_count }} 張投影片 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}</p>
+<p class="sub" style="margin:4px 0">
+  {% if brief.source_file %}<a href="{{ brief.source_file.url }}" download>{{ brief.original_filename }}</a> · {% endif %}
+  {{ brief.slide_count }} 張投影片 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}</p>
 
-<div class="grid g2">
-  <div class="card">
-    <h2 style="margin-top:0">原始檔案</h2>
-    {% if brief.source_file %}
-      <p><a href="{{ brief.source_file.url }}" download>{{ brief.original_filename }}</a></p>
-    {% else %}
-      <p class="small muted">找不到原始檔案。</p>
-    {% endif %}
-    <p class="small muted" style="margin:0">
-      {{ brief.slide_count }} 張投影片 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}</p>
-  </div>
-
-  {% include "portal/_runs_card.html" %}
-</div>
+{% include "portal/_runs_card.html" %}
 
 <div class="grid g2">
   <div class="card pane" id="facts-pane" data-url="{% url 'portal:brief_detail' brief.pk %}">

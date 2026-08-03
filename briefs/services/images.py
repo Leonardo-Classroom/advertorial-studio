@@ -217,11 +217,18 @@ def classify_all(images: list[dict], brand: str = "", workers: int = 6) -> list[
 def ingest(brief, run_classify: bool = True, limit: int = 40) -> dict:
     """Extract, filter, classify and store this brief's pictures.
 
+    A brief can now span several source files, so this pulls pictures out of
+    every file that finished parsing and runs the filter/classify pipeline
+    over the combined list — deliberately combined, not per file, because the
+    same logo showing up in both a deck and an attached Word doc should still
+    collapse via `filter_candidates`'s md5/phash dedup exactly as two copies
+    within one file already do.
+
     Returns a summary the caller can show the operator, because the interesting
     number is not how many pictures a deck holds but how few survive: the filter
     doing its job is what keeps this affordable.
 
-    `limit` caps the vision calls per deck, applied to the size-ranked list —
+    `limit` caps the vision calls per brief, applied to the size-ranked list —
     see `filter_candidates` for why the biggest are the ones worth spending on.
     A deck with hundreds of distinct photographs is unusual enough that quietly
     spending hundreds of calls on it would be the wrong default.
@@ -229,9 +236,15 @@ def ingest(brief, run_classify: bool = True, limit: int = 40) -> dict:
     from django.core.files.base import ContentFile
 
     from briefs.models import BriefImage
-    from briefs.services import ppt_extract
+    from briefs.services import source_extract
 
-    found = ppt_extract.extract_images(brief.source_file.path)
+    found = []
+    for source_file in brief.source_files.filter(status="done"):
+        if not source_file.file:
+            continue
+        for image in source_extract.extract_images(source_file.file.path, source_file.format):
+            found.append({**image, "_source_file": source_file})
+
     kept, stats = filter_candidates(found)
 
     selected = slide_order(kept[:limit])
@@ -246,8 +259,10 @@ def ingest(brief, run_classify: bool = True, limit: int = 40) -> dict:
 
     stored = []
     for image, verdict in zip(selected, verdicts):
+        source_file = image["_source_file"]
         record = BriefImage(
             brief=brief,
+            source_file=source_file,
             slide_index=image["slide_index"],
             md5=image["md5"],
             phash=image["phash"],
@@ -261,8 +276,11 @@ def ingest(brief, run_classify: bool = True, limit: int = 40) -> dict:
             # entry — but nothing is used until the operator saves the page.
             approved=verdict["category"] == CATEGORY_USABLE,
         )
+        # `source_file.pk` keeps this collision-free now that `slide_index` is
+        # only unique within one file — two files can each have a "slide 3".
         record.file.save(
-            f"brief{brief.pk}_s{image['slide_index']}_{image['md5'][:8]}.{image['ext']}",
+            f"brief{brief.pk}_sf{source_file.pk}_s{image['slide_index']}_"
+            f"{image['md5'][:8]}.{image['ext']}",
             ContentFile(image["blob"]), save=False)
         record.save()
         stored.append(record)

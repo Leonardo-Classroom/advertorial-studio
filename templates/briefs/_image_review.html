@@ -32,12 +32,17 @@
 
     <form method="post" action="{{ action_url }}" class="img-form">
       {% csrf_token %}
-      {% regroup brief_images by slide_index as slides %}
-      {% for slide in slides %}
-      <div class="img-slide">
-        <h3 class="img-slide-head">投影片 {{ slide.grouper }}
-          <span class="muted">· {{ slide.list|length }} 張</span></h3>
-        <div class="img-grid">
+      {% regroup brief_images by source_file as files %}
+      {% for file in files %}
+      <div class="img-file">
+        <h3 class="img-file-head">{{ file.grouper.original_filename|default:"（無檔案）" }}
+          <span class="muted">· {{ file.list|length }} 張</span></h3>
+        {% regroup file.list by slide_index as slides %}
+        {% for slide in slides %}
+        <div class="img-slide">
+          <h4 class="img-slide-head">投影片 {{ slide.grouper }}
+            <span class="muted">· {{ slide.list|length }} 張</span></h4>
+          <div class="img-grid">
           {% for image in slide.list %}
           <div class="img-item{% if not image.approved %} off{% endif %}">
             <div class="img-pick">
@@ -72,7 +77,9 @@
             </div>
           </div>
           {% endfor %}
+          </div>
         </div>
+        {% endfor %}
       </div>
       {% endfor %}
     </form>
@@ -87,6 +94,9 @@
 
 <style>
   .img-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:14px; }
+  .img-file + .img-file { margin-top:28px; padding-top:20px; border-top:1px solid var(--line,#e3e3e6); }
+  .img-file-head { font-size:15px; font-weight:700; margin:0 0 14px; }
+  .img-file-head .muted { font-weight:normal; }
   .img-slide + .img-slide { margin-top:20px; }
   .img-slide-head { font-size:13px; font-weight:650; color:var(--muted); margin:0 0 9px;
                     padding-bottom:5px; border-bottom:1px solid var(--line,#e3e3e6); }

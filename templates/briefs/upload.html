@@ -2,27 +2,30 @@
 {% block content %}
 <p class="small"><a href="{% url 'briefs:list' %}">← 回簡報列表</a></p>
 <h1>上傳簡報</h1>
-<p class="sub">支援 .pptx。系統會抽出所有文字，包含表格與備忘稿——提案簡報的重點常常藏在那裡。</p>
+<p class="sub">支援 .pptx，可一次選多個檔案，算同一個專案。系統會抽出所有文字，包含表格與備忘稿——提案簡報的重點常常藏在那裡。</p>
 
 <div class="card" style="max-width:620px">
-  <form method="post" enctype="multipart/form-data" data-loading="upload">
+  <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
-    <label>名稱（留空則用檔名）</label>
+    <label>名稱（留空則用第一個檔名）</label>
     <input type="text" name="title" placeholder="例如：NB 2026 Grey Days Campaign">
-    <label>簡報檔（.pptx）</label>
-    <input type="file" name="source_file" accept=".pptx" required>
+    <label>簡報檔（.pptx，可選多個）</label>
+    <input type="file" name="source_files" accept=".pptx" multiple required>
 
     <label style="display:flex;align-items:flex-start;gap:8px;margin-top:18px;font-weight:normal;cursor:pointer">
       <input type="checkbox" name="parse_images" value="1" style="width:auto;margin-top:3px">
       <span>一併解析簡報圖片
         <span class="small muted" style="display:block;margin-top:2px">
           抽出圖片並用影像辨識判斷用途（產品照／表格排版／裝飾），競品照會自動排除。
-          圖片解析在「抽取事實」之後才跑——分類需要知道品牌是誰。
+          圖片解析在文字抽取＋事實抽取都完成後才跑——分類需要知道品牌是誰。
         </span>
       </span>
     </label>
 
     <div style="margin-top:16px"><button class="btn">上傳並解析</button></div>
   </form>
+  <p class="small muted" style="margin:16px 0 0">
+    上傳後立刻跳到簡報頁，讀取與抽取事實都在背景進行，那一頁會顯示即時進度。
+  </p>
 </div>
 {% endblock %}

@@ -1,12 +1,13 @@
 import json
 
 from django.contrib import messages
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from accounts.decorators import staff_required
 from briefs.models import FACT_SCHEMA_HINT, Brief
-from briefs.services import ppt_extract
+from briefs.services import ingest_runner
+from briefs.services import upload as upload_service
 
 
 @staff_required
@@ -19,31 +20,24 @@ def brief_list(request):
 
 @staff_required
 def brief_upload(request):
-    if request.method == "POST":
-        upload = request.FILES.get("source_file")
-        title = (request.POST.get("title") or "").strip()
-        if not upload:
-            messages.error(request, "請選擇一個 .pptx 檔案。")
-            return redirect("briefs:upload")
+    """Same multi-file, async path the portal uses — see `briefs/services/upload.py`.
 
-        brief = Brief.objects.create(
-            owner=request.user,
-            title=title or upload.name.rsplit(".", 1)[0],
-            source_file=upload,
-            parse_images=request.POST.get("parse_images") == "1",
-        )
+    Staff tooling used to keep its own copy of "make a Brief, save the file,
+    parse it", which only ever drifted from the portal's version. Both now
+    call the one shared implementation and differ only in where they redirect.
+    """
+    if request.method == "POST":
+        files = request.FILES.getlist("source_files")
         try:
-            raw, slides = ppt_extract.extract_text(brief.source_file.path)
-            brief.raw_text = raw
-            brief.slide_count = slides
-            brief.save(update_fields=["raw_text", "slide_count"])
-            messages.success(
-                request,
-                f"已讀取 {slides} 張投影片。接著按「用 AI 抽取事實」，"
-                "抽完務必人工核對——這份事實是之後所有稿件唯一的事實來源。",
+            brief = upload_service.create_brief(
+                owner=request.user,
+                title=request.POST.get("title") or "",
+                files=files,
+                parse_images=request.POST.get("parse_images") == "1",
             )
-        except Exception as exc:  # noqa: BLE001 - show the operator what broke
-            messages.error(request, f"解析簡報失敗：{exc}")
+        except ValueError as exc:  # noqa: BLE001 - the operator needs the reason
+            messages.error(request, str(exc))
+            return redirect("briefs:upload")
         return redirect("briefs:detail", pk=brief.pk)
 
     return render(request, "briefs/upload.html", {"section": "briefs"})
@@ -52,12 +46,24 @@ def brief_upload(request):
 @staff_required
 def brief_detail(request, pk):
     brief = get_object_or_404(Brief, pk=pk)
+    source_files = list(brief.source_files.order_by("order", "pk"))
+    ingest_runner.reap_stale(source_files)
+    ingest_runner.reap_stale_brief(brief)
     return render(request, "briefs/detail.html", {
         "section": "briefs",
         "brief": brief,
+        "source_files": source_files,
+        "files_in_progress": brief.processing,
         "facts_json": json.dumps(brief.facts or FACT_SCHEMA_HINT, ensure_ascii=False, indent=2),
-        "brief_images": brief.images.all(),
+        "brief_images": brief.images.order_by("source_file_id", "slide_index", "pk"),
     })
+
+
+@staff_required
+def brief_upload_status(request, pk):
+    """Where an upload/retry batch has got to — polled by the waiting card."""
+    brief = get_object_or_404(Brief, pk=pk)
+    return JsonResponse(upload_service.status_payload(brief))
 
 
 def _ingest_images(request, brief) -> None:
@@ -116,33 +122,21 @@ def brief_images(request, pk):
 
 @staff_required
 def brief_extract(request, pk):
+    """Re-run fact extraction (and image ingest) without re-parsing files.
+
+    Runs in the background via `ingest_runner.retry_facts`, same as the
+    portal's retry — the detail page's waiting card picks up the progress.
+    """
     brief = get_object_or_404(Brief, pk=pk)
     if request.method != "POST":
         return redirect("briefs:detail", pk=pk)
 
-    if not brief.raw_text.strip():
+    if not brief.source_files.filter(status="done").exists():
         messages.error(request, "這份簡報沒有可用的文字內容，無法抽取。")
         return redirect("briefs:detail", pk=pk)
 
-    try:
-        facts = ppt_extract.extract_facts(brief.raw_text)
-    except Exception as exc:  # noqa: BLE001
-        messages.error(request, f"抽取失敗：{exc}")
-        return redirect("briefs:detail", pk=pk)
-
-    if "_raw" in facts:
-        messages.warning(request, "模型沒有回傳結構化 JSON，已保留原始輸出供你手動整理。")
-    brief.add_facts_version(facts, source="extract")
-
-    uncertain = facts.get("uncertain") or []
-    if uncertain:
-        messages.warning(request, f"模型標記了 {len(uncertain)} 處不確定的地方，請往下捲動確認。")
-    messages.success(request, "已抽取。請逐項核對後再按「確認事實」。")
-
-    # The upload asked for pictures; the brand needed to judge them only exists
-    # now, so this is the earliest point the request can honestly be served.
-    if brief.parse_images and not brief.images.exists():
-        _ingest_images(request, brief)
+    ingest_runner.retry_facts(brief)
+    messages.info(request, "已在背景重新抽取，完成後這一頁會自動更新。")
     return redirect("briefs:detail", pk=pk)
 
 

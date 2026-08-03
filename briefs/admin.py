@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from briefs.models import Brief, BriefFacts
+from briefs.models import Brief, BriefFacts, BriefSourceFile
 
 
 class BriefFactsInline(admin.TabularInline):
@@ -15,9 +15,19 @@ class BriefFactsInline(admin.TabularInline):
     can_delete = False
 
 
+class BriefSourceFileInline(admin.TabularInline):
+    """Read-only — a stuck or failed batch is diagnosed here, not edited here."""
+
+    model = BriefSourceFile
+    extra = 0
+    fields = ("order", "file", "format", "status", "page_count", "error")
+    readonly_fields = fields
+    can_delete = False
+
+
 @admin.register(Brief)
 class BriefAdmin(admin.ModelAdmin):
-    list_display = ("title", "slide_count", "status", "created_at")
-    list_filter = ("status",)
+    list_display = ("title", "slide_count", "status", "processing", "created_at")
+    list_filter = ("status", "processing")
     search_fields = ("title", "raw_text")
-    inlines = [BriefFactsInline]
+    inlines = [BriefSourceFileInline, BriefFactsInline]

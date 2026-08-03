@@ -91,7 +91,6 @@ class Brief(models.Model):
                               null=True, blank=True, related_name="briefs",
                               verbose_name="上傳者")
     title = models.CharField("名稱", max_length=200)
-    source_file = models.FileField("簡報檔", upload_to="briefs/", blank=True, null=True)
     raw_text = models.TextField("簡報純文字", blank=True)
     slide_count = models.IntegerField("投影片數", default=0)
     facts = models.JSONField("結構化事實（唯一事實來源）", default=dict, blank=True)
@@ -101,6 +100,12 @@ class Brief(models.Model):
     # exists once the facts have been extracted.
     parse_images = models.BooleanField("解析簡報圖片", default=False)
     status = models.CharField(max_length=16, choices=STATUS, default="uploaded")
+    # True for the whole span of a background upload/retry job — file parsing
+    # *and* the trailing fact-extraction call. Per-file status on
+    # `BriefSourceFile` cannot carry this alone: every file can already be
+    # `done` while the one facts call that follows is still in flight, and the
+    # waiting card needs to keep polling through that gap.
+    processing = models.BooleanField("背景處理中", default=False)
     note = models.TextField("備註", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -111,11 +116,6 @@ class Brief(models.Model):
 
     def __str__(self):
         return self.title
-
-    @property
-    def original_filename(self) -> str:
-        """Just the filename, for display — `source_file.name` is a storage path."""
-        return Path(self.source_file.name).name if self.source_file else ""
 
     def latest_facts(self):
         """The newest facts version, or None for a brief that never extracted."""
@@ -174,6 +174,89 @@ class Brief(models.Model):
     def usable_images(self):
         """Approved pictures, in slide order — the only ones a draft may place."""
         return self.images.filter(approved=True)
+
+    def recompute_from_source_files(self) -> None:
+        """Rebuild `raw_text`/`slide_count` from this brief's source files.
+
+        Called once a whole upload batch has finished, never per file — a file
+        that finishes early must not trigger fact extraction before its
+        siblings are even done, and the combined text only means something
+        once every file's contribution is in.
+
+        A failed file does not just vanish from the text: it leaves a stub
+        marker, on the same principle `briefs/services/images.py` already
+        applies to failed pictures — a silent gap looks like the source never
+        mentioned whatever fell in it, which is a worse failure than an
+        obviously-labelled hole.
+        """
+        files = list(self.source_files.order_by("order", "pk"))
+        chunks: list[str] = []
+        for i, f in enumerate(files, 1):
+            name = f.original_filename or f.get_format_display()
+            if f.status == "done":
+                chunks.append(f"【檔案{i}：{name}】\n{f.raw_text}")
+            elif f.status == "failed":
+                chunks.append(f"【檔案{i}：{name} － 處理失敗，未納入內容】")
+        self.raw_text = "\n\n".join(chunks)
+        self.slide_count = sum(f.page_count for f in files if f.status == "done")
+        self.save(update_fields=["raw_text", "slide_count", "updated_at"])
+
+
+class BriefSourceFile(models.Model):
+    """One uploaded file that makes up part of a Brief's source material.
+
+    A Brief used to be exactly one deck; it is now a folder. Each row here is
+    one file in that folder, parsed independently with its own text and its
+    own pass/fail, so one bad attachment cannot take down the others next to
+    it — the same principle `briefs/services/images.py` already applies one
+    level down, to individual pictures.
+
+    `format` is looked up from the extension at upload time (see
+    `briefs/services/source_extract.py`) and drives which parser runs. Only
+    `pptx` actually works for now; `docx`/`pdf` are declared here so the next
+    phase only has to add a parser, not touch this model.
+    """
+
+    STATUS = [
+        ("pending", "待處理"),
+        ("processing", "處理中"),
+        ("done", "完成"),
+        ("failed", "失敗"),
+    ]
+    FORMATS = [
+        ("pptx", "PowerPoint"),
+        ("docx", "Word"),
+        ("pdf", "PDF"),
+    ]
+
+    brief = models.ForeignKey(Brief, on_delete=models.CASCADE, related_name="source_files")
+    file = models.FileField("檔案", upload_to="briefs/", blank=True, null=True)
+    format = models.CharField("格式", max_length=8, choices=FORMATS)
+    order = models.IntegerField("順序", default=0)
+
+    raw_text = models.TextField("這份檔案的純文字", blank=True)
+    page_count = models.IntegerField("頁數／投影片數", default=0)
+
+    status = models.CharField(max_length=16, choices=STATUS, default="pending")
+    error = models.TextField("錯誤訊息", blank=True)
+    started_at = models.DateTimeField("開始處理時間", null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = verbose_name_plural = "來源檔案"
+        ordering = ["brief_id", "order", "pk"]
+
+    def __str__(self):
+        return f"{self.brief.title} / {self.original_filename or '（無檔案）'}"
+
+    @property
+    def original_filename(self) -> str:
+        return Path(self.file.name).name if self.file else ""
+
+    @property
+    def in_progress(self) -> bool:
+        return self.status in ("pending", "processing")
 
 
 class BriefFacts(models.Model):
@@ -250,7 +333,12 @@ class BriefImage(models.Model):
     ]
 
     brief = models.ForeignKey(Brief, on_delete=models.CASCADE, related_name="images")
-    slide_index = models.IntegerField("投影片頁次", default=0)
+    source_file = models.ForeignKey(BriefSourceFile, on_delete=models.CASCADE, null=True,
+                                    blank=True, related_name="images",
+                                    verbose_name="來自哪個來源檔案")
+    slide_index = models.IntegerField(
+        "投影片頁次", default=0,
+        help_text="該來源檔案內的第幾頁/第幾張，不是跨檔案的絕對編號。")
     file = models.ImageField("圖片", upload_to="brief_images/")
 
     # Two hashes, deliberately. md5 catches the byte-identical copy-paste;

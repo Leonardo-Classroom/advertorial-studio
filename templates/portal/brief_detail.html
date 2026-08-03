@@ -3,11 +3,33 @@
 <p class="small"><a href="{% url 'portal:home' %}">← 回我的稿件</a></p>
 <h1>{{ brief.title }}</h1>
 <p class="sub" style="margin:4px 0">
-  {% if brief.source_file %}<a href="{{ brief.source_file.url }}" download>{{ brief.original_filename }}</a> · {% endif %}
-  {{ brief.slide_count }} 張投影片 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}</p>
+  {% for sf in source_files %}
+    {% if sf.file %}<a href="{{ sf.file.url }}" download>{{ sf.original_filename }}</a>{% else %}{{ sf.original_filename|default:"（無檔案）" }}{% endif %}
+    {% if sf.status == 'failed' %}<span class="pill bad">處理失敗</span>{% endif %}{% if not forloop.last %} · {% endif %}
+  {% endfor %}
+  {% if source_files %} · {% endif %}{{ brief.slide_count }} 張投影片 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}</p>
+
+{% if files_in_progress %}
+  {% url 'portal:upload_status' brief.pk as status_url %}
+  {% include "briefs/_upload_waiting.html" with status_url=status_url %}
+{% endif %}
 
 {% include "portal/_runs_card.html" %}
 
+{% if needs_facts_retry %}
+<div class="card" style="border-style:dashed">
+  <h2 style="margin-top:0">內容還沒抽出</h2>
+  <p class="small muted" style="margin:0 0 10px">
+    檔案已經讀完，但整理成結構化內容那一步失敗了。不必重新上傳，直接再試一次就好。
+  </p>
+  <form method="post" action="{% url 'portal:upload_retry' brief.pk %}">
+    {% csrf_token %}
+    <button class="btn">再試一次</button>
+  </form>
+</div>
+{% endif %}
+
+{% if not files_in_progress and versions %}
 <div class="grid g2">
   <div class="card pane" id="facts-pane" data-url="{% url 'portal:brief_detail' brief.pk %}">
     {% include "portal/_facts_pane.html" %}
@@ -78,6 +100,7 @@
     </form>
   {% endif %}
 </div>
+{% endif %}
 
 <script>
 // The drafts card follows its own runs. Generation happens in a worker now, so

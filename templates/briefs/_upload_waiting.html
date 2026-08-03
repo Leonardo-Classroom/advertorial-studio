@@ -1,0 +1,59 @@
+{% comment %}
+   Upload/retry waiting card, shared by the portal and the staff backend —
+   structural twin of `templates/portal/draft_detail.html`'s `#waiting` block,
+   polling a status endpoint instead of watching a `GenerationRun`.
+
+   `status_url` is passed by the including template so each interface polls
+   its own endpoint (`portal:upload_status` vs `briefs:upload_status`); styles
+   are inlined here rather than assumed from the base template, since this
+   partial is included from both `base.html` and `base_portal.html`, which do
+   not share a stylesheet.
+{% endcomment %}
+<div class="card" id="upload-waiting" data-url="{{ status_url }}">
+  <div class="row tight upload-waiting-row" style="gap:12px">
+    <span class="upload-waiting-spin" aria-hidden="true"></span>
+    <div style="flex:1">
+      <h2 style="margin:0 0 2px" id="upload-waiting-title">處理中</h2>
+      <p class="small muted" style="margin:0" id="upload-waiting-step">正在讀取檔案內容…</p>
+    </div>
+  </div>
+  <p class="small muted" style="margin:12px 0 0">
+    處理完會自動顯示在這一頁，不必手動整理。這個分頁可以先放著，關掉也沒關係。
+  </p>
+</div>
+
+<style>
+  .upload-waiting-row{align-items:center}
+  .upload-waiting-spin{display:inline-block;width:28px;height:28px;flex:0 0 auto;
+    border-radius:50%;border:3px solid var(--line,#e3e3e6);border-top-color:var(--accent,#2b5cff);
+    animation:upload-waiting-spin .8s linear infinite}
+  @keyframes upload-waiting-spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){.upload-waiting-spin{animation-duration:2.4s}}
+</style>
+
+<script>
+(function () {
+  const box = document.getElementById('upload-waiting');
+  if (!box || !window.fetch) return;
+  const title = document.getElementById('upload-waiting-title');
+  const step = document.getElementById('upload-waiting-step');
+
+  (function poll() {
+    fetch(box.dataset.url, {headers: {'X-Requested-With': 'fetch'},
+                            credentials: 'same-origin'})
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (data) {
+        if (!data.in_progress) {
+          window.location.reload();
+          return;
+        }
+        title.textContent = data.total > 1 ? '處理中（' + data.done + '/' + data.total + '）' : '處理中';
+        step.textContent = data.current
+          ? '處理中：' + data.current
+          : '正在整理內容…';
+        setTimeout(poll, 3000);
+      })
+      .catch(function () { setTimeout(poll, 6000); });
+  })();
+})();
+</script>

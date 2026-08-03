@@ -23,13 +23,15 @@ from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
 from django.utils.text import slugify
 
 from briefs.models import Brief
-from briefs.services import facts_text, facts_update, ppt_extract
+from briefs.services import facts_text, facts_update
+from briefs.services import ingest_runner
+from briefs.services import upload as upload_service
 from corpus.models import StyleGuide
 from studio.models import GenerationRun, SiteSettings
 from studio.services import draft_edit as draft_edit_service
@@ -45,11 +47,16 @@ def _my_briefs(request):
 def _listed_briefs(request):
     """What the user sees as "my briefs".
 
-    A brief whose extraction failed has a file and nothing else — it cannot be
-    worked on, only retried from the upload page. Listing it would put a dead
-    row in front of the user with no way to act on it.
+    A brief that never got any facts and has nothing still processing is a
+    dead row — it cannot be worked on, only retried from the upload page, so
+    it stays off the list. One that is still being parsed or waiting on its
+    facts call belongs on the list anyway: a user who navigates away mid-
+    upload should still be able to find it and see it finish, the same way an
+    in-progress `GenerationRun` stays visible rather than only existing on the
+    tab that started it.
     """
-    return _my_briefs(request).filter(fact_versions__isnull=False).distinct()
+    return _my_briefs(request).filter(
+        Q(fact_versions__isnull=False) | Q(processing=True)).distinct()
 
 
 def _ingest_images(request, brief) -> None:
@@ -94,71 +101,41 @@ def home(request):
     })
 
 
-def _extract_facts_or_retry(request, brief):
-    """Turn the deck text into v1 of the facts, or send the user back to retry.
-
-    Extraction failures stay on the upload page. There is nothing to do about
-    one from inside a brief — the brief has no content yet — and the previous
-    behaviour of dropping the user into a detail page full of blanks, with a
-    「重新讀取」button as the only way out, made a model timeout look like a
-    broken upload.
-    """
-    try:
-        facts = ppt_extract.extract_facts(brief.raw_text)
-    except Exception as exc:  # noqa: BLE001 - the user needs the reason
-        messages.error(request, f"讀取內容失敗：{exc}")
-        return redirect(f"{reverse('portal:upload')}?retry={brief.pk}")
-
-    brief.add_facts_version(facts, source="extract")
-    messages.success(request, f"已讀取 {brief.slide_count} 張投影片並抽出內容。請核對後再產稿。")
-    # After the facts, never before: classifying a picture needs to know
-    # whose campaign this is, or a competitor's shoe reads as usable material.
-    if brief.parse_images:
-        _ingest_images(request, brief)
-    return redirect("portal:brief_detail", pk=brief.pk)
+def _needs_facts_retry(request):
+    """Briefs with at least one parsed file but no facts version, not currently
+    running — the `extract_facts()` call itself failed, so there is nothing
+    left to do but let the user ask for it again."""
+    return _my_briefs(request).filter(
+        fact_versions__isnull=True, processing=False,
+        source_files__status="done").distinct()
 
 
 @login_required
 def upload(request):
     if request.method == "POST":
-        upload_file = request.FILES.get("source_file")
-        if not upload_file:
-            messages.error(request, "請選擇一個 .pptx 檔案。")
-            return redirect("portal:upload")
-        if not upload_file.name.lower().endswith(".pptx"):
-            messages.error(request, "只支援 .pptx 格式。")
-            return redirect("portal:upload")
-
-        brief = Brief.objects.create(
-            owner=request.user,
-            title=(request.POST.get("title") or "").strip() or upload_file.name.rsplit(".", 1)[0],
-            source_file=upload_file,
-            parse_images=request.POST.get("parse_images") == "1",
-        )
+        files = request.FILES.getlist("source_files")
         try:
-            raw, slides = ppt_extract.extract_text(brief.source_file.path)
-            brief.raw_text = raw
-            brief.slide_count = slides
-            brief.save(update_fields=["raw_text", "slide_count"])
-        except Exception as exc:  # noqa: BLE001 - the user needs the reason
-            # The file itself is unreadable, so there is nothing to retry and
-            # nothing worth keeping. Say so and let them upload another.
-            brief.source_file.delete(save=False)
-            brief.delete()
-            messages.error(request, f"這個檔案讀不開（{exc}）。請確認是完整的 .pptx 後重新上傳。")
+            brief = upload_service.create_brief(
+                owner=request.user,
+                title=request.POST.get("title") or "",
+                files=files,
+                parse_images=request.POST.get("parse_images") == "1",
+            )
+        except ValueError as exc:  # noqa: BLE001 - the user needs the reason
+            messages.error(request, str(exc))
             return redirect("portal:upload")
 
-        # Extract immediately: making the user press a second button to get
-        # anything out of their own upload is friction with no upside.
-        return _extract_facts_or_retry(request, brief)
+        # Processing happens in the background; this page hands straight off
+        # to the brief, which shows the real progress instead of a guess.
+        return redirect("portal:brief_detail", pk=brief.pk)
 
-    # A retry carries the brief whose text was already parsed: the file is fine,
-    # only the model call failed, so re-uploading would redo the parse for nothing.
+    # A retry carries the brief whose files were already parsed: they are
+    # fine, only the facts call failed, so re-uploading would redo the parse
+    # for nothing.
     retry_brief = None
     retry_pk = request.GET.get("retry")
     if retry_pk:
-        retry_brief = _my_briefs(request).filter(
-            pk=retry_pk, fact_versions__isnull=True).first()
+        retry_brief = _needs_facts_retry(request).filter(pk=retry_pk).first()
 
     return render(request, "portal/upload.html", {
         "nav": "upload",
@@ -168,14 +145,19 @@ def upload(request):
 
 @login_required
 def upload_retry(request, pk):
-    """Run extraction again on a deck that is already uploaded and parsed."""
-    brief = get_object_or_404(_my_briefs(request), pk=pk)
+    """Run fact extraction again on a brief whose files are already parsed."""
+    brief = get_object_or_404(_needs_facts_retry(request), pk=pk)
     if request.method != "POST":
         return redirect("portal:upload")
-    if not brief.raw_text.strip():
-        messages.error(request, "這份簡報沒有可讀取的文字內容，請換一個檔案。")
-        return redirect("portal:upload")
-    return _extract_facts_or_retry(request, brief)
+    ingest_runner.retry_facts(brief)
+    return redirect("portal:brief_detail", pk=brief.pk)
+
+
+@login_required
+def upload_status(request, pk):
+    """Where an upload/retry batch has got to, for the pages waiting on it."""
+    brief = get_object_or_404(_my_briefs(request), pk=pk)
+    return JsonResponse(upload_service.status_payload(brief))
 
 
 @login_required
@@ -213,9 +195,21 @@ def brief_detail(request, pk):
                                                                      "facts_version"))
     runner.reap_stale(runs)
 
+    source_files = list(brief.source_files.order_by("order", "pk"))
+    ingest_runner.reap_stale(source_files)
+    ingest_runner.reap_stale_brief(brief)
+    # Only offer the retry button when a retry can actually do something —
+    # if every file failed to parse there is no text for it to work from, and
+    # the per-file 處理失敗 pills already say why.
+    needs_facts_retry = (not brief.processing and not versions
+                         and any(f.status == "done" for f in source_files))
+
     context = {
         "nav": "briefs",
         "brief": brief,
+        "source_files": source_files,
+        "files_in_progress": brief.processing,
+        "needs_facts_retry": needs_facts_retry,
         "versions": versions,
         "viewing": viewing,
         "latest": latest,
@@ -231,7 +225,7 @@ def brief_detail(request, pk):
         "confirm_updates": SiteSettings.load().confirm_fact_updates,
         "runs": runs,
         "runs_active": any(r.in_progress for r in runs),
-        "brief_images": brief.images.all(),
+        "brief_images": brief.images.order_by("source_file_id", "slide_index", "pk"),
     }
     # Switching version or turning the comparison on replaces this one card, not
     # the page: the correction box beside it is often half-written by then.

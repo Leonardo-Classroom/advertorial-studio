@@ -1,7 +1,7 @@
 {% extends "portal/base_portal.html" %}
 {% block content %}
 <h1>上傳簡報</h1>
-<p class="sub">支援 .pptx。系統會讀取所有文字，包含表格與備忘稿——提案的重點常常藏在那裡。</p>
+<p class="sub">支援 .pptx，可一次選多個檔案，算同一個專案。系統會讀取所有文字，包含表格與備忘稿——提案的重點常常藏在那裡。</p>
 
 <div class="steps">
   <div class="step on"><div class="n">步驟 1</div>上傳簡報</div>
@@ -16,7 +16,7 @@
     檔案本身沒問題，{{ retry_brief.slide_count }} 張投影片的文字都已經讀進來了，
     是接下來整理內容的那一步失敗。不必重新上傳，直接再試一次就好。
   </p>
-  <form method="post" action="{% url 'portal:upload_retry' retry_brief.pk %}" data-loading="extract">
+  <form method="post" action="{% url 'portal:upload_retry' retry_brief.pk %}">
     {% csrf_token %}
     <button class="btn">再試一次</button>
   </form>
@@ -24,11 +24,11 @@
 {% endif %}
 
 <div class="card" style="max-width:600px">
-  <form method="post" enctype="multipart/form-data" data-loading="upload">
+  <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
-    <label>簡報檔（.pptx）</label>
-    <input type="file" name="source_file" accept=".pptx" required>
-    <label>名稱（留空就用檔名）</label>
+    <label>簡報檔（.pptx，可選多個）</label>
+    <input type="file" name="source_files" accept=".pptx" multiple required>
+    <label>名稱（留空就用第一個檔名）</label>
     <input type="text" name="title" placeholder="例如：NB 2026 Grey Days Campaign">
 
     <label style="display:flex;align-items:flex-start;gap:8px;margin-top:18px;font-weight:normal;cursor:pointer">
@@ -36,7 +36,7 @@
       <span>一併解析簡報裡的圖片
         <span class="small muted" style="display:block;margin-top:2px">
           抽出簡報中的產品照與人物照，判斷哪些適合放進稿子。
-          會多花約 30–60 秒，稿子則可以直接帶圖。不勾選就只讀文字。
+          會多花一些時間，稿子則可以直接帶圖。不勾選就只讀文字。
         </span>
       </span>
     </label>
@@ -44,7 +44,7 @@
     <button class="btn" style="margin-top:20px">上傳並讀取</button>
   </form>
   <p class="small muted" style="margin:16px 0 0">
-    上傳後會自動讀取內容，約需 10–20 秒。讀完會請你核對——
+    上傳後立刻跳到專案頁，讀取在背景進行，那一頁會顯示即時進度。讀完會請你核對——
     這一步很重要，之後產出的稿件只能寫核對過的內容，不會自己編造。
   </p>
 </div>

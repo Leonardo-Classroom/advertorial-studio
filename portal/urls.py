@@ -15,6 +15,7 @@ urlpatterns = [
 
     path("upload/", views.upload, name="upload"),
     path("upload/<int:pk>/retry/", views.upload_retry, name="upload_retry"),
+    path("upload/<int:pk>/status/", views.upload_status, name="upload_status"),
     path("briefs/<int:pk>/", views.brief_detail, name="brief_detail"),
     path("briefs/<int:pk>/facts/update/", views.brief_facts_update, name="brief_facts_update"),
     path("briefs/<int:pk>/facts/confirm/", views.brief_facts_confirm, name="brief_facts_confirm"),

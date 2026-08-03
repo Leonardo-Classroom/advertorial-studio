@@ -18,7 +18,7 @@
       <colgroup>
         <col style="width:52%"><col style="width:16%"><col style="width:16%"><col style="width:16%">
       </colgroup>
-      <tr><th>名稱</th><th>投影片</th><th>內容版本</th><th>上傳時間</th></tr>
+      <tr><th>名稱</th><th>頁數</th><th>內容版本</th><th>上傳時間</th></tr>
       {% for b in briefs %}
       <tr>
         <td><a href="{% url 'portal:brief_detail' b.pk %}" title="{{ b.title }}" class="ellipsis">{{ b.title }}</a></td>

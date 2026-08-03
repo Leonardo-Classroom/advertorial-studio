@@ -258,6 +258,20 @@ class BriefSourceFile(models.Model):
     def in_progress(self) -> bool:
         return self.status in ("pending", "processing")
 
+    def location_label(self, index: int) -> str:
+        """How to name position `index` within this file, in this format's terms.
+
+        `slide_index` counts slides in a deck, heading-led blocks in a Word
+        document, and pages in a PDF. Calling all three 投影片 would have the
+        review page tell someone their Word file has slides, and would put the
+        same untruth in the prompt the vision model judges pictures from.
+        """
+        if self.format == "docx":
+            return f"第 {index} 段"
+        if self.format == "pdf":
+            return f"第 {index} 頁"
+        return f"第 {index} 張投影片"
+
 
 class BriefFacts(models.Model):
     """One version of a brief's facts, kept rather than overwritten.
@@ -337,8 +351,9 @@ class BriefImage(models.Model):
                                     blank=True, related_name="images",
                                     verbose_name="來自哪個來源檔案")
     slide_index = models.IntegerField(
-        "投影片頁次", default=0,
-        help_text="該來源檔案內的第幾頁/第幾張，不是跨檔案的絕對編號。")
+        "來源檔案內位置", default=0,
+        help_text="該來源檔案內的第幾張投影片／第幾段／第幾頁，依格式而定，"
+                  "不是跨檔案的絕對編號。")
     file = models.ImageField("圖片", upload_to="brief_images/")
 
     # Two hashes, deliberately. md5 catches the byte-identical copy-paste;
@@ -347,10 +362,11 @@ class BriefImage(models.Model):
     md5 = models.CharField("精確雜湊", max_length=32, blank=True, db_index=True)
     phash = models.CharField("感知雜湊", max_length=16, blank=True, db_index=True)
 
-    slide_heading = models.CharField("投影片標題", max_length=200, blank=True)
+    slide_heading = models.CharField("所在段落／投影片標題", max_length=200, blank=True)
     nearby_text = models.TextField(
         "鄰近文字（依位置推測）", blank=True,
-        help_text="同張投影片上距離最近的文字。這是空間推測，不是簡報作者標註的圖說。")
+        help_text="簡報是同一張投影片上距離最近的文字（空間推測）；"
+                  "Word 是圖片前後的段落（順序推測）。兩者都不是作者標註的圖說。")
 
     ai_description = models.TextField("AI 描述", blank=True)
     ai_category = models.CharField("AI 分類", max_length=16, choices=CATEGORIES, default="unknown")
@@ -370,7 +386,18 @@ class BriefImage(models.Model):
         ordering = ["slide_index", "pk"]
 
     def __str__(self):
-        return f"{self.brief.title} 第{self.slide_index}張 #{self.pk}"
+        return f"{self.brief.title} {self.location_label} #{self.pk}"
+
+    @property
+    def location_label(self) -> str:
+        """Where this picture came from, in its own format's words.
+
+        Falls back to deck wording for rows predating multi-file support,
+        which had no source file and were all .pptx anyway.
+        """
+        if self.source_file_id:
+            return self.source_file.location_label(self.slide_index)
+        return f"第 {self.slide_index} 張投影片"
 
     def display_caption(self) -> str:
         return self.caption.strip() or self.ai_caption.strip()

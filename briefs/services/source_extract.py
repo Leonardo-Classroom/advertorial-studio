@@ -1,11 +1,11 @@
 """Dispatch a source file to its format-specific extractor.
 
-One entry point per format, added as each format's parser lands: this phase
-only wires up `.pptx`, `.docx`/`.pdf` are declared in `BriefSourceFile.FORMATS`
-but have no branch here yet. Callers never talk to `ppt_extract` (or, later,
-a `docx_extract`/`pdf_extract`) directly — this module is the only thing that
-knows which parser a format uses, so adding one means adding a branch here,
-not touching every call site that currently assumes `.pptx`.
+One entry point per format, added as each format's parser lands: `.pptx` and
+`.docx` are wired up, `.pdf` is declared in `BriefSourceFile.FORMATS` but has
+no branch here yet. Callers never talk to `ppt_extract`/`docx_extract`
+directly — this module is the only thing that knows which parser a format
+uses, so adding one means adding a branch here, not touching every call site
+that would otherwise assume `.pptx`.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from pathlib import Path
 
 EXTENSION_FORMATS = {
     ".pptx": "pptx",
+    ".docx": "docx",
 }
 
 
@@ -30,11 +31,20 @@ def format_for(filename: str) -> str:
 
 
 def extract_text(path: str, format: str) -> tuple[str, int]:
-    """(text, page/slide count) for one file, dispatched by format."""
+    """(text, unit count) for one file, dispatched by format.
+
+    The second number counts whatever that format's reviewable unit is —
+    slides for a deck, heading-led blocks for a document. See
+    `BriefSourceFile.unit_label` for how it is named on screen.
+    """
     if format == "pptx":
         from briefs.services import ppt_extract
 
         return ppt_extract.extract_text(path)
+    if format == "docx":
+        from briefs.services import docx_extract
+
+        return docx_extract.extract_text(path)
     raise ValueError(f"格式 {format} 尚未支援文字抽取")
 
 
@@ -44,4 +54,8 @@ def extract_images(path: str, format: str) -> list[dict]:
         from briefs.services import ppt_extract
 
         return ppt_extract.extract_images(path)
+    if format == "docx":
+        from briefs.services import docx_extract
+
+        return docx_extract.extract_images(path)
     raise ValueError(f"格式 {format} 尚未支援圖片抽取")

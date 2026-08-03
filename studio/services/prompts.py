@@ -122,7 +122,7 @@ def image_roster(images) -> str:
     lines = []
     for i, image in enumerate(images, 1):
         caption = image.display_caption() or image.ai_description
-        lines.append(f"[[img:{i}]] （第 {image.slide_index} 張投影片）{caption}")
+        lines.append(f"[[img:{i}]] （{image.location_label}）{caption}")
     return "\n".join(lines)
 
 

@@ -9,7 +9,7 @@
 <div class="card">
   {% if briefs %}
     <div class="scroll"><table>
-      <tr><th>名稱</th><th>投影片</th><th>狀態</th><th>建立</th><th></th></tr>
+      <tr><th>名稱</th><th>頁數</th><th>狀態</th><th>建立</th><th></th></tr>
       {% for b in briefs %}
       <tr>
         <td><a href="{% url 'briefs:detail' b.pk %}">{{ b.title }}</a></td>

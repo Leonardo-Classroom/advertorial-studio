@@ -12,7 +12,7 @@
     {% if sf.file %}<a href="{{ sf.file.url }}" download>{{ sf.original_filename }}</a>{% else %}{{ sf.original_filename|default:"（無檔案）" }}{% endif %}
     {% if sf.status == 'failed' %}<span class="pill bad">處理失敗</span>{% endif %}{% if not forloop.last %} · {% endif %}
   {% endfor %}
-  {% if source_files %} · {% endif %}{{ brief.slide_count }} 張投影片 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}
+  {% if source_files %} · {% endif %}共 {{ brief.slide_count }} 頁 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}
   · {% if brief.status == 'confirmed' %}<span class="pill good">已確認</span>
     {% elif brief.status == 'extracted' %}<span class="pill warn">待人工確認</span>
     {% else %}<span class="pill">待抽取</span>{% endif %}</p>

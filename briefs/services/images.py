@@ -148,9 +148,9 @@ CLASSIFY_TASK = """請看這張從簡報中抽出的圖片，輸出這個 JSON�
   那些畫面不屬於本篇素材，放進稿子會變成幫競品打廣告。
 - decoration：品牌 logo、背景底紋、圖示、色塊等裝飾元素。
 
-判斷時以圖片本身的畫面為準。下面的線索僅供參考，它是依簡報上的位置推測的，可能對應到錯的圖：
+判斷時以圖片本身的畫面為準。下面的線索僅供參考，它是依這張圖在原始檔案裡的位置推測的，可能對應到錯的圖：
 
-【所在投影片】第 {slide_index} 張{heading}
+【所在位置】{location}{heading}
 【附近文字（推測，可能不準）】{nearby}"""
 
 
@@ -167,14 +167,17 @@ def classify(image: dict, brand: str = "", timeout: float = 120) -> dict:
     `unknown` with the reason attached and left for the reviewer to judge.
     """
     heading = f"（標題：{image['slide_heading']}）" if image.get("slide_heading") else ""
-    nearby = image.get("nearby_text") or "（同張投影片上沒有文字）"
+    nearby = image.get("nearby_text") or "（附近沒有文字）"
+    # Named in the source format's own terms — a Word file has no slide 3, and
+    # telling the model it does is a detail it may well try to reconcile.
+    location = image.get("location") or f"第 {image['slide_index']} 張投影片"
 
     try:
         data = llm.complete_json_vision(
             instructions=CLASSIFY_ROLE,
             user_input=CLASSIFY_TASK.format(
                 brand=brand or "本次合作品牌（簡報未指明，請以畫面中出現的主要品牌為準）",
-                slide_index=image["slide_index"], heading=heading, nearby=nearby),
+                location=location, heading=heading, nearby=nearby),
             image_bytes=image["blob"],
             image_ext=image["ext"],
             timeout=timeout,
@@ -243,7 +246,11 @@ def ingest(brief, run_classify: bool = True, limit: int = 40) -> dict:
         if not source_file.file:
             continue
         for image in source_extract.extract_images(source_file.file.path, source_file.format):
-            found.append({**image, "_source_file": source_file})
+            found.append({
+                **image,
+                "_source_file": source_file,
+                "location": source_file.location_label(image["slide_index"]),
+            })
 
     kept, stats = filter_candidates(found)
 

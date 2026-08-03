@@ -60,8 +60,8 @@
                 {% if image.ai_brand %}<span class="pill sm">{{ image.ai_brand }}</span>{% endif %}
               </div>
               <p class="small" style="margin:0 0 6px">{{ image.ai_description }}</p>
-              <input type="text" name="caption_{{ image.pk }}" class="sm"
-                     value="{{ image.caption }}" placeholder="{{ image.ai_caption|default:'圖說' }}">
+              <textarea name="caption_{{ image.pk }}" class="sm caption" rows="1"
+                        placeholder="{{ image.ai_caption|default:'圖說' }}">{{ image.caption }}</textarea>
               {% if image.nearby_text %}
                 <details class="small muted" style="margin-top:5px">
                   <summary>參考：簡報上鄰近的文字（僅供判斷，非輸入欄）</summary>
@@ -144,6 +144,25 @@
       box.closest('.img-item').classList.toggle('off', !box.checked);
     });
   });
+
+  // Caption boxes grow to fit whatever is actually shown — typed text, or the
+  // AI-suggested placeholder when empty — so a long caption is never clipped.
+  // Placeholder text does not drive `scrollHeight` on its own, so an empty box
+  // is measured by borrowing the placeholder into `.value` just long enough to
+  // read the height, then handed back.
+  (function () {
+    function autosize(el) {
+      const borrowed = !el.value;
+      if (borrowed) el.value = el.placeholder || '';
+      el.style.height = 'auto';
+      el.style.height = el.scrollHeight + 'px';
+      if (borrowed) el.value = '';
+    }
+    document.querySelectorAll('textarea.caption').forEach(function (el) {
+      autosize(el);
+      el.addEventListener('input', function () { autosize(el); });
+    });
+  })();
 
   // Ticking a box is the decision; there is nothing further to confirm, so it
   // saves itself. The whole form goes each time rather than one field: the view

@@ -2,15 +2,15 @@
 {% block content %}
 <p class="small"><a href="{% url 'briefs:list' %}">← 回簡報列表</a></p>
 <h1>上傳簡報</h1>
-<p class="sub">支援 .pptx 與 .docx，可一次選多個檔案，算同一個專案。系統會抽出所有文字，包含表格與備忘稿——提案的重點常常藏在那裡。</p>
+<p class="sub">支援 .pptx、.docx 與 .pdf，可一次選多個檔案，算同一個專案。系統會抽出所有文字，包含表格與備忘稿——提案的重點常常藏在那裡。（PDF 需要是可選取文字的版本，掃描檔不支援。）</p>
 
 <div class="card" style="max-width:620px">
   <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
     <label>名稱（留空則用第一個檔名）</label>
     <input type="text" name="title" placeholder="例如：NB 2026 Grey Days Campaign">
-    <label>來源檔案（.pptx／.docx，可選多個）</label>
-    <input type="file" name="source_files" accept=".pptx,.docx" multiple required>
+    <label>來源檔案（.pptx／.docx／.pdf，可選多個）</label>
+    <input type="file" name="source_files" accept=".pptx,.docx,.pdf" multiple required>
 
     <label style="display:flex;align-items:flex-start;gap:8px;margin-top:18px;font-weight:normal;cursor:pointer">
       <input type="checkbox" name="parse_images" value="1" style="width:auto;margin-top:3px">

@@ -6,6 +6,11 @@ python-pptx>=1.0
 # 也是 Django ImageField 的必要條件。
 Pillow>=10.0
 python-docx>=1.0
+# PDF 解析（briefs/services/pdf_extract.py）。刻意不用 PyMuPDF：那是 AGPL-3.0，
+# 商用／校內採購會有授權問題。pdfplumber(MIT) + pdfminer.six(MIT) +
+# pypdfium2(BSD-3/Apache-2.0) 這條路授權乾淨，圖片也不必再多拉一個套件解碼。
+# 上限鎖 0.11.9：0.11.10 起要求 Pillow>=12.2，會撞掉同機其他工具的 Pillow<12。
+pdfplumber>=0.11,<0.11.10
 PyYAML>=6.0
 # 把生成稿的 Markdown 渲染成排版檢視（生成頁／並排比較頁的切換按鈕）。
 markdown-it-py>=3.0

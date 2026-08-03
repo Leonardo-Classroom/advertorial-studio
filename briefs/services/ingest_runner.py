@@ -26,6 +26,18 @@ from django.utils import timezone
 STALE_AFTER = timedelta(minutes=20)
 
 
+def _mark_started(brief) -> None:
+    """Flag the brief as working, and reset the clock `reap_stale_brief` reads.
+
+    `updated_at` has to move by hand: `auto_now` fires on `save()`, not on the
+    `update()` used here, and without it a retry on a brief last touched days
+    ago is declared stale by the very first poll — the waiting card vanishes
+    and announces a timeout while the thread it was watching runs on happily.
+    """
+    type(brief).objects.filter(pk=brief.pk).update(
+        processing=True, updated_at=timezone.now())
+
+
 def _process_one(source_file) -> None:
     from briefs.services import source_extract
 
@@ -53,8 +65,16 @@ def _extract_facts_and_images(brief) -> None:
         return  # every file failed; only stub markers, nothing to extract from
     facts = ppt_extract.extract_facts(brief.raw_text)
     brief.add_facts_version(facts, source="extract")
-    if brief.parse_images:
+    if not brief.parse_images:
+        return
+    # Pictures are an extra, and their failure is not the batch's failure: the
+    # facts are already saved and a draft can be written without illustrations.
+    # Letting this raise would report a fully usable brief as 批次處理失敗.
+    try:
         image_service.ingest(brief)
+    except Exception as exc:  # noqa: BLE001 - see above
+        type(brief).objects.filter(pk=brief.pk).update(
+            note=f"圖片解析失敗：{type(exc).__name__}: {exc}（文字內容不受影響，稿子仍可正常產出）")
 
 
 def _work(brief_id: int) -> None:
@@ -88,7 +108,7 @@ def submit(brief) -> None:
     where that first poll lands before the thread has run at all would show
     the batch as finished when it has not even begun.
     """
-    type(brief).objects.filter(pk=brief.pk).update(processing=True)
+    _mark_started(brief)
     threading.Thread(target=_work, args=(brief.pk,), daemon=True,
                      name=f"ingest-{brief.pk}").start()
 
@@ -120,7 +140,7 @@ def retry_facts(brief) -> None:
     itself failed — there is nothing wrong with the files, so reprocessing
     them would just spend the parse cost again for no reason.
     """
-    type(brief).objects.filter(pk=brief.pk).update(processing=True)
+    _mark_started(brief)
     threading.Thread(target=_retry_facts, args=(brief.pk,), daemon=True,
                      name=f"retry-facts-{brief.pk}").start()
 

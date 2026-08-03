@@ -45,18 +45,18 @@ def _my_briefs(request):
 
 
 def _listed_briefs(request):
-    """What the user sees as "my briefs".
+    """What the user sees as "my briefs" — anything they actually uploaded.
 
-    A brief that never got any facts and has nothing still processing is a
-    dead row — it cannot be worked on, only retried from the upload page, so
-    it stays off the list. One that is still being parsed or waiting on its
-    facts call belongs on the list anyway: a user who navigates away mid-
-    upload should still be able to find it and see it finish, the same way an
-    in-progress `GenerationRun` stays visible rather than only existing on the
-    tab that started it.
+    This used to hide briefs with no facts, on the grounds that a failed
+    extraction left a dead row nobody could act on. Under the async upload
+    that rule strands people: the upload redirects to the brief and the work
+    happens in the background, so a brief with no facts is now either still
+    being parsed, or one whose files failed and whose detail page is the only
+    place explaining why. Hiding either would take away the page the user was
+    just looking at the moment they navigated off it.
     """
     return _my_briefs(request).filter(
-        Q(fact_versions__isnull=False) | Q(processing=True)).distinct()
+        Q(source_files__isnull=False) | Q(fact_versions__isnull=False)).distinct()
 
 
 def _ingest_images(request, brief) -> None:

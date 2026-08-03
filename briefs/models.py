@@ -110,6 +110,42 @@ class Brief(models.Model):
     def __str__(self):
         return self.title
 
+    def latest_facts(self):
+        """The newest facts version, or None for a brief that never extracted."""
+        return self.fact_versions.first()
+
+    def add_facts_version(self, data: dict, source: str = "user_update",
+                          user_input: str = "", parent=None):
+        """Record a new version and make it the current one.
+
+        `facts` stays a mirror of the newest version so everything that already
+        reads `brief.facts` — the staff pages, image classification, the admin —
+        keeps working untouched. The version rows are what a run points at, so
+        a draft can always say which facts it was written from.
+
+        A save that changes nothing does not become a version. The staff JSON
+        editor is a text box people press save on out of habit, and a history
+        of identical versions is a history nobody can read.
+        """
+        last = self.fact_versions.first()
+        if last is not None and last.data == (data or {}):
+            return last
+        row = BriefFacts.objects.create(
+            brief=self,
+            version=(last.version + 1) if last else 1,
+            data=data or {},
+            source=source,
+            user_input=user_input,
+            # Usually the one before it, but a correction can be applied to any
+            # version the user picks, and then the number no longer says where
+            # the content came from.
+            parent=parent or last,
+        )
+        self.facts = data or {}
+        self.status = "extracted"
+        self.save(update_fields=["facts", "status", "updated_at"])
+        return row
+
     def fact_values(self) -> list[str]:
         """Flatten `facts` into checkable strings for the fact-coverage test."""
         out: list[str] = []
@@ -131,6 +167,62 @@ class Brief(models.Model):
     def usable_images(self):
         """Approved pictures, in slide order — the only ones a draft may place."""
         return self.images.filter(approved=True)
+
+
+class BriefFacts(models.Model):
+    """One version of a brief's facts, kept rather than overwritten.
+
+    The portal no longer lets anyone edit the fact structure by hand: corrections
+    arrive as a sentence ("KOL 是陳○○，品牌名要改成 XX") and a model merges them
+    in. That is convenient but not trustworthy, so every merge lands as a new
+    version and the sentence that caused it is stored alongside. When a draft
+    turns out to name the wrong product code, `user_input` is the only evidence
+    of what the user actually asked for versus what the model did with it.
+
+    Versions also replace the old 確認無誤 button. Pressing it never meant the
+    facts had been checked, only that the user wanted to get past it; choosing
+    which version to write from is a real decision, so a run stores that choice.
+    """
+
+    SOURCES = [
+        ("extract", "上傳時抽取"),
+        ("user_update", "使用者更正"),
+        ("revert", "還原自舊版本"),
+        ("staff_edit", "管理者手動編輯"),
+    ]
+
+    brief = models.ForeignKey(Brief, on_delete=models.CASCADE, related_name="fact_versions")
+    version = models.IntegerField("版本", default=1)
+    data = models.JSONField("該版結構化事實", default=dict, blank=True)
+    source = models.CharField("來源", max_length=16, choices=SOURCES, default="extract")
+    user_input = models.TextField(
+        "使用者當時輸入的更正", blank=True,
+        help_text="原文照存。日後要檢討合併把什麼改壞了，這是唯一的證據。")
+    parent = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True,
+                               related_name="children", verbose_name="以哪一版為基礎")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = verbose_name_plural = "簡報事實版本"
+        ordering = ["-version"]
+        unique_together = [("brief", "version")]
+
+    def __str__(self):
+        return f"{self.brief.title} v{self.version}"
+
+    @property
+    def label(self) -> str:
+        return f"v{self.version}"
+
+    @property
+    def branched(self) -> bool:
+        """True when this was built on something other than the version before it."""
+        return bool(self.parent_id) and self.parent.version != self.version - 1
+
+    @property
+    def uncertain(self) -> list[str]:
+        raw = (self.data or {}).get("uncertain") or []
+        return [str(u).strip() for u in raw if str(u).strip()]
 
 
 class BriefImage(models.Model):

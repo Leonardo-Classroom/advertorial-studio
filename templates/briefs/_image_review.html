@@ -11,12 +11,15 @@
 {% endcomment %}
 <div class="card">
   <div class="row tight" style="margin-bottom:10px">
-    <h2 style="margin:0;flex:1">簡報圖片</h2>
+    <h2 style="margin:0">簡報圖片</h2>
+    <span class="img-status small muted" role="status" aria-live="polite" style="flex:1"></span>
+    {% if not brief_images %}
     <form method="post" action="{{ action_url }}" style="flex:0">
       {% csrf_token %}
       <input type="hidden" name="action" value="parse">
-      <button class="btn sm ghost" data-loading="images">{% if brief_images %}重新解析圖片{% else %}解析簡報圖片{% endif %}</button>
+      <button class="btn sm ghost" data-loading="images">解析簡報圖片</button>
     </form>
+    {% endif %}
   </div>
 
   {% if brief_images %}
@@ -24,21 +27,32 @@
       勾選的圖片才會被放進稿子。AI 的判斷已先勾好，但<strong>它會看錯</strong>——
       特別是簡報前段做市場分析用的<strong>競品照片</strong>，畫面上就是一雙好看的鞋，
       要靠你確認那是不是這次要推的品牌。圖說留空就用 AI 建議的版本。
+      <strong>改動會立即儲存</strong>，不必再按確認。
     </p>
 
-    <form method="post" action="{{ action_url }}">
+    <form method="post" action="{{ action_url }}" class="img-form">
       {% csrf_token %}
-      <div class="img-grid">
-        {% for image in brief_images %}
+      {% regroup brief_images by slide_index as slides %}
+      {% for slide in slides %}
+      <div class="img-slide">
+        <h3 class="img-slide-head">投影片 {{ slide.grouper }}
+          <span class="muted">· {{ slide.list|length }} 張</span></h3>
+        <div class="img-grid">
+          {% for image in slide.list %}
           <div class="img-item{% if not image.approved %} off{% endif %}">
-            <label class="img-pick">
-              <input type="checkbox" name="approved" value="{{ image.pk }}"
-                     {% if image.approved %}checked{% endif %}>
-              <img src="{{ image.file.url }}" alt="第 {{ image.slide_index }} 張投影片的圖片" loading="lazy">
-            </label>
+            <div class="img-pick">
+              <label class="img-check">
+                <input type="checkbox" name="approved" value="{{ image.pk }}"
+                       {% if image.approved %}checked{% endif %}
+                       aria-label="採用投影片 {{ image.slide_index }} 的這張圖">
+              </label>
+              <button type="button" class="img-zoom" data-full="{{ image.file.url }}"
+                      data-caption="投影片 {{ image.slide_index }}{% if image.ai_description %}｜{{ image.ai_description }}{% endif %}">
+                <img src="{{ image.file.url }}" alt="投影片 {{ image.slide_index }} 的圖片" loading="lazy">
+              </button>
+            </div>
             <div class="img-meta">
               <div class="row tight" style="gap:6px;margin-bottom:4px">
-                <span class="pill sm">P{{ image.slide_index }}</span>
                 {% if image.ai_category == 'usable' %}<span class="pill good sm">可用素材</span>
                 {% elif image.ai_category == 'layout' %}<span class="pill warn sm">表格／排版</span>
                 {% elif image.ai_category == 'decoration' %}<span class="pill sm">裝飾</span>
@@ -57,9 +71,10 @@
               {% endif %}
             </div>
           </div>
-        {% endfor %}
+          {% endfor %}
+        </div>
       </div>
-      <div style="margin-top:14px"><button class="btn">確認可用圖片</button></div>
+      {% endfor %}
     </form>
   {% else %}
     <p class="small muted">
@@ -72,20 +87,54 @@
 
 <style>
   .img-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:14px; }
+  .img-slide + .img-slide { margin-top:20px; }
+  .img-slide-head { font-size:13px; font-weight:650; color:var(--muted); margin:0 0 9px;
+                    padding-bottom:5px; border-bottom:1px solid var(--line,#e3e3e6); }
+  .img-slide-head .muted { font-weight:normal; }
   .img-item { border:1px solid var(--line,#e3e3e6); border-radius:8px; overflow:hidden;
               display:flex; flex-direction:column; transition:opacity .12s; }
   /* Rejected pictures stay visible but recede — the operator needs to see what
      was excluded to trust the ones that were not. */
   .img-item.off { opacity:.5; }
-  .img-pick { position:relative; display:block; cursor:pointer; margin:0; }
-  .img-pick img { display:block; width:100%; height:150px; object-fit:contain;
+  .img-pick { position:relative; }
+  /* The picture opens it; only the box selects it. Ticking used to be the whole
+     thumbnail, which meant there was no way to look at a picture closely
+     without also changing your answer about it. */
+  .img-zoom { display:block; width:100%; padding:0; border:none; background:none;
+              cursor:zoom-in; }
+  .img-zoom img { display:block; width:100%; height:150px; object-fit:contain;
                   background:#f4f4f6; }
-  .img-pick input { position:absolute; top:8px; left:8px; width:18px; height:18px;
-                    margin:0; cursor:pointer; z-index:1; }
+  /* Padded so the hit area is a finger, not an 18px square. */
+  .img-check { position:absolute; top:0; left:0; padding:8px; margin:0; z-index:1;
+               cursor:pointer; line-height:0; }
+  .img-check input { width:18px; height:18px; margin:0; cursor:pointer; }
   .img-meta { padding:8px 10px 10px; }
   .img-meta input[type=text] { width:100%; font-size:12px; padding:4px 6px; }
   .pill.sm { font-size:11px; padding:1px 6px; }
+
+  .imgzoom { border:none; border-radius:10px; padding:0; background:var(--panel,#fff);
+             max-width:min(94vw,1100px); max-height:92vh; overflow:hidden; }
+  .imgzoom::backdrop { background:rgba(0,0,0,.62); }
+  /* Auto margins centre it because the dialog is as wide as its widest child,
+     which is usually the caption, not a portrait screenshot. Centring via
+     display:flex on the dialog itself would override the UA's
+     `dialog:not([open]){display:none}` and leave it on screen when closed. */
+  .imgzoom img { display:block; margin:0 auto; max-width:100%; max-height:78vh;
+                 width:auto; height:auto; background:#f4f4f6; }
+  .imgzoom-bar { display:flex; align-items:center; gap:12px; padding:9px 12px; }
+  .imgzoom-cap { flex:1; margin:0; }
+  .imgzoom-close { border:1px solid var(--line,#e3e3e6); background:none; border-radius:7px;
+                   color:var(--muted); font-size:16px; line-height:1; padding:5px 10px;
+                   cursor:pointer; }
 </style>
+
+<dialog class="imgzoom" id="imgzoom">
+  <img alt="">
+  <div class="imgzoom-bar">
+    <p class="imgzoom-cap small muted"></p>
+    <button type="button" class="imgzoom-close" aria-label="關閉">✕</button>
+  </div>
+</dialog>
 
 <script>
   // Dim on toggle, so the selection reads at a glance instead of forcing the
@@ -95,4 +144,75 @@
       box.closest('.img-item').classList.toggle('off', !box.checked);
     });
   });
+
+  // Ticking a box is the decision; there is nothing further to confirm, so it
+  // saves itself. The whole form goes each time rather than one field: the view
+  // reads the selection as a set — anything not posted is unapproved — and a
+  // per-checkbox call would have to reimplement that and could disagree with it.
+  (function () {
+    const form = document.querySelector('.img-form');
+    const status = document.querySelector('.img-status');
+    if (!form || !status || !window.fetch) return;
+
+    let timer = null;
+    let token = 0;
+
+    function save() {
+      const mine = ++token;
+      status.textContent = '儲存中…';
+      fetch(form.action, {
+        method: 'POST',
+        body: new FormData(form),
+        credentials: 'same-origin',
+        headers: {'X-Requested-With': 'fetch'},
+      })
+        .then(function (response) {
+          if (!response.ok) throw new Error(response.status);
+          if (mine === token) status.textContent = '已儲存';
+        })
+        .catch(function () {
+          // Say so rather than leaving a tick on screen that never reached the
+          // server — the whole point of removing the button was that the state
+          // you see is the state that is stored.
+          if (mine === token) status.textContent = '儲存失敗，請重新整理後再試一次';
+        });
+    }
+
+    // Coalesced: ticking six pictures in a row is one decision, not six posts.
+    form.addEventListener('change', function () {
+      clearTimeout(timer);
+      timer = setTimeout(save, 350);
+    });
+  })();
+
+  // Full-size view. A 150px thumbnail is enough to tell a shoe from a chart and
+  // not enough to tell whose shoe it is, which is the judgement this page asks
+  // for — competitor shots are the thing it exists to catch.
+  (function () {
+    const modal = document.getElementById('imgzoom');
+    if (!modal || !modal.showModal) return;
+    const picture = modal.querySelector('img');
+    const caption = modal.querySelector('.imgzoom-cap');
+
+    document.querySelectorAll('.img-zoom').forEach(function (button) {
+      button.addEventListener('click', function () {
+        picture.src = button.dataset.full;
+        picture.alt = button.dataset.caption || '';
+        caption.textContent = button.dataset.caption || '';
+        modal.showModal();
+      });
+    });
+
+    modal.querySelector('.imgzoom-close').addEventListener('click', function () {
+      modal.close();
+    });
+    // Clicking the darkened area around the picture closes it, as every other
+    // lightbox does. The target is the dialog itself only when the click missed
+    // its contents.
+    modal.addEventListener('click', function (event) {
+      if (event.target === modal) modal.close();
+    });
+    // Esc is native; releasing the file keeps a big image out of memory.
+    modal.addEventListener('close', function () { picture.removeAttribute('src'); });
+  })();
 </script>

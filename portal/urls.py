@@ -14,14 +14,16 @@ urlpatterns = [
     path("password/", views.change_password, name="change_password"),
 
     path("upload/", views.upload, name="upload"),
+    path("upload/<int:pk>/retry/", views.upload_retry, name="upload_retry"),
     path("briefs/<int:pk>/", views.brief_detail, name="brief_detail"),
-    path("briefs/<int:pk>/extract/", views.brief_extract, name="brief_extract"),
-    path("briefs/<int:pk>/facts/", views.brief_save_facts, name="brief_save_facts"),
+    path("briefs/<int:pk>/facts/update/", views.brief_facts_update, name="brief_facts_update"),
+    path("briefs/<int:pk>/facts/confirm/", views.brief_facts_confirm, name="brief_facts_confirm"),
     path("briefs/<int:pk>/images/", views.brief_images, name="brief_images"),
     path("briefs/<int:pk>/generate/", views.generate, name="generate"),
 
     path("drafts/<int:pk>/", views.draft_detail, name="draft_detail"),
-    path("drafts/<int:pk>/outline/", views.draft_outline, name="draft_outline"),
+    path("drafts/<int:pk>/status/", views.draft_status, name="draft_status"),
+    path("drafts/<int:pk>/edit/", views.draft_edit, name="draft_edit"),
     path("drafts/<int:pk>/revise/", views.draft_revise, name="draft_revise"),
     path("drafts/<int:pk>/download/", views.draft_download, name="draft_download"),
 ]

@@ -36,7 +36,7 @@ def run_generation(run: GenerationRun, stop_after_outline: bool = False,
     started = time.time()
 
     try:
-        facts = run.brief.facts or {}
+        facts = run.facts
         query = brief_query_text(facts) or run.brief.title
 
         exemplars = retrieval.retrieve(
@@ -107,16 +107,21 @@ def _maybe_refine(run: GenerationRun, auto_refine: bool) -> None:
     run.save(update_fields=["stages", "elapsed_ms", "status"])
 
 
-def run_revision(run: GenerationRun, feedback: str) -> Revision:
+def run_revision(run: GenerationRun, feedback: str,
+                 previous_text: str | None = None) -> Revision:
     """Apply editor feedback, producing the next 稿次.
 
     Each round is stored with the text it revised, which is what makes the
     accumulated history usable later as preference pairs (plan option D).
+
+    `previous_text` names the version being revised. The portal passes it
+    because the user picks which draft version to work from; without it the
+    current best text is used, which is what the staff tooling wants.
     """
     # Revise the current best text, not literally the last one written: a
     # rejected auto-rewrite (one that lost facts or scored worse) is kept for
     # the record but must not become the base for the next round.
-    previous_text = run.latest_text
+    previous_text = previous_text if previous_text is not None else run.latest_text
     last = run.revisions.order_by("-round").first()
     next_round = (last.round + 1) if last else 2
 
@@ -126,7 +131,7 @@ def run_revision(run: GenerationRun, feedback: str) -> Revision:
     try:
         revision.output = llm.complete(
             instructions=prompts.REVISION_ROLE,
-            user_input=prompts.build_revision_input(previous_text, feedback, run.brief.facts or {}),
+            user_input=prompts.build_revision_input(previous_text, feedback, run.facts),
             timeout=600,
         )
     except Exception as exc:  # noqa: BLE001

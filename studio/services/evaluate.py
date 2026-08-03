@@ -276,7 +276,7 @@ def evaluate(run: GenerationRun, revision: Revision | None = None,
 
     exemplar_ids = [e.get("id") for e in (run.exemplars or []) if e.get("id")]
     ev.max_overlap, ev.overlap_source = overlap_against_exemplars(draft, exemplar_ids)
-    ev.fact_coverage = check_facts(draft, run.brief.facts or {})
+    ev.fact_coverage = check_facts(draft, run.facts)
     ev.fact_coverage["internal_leakage"] = internal_leakage(draft)
 
     # Style-embedding distance, when an index exists for this outlet.

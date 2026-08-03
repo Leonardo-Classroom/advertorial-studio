@@ -11,7 +11,7 @@ from briefs.models import Brief
 from corpus.models import Article, Author, EmbeddingIndex, Outlet, StyleGuide
 from studio.models import (
     GENERATION_MODES, RETRIEVAL_STRATEGIES, SELECTABLE_STRATEGIES,
-    Evaluation, Experiment, GenerationRun,
+    Evaluation, Experiment, GenerationRun, SiteSettings,
 )
 from studio.services import evaluate as evaluate_service
 from studio.services import generate as generate_service
@@ -42,6 +42,42 @@ def home(request):
 
 
 @staff_required
+def advanced(request):
+    """Generation defaults, in one place, for the people allowed to change them.
+
+    These left the draft forms because nobody writing a draft could choose
+    between them usefully. They did not become constants: the measured case for
+    switching retrieval to `none` (same quality, ~20% faster, 14% cheaper) is
+    strong enough to want to try in production and weak enough to want to undo
+    without a deploy.
+    """
+    settings_row = SiteSettings.load()
+
+    if request.method == "POST":
+        strategy = request.POST.get("retrieval_strategy", settings_row.retrieval_strategy)
+        if strategy in dict(SELECTABLE_STRATEGIES):
+            settings_row.retrieval_strategy = strategy
+        try:
+            settings_row.exemplar_count = max(0, min(int(request.POST.get("exemplar_count") or 4), 10))
+            settings_row.max_rewrites = max(0, min(int(request.POST.get("max_rewrites") or 1), 3))
+            settings_row.max_parallel_runs = max(
+                1, min(int(request.POST.get("max_parallel_runs") or 2), 8))
+        except ValueError:
+            messages.error(request, "數值格式不正確，未儲存。")
+            return redirect("studio:advanced")
+        settings_row.confirm_fact_updates = request.POST.get("confirm_fact_updates") == "on"
+        settings_row.save()
+        messages.success(request, "已更新產稿預設值。之後建立的稿件會採用新設定，既有紀錄不受影響。")
+        return redirect("studio:advanced")
+
+    return render(request, "studio/advanced.html", {
+        "section": "advanced",
+        "settings": settings_row,
+        "strategies": SELECTABLE_STRATEGIES,
+    })
+
+
+@staff_required
 def runs(request):
     qs = GenerationRun.objects.select_related("brief", "outlet", "author", "experiment")
     return render(request, "studio/runs.html", {
@@ -62,30 +98,27 @@ def run_new(request):
         guide_id = request.POST.get("style_guide") or None
         experiment_id = request.POST.get("experiment") or None
 
-        mode = request.POST.get("mode", "staged")
-        pause = mode == "staged" and request.POST.get("pause_at_outline") == "on"
+        # The three tuning knobs now come from the site defaults rather than the
+        # form. Sweeping them is what `run_experiment` is for; doing it by hand
+        # here only ever produced runs nobody could later account for.
+        defaults = SiteSettings.load()
 
         run = GenerationRun.objects.create(
             owner=request.user,
             brief=brief,
+            facts_version=brief.latest_facts(),
             outlet=outlet,
             author_id=author_id or None,
             style_guide_id=guide_id or None,
             experiment_id=experiment_id or None,
-            mode=mode,
-            retrieval_strategy=request.POST.get("retrieval_strategy", "typical"),
-            exemplar_count=int(request.POST.get("exemplar_count") or 4),
-            max_rewrites=max(0, min(int(request.POST.get("max_rewrites") or 1), 3)),
+            mode=request.POST.get("mode", "staged"),
+            retrieval_strategy=defaults.retrieval_strategy,
+            exemplar_count=defaults.exemplar_count,
+            max_rewrites=max(0, min(defaults.max_rewrites, 3)),
         )
-        generate_service.run_generation(run, stop_after_outline=pause)
+        generate_service.run_generation(run)
         if run.status == "failed":
             messages.error(request, f"生成失敗：{run.error}")
-        elif pause:
-            messages.success(
-                request,
-                "大綱已產出，尚未寫正文。請往下確認／修改大綱後再按「依大綱寫出正文」——"
-                "在大綱階段改方向，比改完稿便宜得多。",
-            )
         else:
             messages.success(request, f"生成完成，耗時 {run.elapsed_ms / 1000:.1f} 秒。")
         return redirect("studio:run_detail", pk=run.pk)
@@ -98,8 +131,8 @@ def run_new(request):
             outlet__is_target=True, article_count__gte=100).order_by("-article_count"),
         "guides": StyleGuide.objects.select_related("outlet", "author").filter(is_active=True),
         "experiments": Experiment.objects.all(),
-        "strategies": SELECTABLE_STRATEGIES,
         "modes": GENERATION_MODES,
+        "defaults": SiteSettings.load(),
         "preselect_brief": request.GET.get("brief") or "",
     })
 

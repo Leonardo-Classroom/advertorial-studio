@@ -52,37 +52,6 @@
           {% for value, label in modes %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
         </select>
       </div>
-      <div style="flex:0;min-width:auto">
-        <label style="white-space:nowrap">
-          <input type="checkbox" name="pause_at_outline" checked style="width:auto"> 大綱階段先暫停</label>
-      </div>
-    </div>
-    <p class="small muted" style="margin:-4px 0 8px">
-      <strong>預設是方案 B</strong>：先產出重點筆記與大綱再寫正文，較慢（約 83 秒 vs 29 秒），
-      但結構完整度實測高 0.75 分。「大綱階段先暫停」也預設開啟——
-      在大綱改方向比改完稿便宜得多；不需要時可取消勾選，一次跑完。<br>
-      <strong>生成評估後重寫次數</strong>：0 = 只寫初稿；1（預設）= 初稿評估後依評審意見自動重寫一次。
-      重寫若造成事實流失或分數沒提升會自動停止並保留前一版，所以調高它不會讓稿子變差，只會多花時間。
-      實測 12 篇中「第二次重寫」從未被採納（0/12），所以預設 1 次。
-    </p>
-
-    <div class="row">
-      <div>
-        <label>檢索策略 *</label>
-        <select name="retrieval_strategy">
-          {% for value, label in strategies %}
-            <option value="{{ value }}" {% if value == 'typical' %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label>範例篇數</label>
-        <input type="number" name="exemplar_count" value="4" min="0" max="10">
-      </div>
-      <div>
-        <label>生成評估後重寫次數</label>
-        <input type="number" name="max_rewrites" value="1" min="0" max="3">
-      </div>
       <div>
         <label>掛到 A/B 實驗（可留空）</label>
         <select name="experiment">
@@ -91,9 +60,18 @@
         </select>
       </div>
     </div>
+    <p class="small muted" style="margin:-4px 0 8px">
+      <strong>預設是方案 B</strong>：先產出重點筆記與大綱再寫正文，較慢（約 83 秒 vs 29 秒），
+      但結構完整度實測高 0.75 分。
+    </p>
 
     <div class="msg" style="margin-top:18px">
-      <strong>提醒：</strong>主題相似檢索需要先建立向量索引。若尚未建立，請改用「隨機抽樣」或先執行
+      這次會用<a href="{% url 'studio:advanced' %}">高級設定</a>的預設值：
+      檢索策略 <strong>{{ defaults.get_retrieval_strategy_display }}</strong>、
+      範例 <strong>{{ defaults.exemplar_count }}</strong> 篇、
+      重寫 <strong>{{ defaults.max_rewrites }}</strong> 次。要掃不同組合請用
+      <code class="mono">python manage.py run_experiment</code>。<br>
+      <strong>提醒：</strong>主題相似檢索需要先建立向量索引，若尚未建立請先執行
       <code class="mono">python manage.py build_index</code>。生成會即時呼叫模型，需要數十秒到數分鐘。
     </div>
 

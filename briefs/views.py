@@ -1,6 +1,7 @@
 import json
 
 from django.contrib import messages
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from accounts.decorators import staff_required
@@ -104,6 +105,11 @@ def brief_images(request, pk):
         image.approved = key in approved
         image.caption = (request.POST.get(f"caption_{key}") or "").strip()[:200]
         image.save(update_fields=["approved", "caption"])
+
+    # The review page saves each change as it happens; answer it quietly.
+    if request.headers.get("X-Requested-With") == "fetch":
+        return HttpResponse(status=204)
+
     messages.success(request, f"已確認 {len(approved)} 張圖片可用於稿件。")
     return redirect("briefs:detail", pk=pk)
 
@@ -126,9 +132,7 @@ def brief_extract(request, pk):
 
     if "_raw" in facts:
         messages.warning(request, "模型沒有回傳結構化 JSON，已保留原始輸出供你手動整理。")
-    brief.facts = facts
-    brief.status = "extracted"
-    brief.save(update_fields=["facts", "status", "updated_at"])
+    brief.add_facts_version(facts, source="extract")
 
     uncertain = facts.get("uncertain") or []
     if uncertain:
@@ -155,11 +159,15 @@ def brief_save_facts(request, pk):
         messages.error(request, f"JSON 格式錯誤，未儲存：{exc}")
         return redirect("briefs:detail", pk=pk)
 
-    brief.facts = facts
+    # Staff edits are versioned too. The portal picks which version a draft is
+    # written from, so a hand edit that silently replaced the current facts
+    # would leave those drafts pointing at a version that no longer says what
+    # they were written from.
+    version = brief.add_facts_version(facts, source="staff_edit")
     if request.POST.get("confirm") == "1":
         brief.status = "confirmed"
-        messages.success(request, "事實已確認。現在可以開始生成廣編稿。")
+        brief.save(update_fields=["status", "updated_at"])
+        messages.success(request, f"事實已確認，目前是 {version.label}。")
     else:
-        messages.success(request, "已儲存。")
-    brief.save(update_fields=["facts", "status", "updated_at"])
+        messages.success(request, f"已儲存為 {version.label}。")
     return redirect("briefs:detail", pk=pk)

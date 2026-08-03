@@ -85,6 +85,42 @@ label{display:block;font-size:13px;color:var(--muted);margin:14px 0 5px}
   background:var(--accent-soft);color:var(--accent);white-space:nowrap}
 .pill.good{background:color-mix(in srgb,var(--good) 15%,transparent);color:var(--good)}
 .pill.warn{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.pill.running{background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);
+  display:inline-flex;align-items:center;gap:6px}
+/* One spinner, two sizes: the status pill in a list, and the page that is
+   waiting for a draft to arrive. */
+/* Sized where .row's children are sized — see the note by that rule. Setting
+   min-width here does not work: `.row>*` has the same specificity and comes
+   later in this sheet, so it wins and the circle becomes an ellipse. */
+.spin{display:inline-block;width:11px;height:11px;border-radius:50%;
+  border:2px solid color-mix(in srgb,currentColor 30%,transparent);
+  border-top-color:currentColor;animation:spin .8s linear infinite}
+.spin.big{width:28px;height:28px;border-width:3px;color:var(--accent)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:2.4s}}
+/* Draft comparison. Whole paragraphs are marked, because a rewrite replaces
+   sentences rather than words — a character-level diff of re-worded copy lights
+   up almost every line and says nothing about what changed. */
+.draft-diff>div{margin:0 0 10px;padding:6px 10px;border-radius:6px}
+.draft-diff>div>*:last-child{margin-bottom:0}
+.draft-diff h1,.draft-diff h2,.draft-diff h3{font-size:16px;margin:0 0 6px;
+  padding:0;border:none;color:var(--muted)}
+/* The blocks carry the marks, so the inline pill styling has to be undone —
+   ＋／－ still lead the block, but as a prefix to the first line rather than a
+   badge around a whole paragraph. */
+.draft-diff .d-add,.draft-diff .d-del{display:block;text-decoration:none;color:inherit}
+.draft-diff .d-del *{color:var(--muted);text-decoration:line-through}
+.draft-diff .d-add::before,.draft-diff .d-del::before{float:left;margin-right:6px;opacity:.6}
+.draft-diff .d-same::before{content:none}
+/* An edited paragraph is shown once, with only the changed runs marked. */
+.draft-diff .d-edit::before{content:none}
+.draft-diff ins{text-decoration:none;border-radius:3px;padding:0 2px;
+  background:color-mix(in srgb,var(--good) 22%,transparent)}
+.draft-diff del{border-radius:3px;padding:0 2px;color:var(--muted);
+  background:color-mix(in srgb,var(--bad) 18%,transparent)}
+.waiting-steps{margin:14px 0 0;padding-left:20px;color:var(--muted);font-size:13.5px}
+.waiting-steps li{margin:3px 0}
+.waiting-steps:empty{display:none}
 .muted{color:var(--muted)} .small{font-size:13px}
 .mono{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12.5px}
 .msg{padding:12px 16px;border-radius:8px;margin-bottom:14px;font-size:14px;border:1px solid var(--line)}
@@ -102,6 +138,84 @@ pre.doc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padd
 .md li{margin:4px 0}
 .md hr{border:none;border-top:1px solid var(--line);margin:22px 0}
 .md strong{font-weight:650}
+/* The facts and the box you correct them in, side by side at one fixed height.
+   The facts are reference material you read *while* writing the correction, so
+   the box has to stay on screen while they scroll — with the box below them,
+   every correction meant scrolling down to type and back up to check.
+   Height is capped rather than fitted to content because a 15-section deck
+   would otherwise push the box a screen and a half down the page.
+   Stacked on a narrow screen the constraint stops helping: there is no second
+   column to stay level with, so both panes go back to their natural height. */
+.pane{height:520px;display:flex;flex-direction:column;overflow:hidden}
+.pane-body{flex:1;min-height:0;overflow-y:auto}
+.pane textarea{flex:1;min-height:0;resize:none}
+/* A card whose own heading is the toggle. Collapsed by default where the
+   content is a record rather than a task — the list of drafts already produced
+   is worth having to hand, not worth the top of the page on every visit. */
+details.card>summary{cursor:pointer;display:flex;align-items:center;gap:9px;list-style:none}
+details.card>summary::-webkit-details-marker{display:none}
+details.card>summary::before{content:"▸";display:inline-block;color:var(--muted);
+  font-size:12px;transition:transform .15s}
+details.card[open]>summary::before{transform:rotate(90deg)}
+details.card>summary h2{margin:0}
+details.card>summary>.small{margin-left:auto}
+details.card[open]>summary{margin-bottom:14px}
+@media (prefers-reduced-motion:reduce){details.card>summary::before{transition:none}}
+/* Two rows, labels right-aligned against a shared column, so the 比較版本
+   select sits directly under the 檢視版本 one — they are the same kind of
+   choice and reading them as a pair is the point of showing both. */
+.facts-controls{display:grid;grid-template-columns:auto auto;gap:8px 10px;align-items:center}
+.facts-controls>label{justify-self:end;margin:0}
+.fc-line{display:flex;align-items:center;gap:10px}
+.fc-check{display:flex;align-items:center;gap:5px;margin:0;cursor:pointer;white-space:nowrap}
+.fc-check input{width:auto;margin:0}
+/* The 套用 button exists for the no-JS case; with the live swap running, the
+   controls apply themselves and a button that does the same thing is clutter.
+   Keyed on `.live` alone — the draft card carries it without being a `.pane`,
+   and requiring both left the button showing there. */
+.live .facts-apply{display:none}
+.pane[aria-busy=true] .pane-body{opacity:.5;transition:opacity .15s}
+@media (max-width:700px){
+  .pane{height:auto}
+  .pane textarea{min-height:150px}
+}
+/* The extracted facts, laid out to be read rather than edited. Label above
+   value, full width: a label column would cap every value at whatever is left
+   beside it, and these values are sentences — product details and KOL briefs
+   run long enough to wrap into a column two words wide. */
+.facts{margin:0;font-size:14px}
+.facts dt{color:var(--muted);font-size:13px;font-weight:650;margin-top:15px}
+.facts dt:first-child{margin-top:0}
+.facts dd{margin:3px 0 0;line-height:1.7}
+.facts ul{margin:0;padding-left:18px}
+.facts li{margin:2px 0}
+/* Version differences, git-style. The ＋／－ prefixes are not decoration: red
+   and green are the same shade to a red-green colour-blind reader, and this is
+   the one place where knowing which way a line went is the whole point. */
+.d-add,.d-del{display:inline-block;padding:1px 6px;border-radius:4px}
+.d-add{background:color-mix(in srgb,var(--good) 18%,transparent)}
+.d-del{background:color-mix(in srgb,var(--bad) 15%,transparent);
+  color:var(--muted);text-decoration:line-through}
+.d-add::before{content:"＋";margin-right:3px;opacity:.7}
+.d-del::before{content:"－";margin-right:3px;opacity:.7}
+li.d-add,li.d-del{display:list-item;padding:1px 6px}
+.d-flag{font-size:11px;font-weight:normal;padding:1px 6px;border-radius:20px;
+  background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+/* Before/after for a proposed fact change. The old value keeps full contrast:
+   deciding whether a correction is right means reading what it replaces, and a
+   greyed-out "before" makes the comparison harder in exactly the moment it
+   matters most. */
+.diff{width:100%;border-collapse:collapse;font-size:14px}
+.diff td{vertical-align:top;padding:12px 0;border-top:1px solid var(--line)}
+.diff tr:first-child td{border-top:none}
+.diff .k{color:var(--muted);font-size:13px;width:130px;padding-right:16px}
+.diff ul{margin:0;padding-left:18px}
+.diff li{margin:2px 0}
+.diff .side{padding-left:12px;border-left:3px solid var(--line)}
+.diff .side.after{border-left-color:var(--good)}
+.diff .side+.side{margin-top:10px}
+.diff .tag{display:block;font-size:12px;color:var(--muted);margin-bottom:3px}
+.diff .none{color:var(--muted)}
 .toggle{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;
   align-self:center}
 .toggle button{background:transparent;border:none;color:var(--muted);font:inherit;font-size:13px;
@@ -119,9 +233,14 @@ pre.doc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padd
    button.
    A form here means "an action needing a POST": every form in this codebase
    that carries fields is itself the .row, so `:not(.row)` separates the two.
+   A label directly inside a .row is the fourth case: it names the control
+   beside it, so stretching it opens a gap between the words and the control
+   they belong to. (Field labels sit inside the field's own wrapper div, not
+   here, so they are unaffected.)
    Written with `.row>` for higher specificity so it does not matter where in
    the sheet this block sits — the toggle rule silently lost that race once. */
-.row>.btn,.row>.toggle,.row>form:not(.row),.row>button{flex:0 0 auto;min-width:auto}
+.row>.btn,.row>.toggle,.row>form:not(.row),.row>button,.row>label,
+.row>.spin,.row>h2{flex:0 0 auto;min-width:auto}
 .row>.toggle,.toggle{width:fit-content}
 /* Draft rendered as the page it becomes, rather than as a delivery document.
    The article leads; the Facebook copy and open questions follow it as clearly
@@ -136,6 +255,31 @@ pre.doc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padd
 .post-body p{margin:0 0 16px}
 .post-body ul,.post-body ol{margin:0 0 16px;padding-left:22px}
 .post-body li{margin:5px 0}
+/* The edit view keeps the article's measure and rhythm so the fields sit where
+   the paragraphs were. Editing copy is judging copy, and a box that is a
+   different width from the page reads at a different speed. */
+.edit-section{margin-bottom:20px}
+.edit-label{font-size:12px;color:var(--muted);margin-bottom:6px}
+/* Rich-text boxes, styled to look like the fields they replace so the form
+   still reads as a form. They hold bold as bold — the asterisks go back on at
+   submit — which is why they are contenteditable rather than a textarea. */
+.edit-rich{width:100%;line-height:1.8;margin-bottom:8px;padding:8px 10px;
+  border:1px solid var(--line);border-radius:7px;background:var(--panel);
+  color:var(--ink);font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}
+.edit-rich:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.edit-rich strong{font-weight:650}
+.edit-form input.edit-title{width:100%;font-size:20px;font-weight:650;line-height:1.5}
+.edit-form input.edit-sub{width:100%;font-size:16px;font-weight:650;margin-bottom:8px}
+/* One box per bullet. The dash stays in the markup where it belongs — a list
+   typed into a single field is a list someone eventually breaks by deleting a
+   hyphen they did not know was load-bearing. */
+.edit-list{list-style:none;margin:0 0 8px;padding:0}
+.edit-list li{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.edit-list li::before{content:"・";color:var(--muted);flex:0 0 auto}
+.edit-list .edit-rich{margin-bottom:0;padding:5px 9px}
+.edit-image{display:flex;align-items:center;gap:10px;margin-bottom:10px;
+  padding:8px;border:1px dashed var(--line);border-radius:8px}
+.edit-image img{width:96px;height:64px;object-fit:contain;background:#f4f4f6;border-radius:4px}
 .post-figure{margin:22px 0;text-align:center}
 .post-figure img{max-width:100%;height:auto;border-radius:6px}
 .post-figure figcaption{margin-top:7px;font-size:12.5px;color:var(--muted);line-height:1.6}

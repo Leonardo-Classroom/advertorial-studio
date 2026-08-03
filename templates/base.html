@@ -183,6 +183,7 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
     <a href="{% url 'studio:runs' %}" class="{% if section == 'runs' %}on{% endif %}">生成紀錄</a>
     <a href="{% url 'studio:experiments' %}" class="{% if section == 'experiments' %}on{% endif %}">A/B 實驗</a>
     <a href="{% url 'accounts:list' %}" class="{% if section == 'users' %}on{% endif %}">使用者</a>
+    <a href="{% url 'studio:advanced' %}" class="{% if section == 'advanced' %}on{% endif %}">高級</a>
     <a href="{% url 'portal:home' %}" class="navportal">← 前台</a>
   </nav>
 </div></header>

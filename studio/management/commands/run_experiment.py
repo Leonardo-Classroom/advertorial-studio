@@ -144,6 +144,7 @@ class Command(BaseCommand):
             try:
                 run = GenerationRun.objects.create(
                     brief=brief, outlet=outlet, author=author, style_guide=guide,
+                    facts_version=brief.latest_facts(),
                     experiment=experiment, retrieval_strategy=strategy, mode=mode,
                     exemplar_count=opts["exemplars"], max_rewrites=n_iter,
                 )

@@ -69,6 +69,7 @@
     uploadimg:  [[0, '讀取簡報文字'], [8, 'AI 抽取簡報內容'],
                  [24, '抽取並過濾簡報圖片'], [30, '辨識圖片用途']],
     extract:    [[0, 'AI 抽取簡報內容']],
+    factsupdate:[[0, '把你的更正整理進內容']],
     images:     [[0, '抽取並過濾簡報圖片'], [8, '辨識圖片用途']],
     outline:    [[0, '依大綱寫出正文'], [22, '依評審意見潤稿']],
     evaluate:   [[0, '評估稿件']],
@@ -78,23 +79,18 @@
   };
   const TITLES = {
     upload: '讀取簡報中', uploadimg: '讀取簡報中', extract: '讀取簡報中',
+    factsupdate: '更新內容中',
     images: '解析簡報圖片中', outline: '產出稿件中', generate: '產出稿件中',
     evaluate: '評估稿件中', revise: '重寫稿件中',
   };
 
-  // The generate form's real shape depends on what was ticked: pausing at the
-  // outline ends the run there, and a rewrite budget of 0 skips the last stage.
-  // Showing steps that will not run is the kind of small lie that makes a
-  // progress display untrustworthy.
+  // Generation now runs the same five stages every time — the controls that
+  // used to cut it short (pausing at the outline, a rewrite budget of 0) are
+  // gone from both forms, so there is nothing left to branch on. Only the
+  // upload still changes shape, depending on whether pictures were ticked.
   function scriptFor(form, name) {
     let steps = SCRIPTS[name];
     if (!steps) return null;
-    if (name === 'generate' && form) {
-      const pause = form.querySelector('[name=review_outline]');
-      const budget = form.querySelector('[name=max_rewrites]');
-      if (pause && pause.checked) steps = steps.slice(0, 3);
-      else if (budget && Number(budget.value) === 0) steps = steps.slice(0, 4);
-    }
     if (name === 'upload' && form) {
       const pics = form.querySelector('[name=parse_images]');
       if (pics && pics.checked) steps = SCRIPTS.uploadimg;

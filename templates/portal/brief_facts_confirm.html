@@ -1,0 +1,46 @@
+{% extends "portal/base_portal.html" %}
+{% block content %}
+<p class="small"><a href="{% url 'portal:brief_detail' brief.pk %}">← 回 {{ brief.title }}</a></p>
+<h1>確認這次的更正</h1>
+<p class="sub">下面是系統打算改的地方。確認無誤才會存成新版本，原本的 {{ current.label }} 不會消失。</p>
+
+<div class="card" style="max-width:820px">
+  <p class="small muted" style="margin:0 0 4px">你寫的是</p>
+  <p style="margin:0 0 20px;line-height:1.7">{{ user_input }}</p>
+
+  <table class="diff">
+    {% for row in rows %}
+    <tr>
+      <td class="k">{{ row.label }}</td>
+      <td>
+        <div class="side">
+          <span class="tag">改前</span>
+          {% if row.before %}
+            {% if row.before|length > 1 %}
+              <ul>{% for line in row.before %}<li>{{ line }}</li>{% endfor %}</ul>
+            {% else %}{{ row.before.0 }}{% endif %}
+          {% else %}<span class="none">（空的）</span>{% endif %}
+        </div>
+        <div class="side after">
+          <span class="tag">改後</span>
+          {% if row.after %}
+            {% if row.after|length > 1 %}
+              <ul>{% for line in row.after %}<li>{{ line }}</li>{% endfor %}</ul>
+            {% else %}{{ row.after.0 }}{% endif %}
+          {% else %}<span class="none">（清空）</span>{% endif %}
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <form method="post" class="row tight" style="margin-top:22px">
+    {% csrf_token %}
+    <button class="btn" name="action" value="apply">確認，存成新版本</button>
+    <button class="btn ghost" name="action" value="cancel">取消</button>
+  </form>
+  <p class="small muted" style="margin:12px 0 0">
+    改錯了就按取消，或是確認後再寫一次更正——舊版本都留著，產稿時可以指定用哪一版。
+  </p>
+</div>
+{% endblock %}

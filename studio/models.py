@@ -28,6 +28,62 @@ GENERATION_MODES = [
 ]
 
 
+class SiteSettings(models.Model):
+    """Generation defaults, set once by staff instead of asked on every form.
+
+    These three used to be fields on both the portal and the studio form. None
+    of them is a decision the person writing a draft can make usefully: the
+    81-run comparison could not separate the retrieval strategies at all (judge
+    scores spanned 0.02), and a second rewrite was accepted zero times out of
+    twelve. Asking anyway spends the user's attention on nothing.
+
+    They stay configurable rather than hard-coded because the experiments still
+    vary them — `run_experiment` sweeps strategy and rewrite count — and because
+    switching the default to `none` (same measured quality, ~20% faster, 14%
+    cheaper) should be a settings change someone can try and undo, not a deploy.
+
+    Models and keys deliberately do *not* live here. They belong to `.env`:
+    swapping the judge model mid-corpus makes every prior score incomparable,
+    which is not something a web form should make easy.
+    """
+
+    retrieval_strategy = models.CharField(
+        "檢索策略", max_length=16, choices=RETRIEVAL_STRATEGIES, default="typical",
+        help_text="決定拿哪幾篇該媒體的舊文章當語感範例。實測三種策略產出分不出差異。")
+    exemplar_count = models.IntegerField("範例篇數", default=4)
+    max_rewrites = models.IntegerField(
+        "生成評估後重寫次數", default=1,
+        help_text="0 = 只寫初稿；1 = 初稿評估後自動重寫一次（預設）。上限 3。")
+    # Off by default: the confirmation screen is a stop in the middle of a small
+    # edit, and every version is kept anyway, so a bad merge is survivable —
+    # the earlier version is still there to generate from, or to correct again
+    # from, rather than having to never have made the mistake.
+    max_parallel_runs = models.IntegerField(
+        "同時產稿上限", default=2,
+        help_text="產稿改成背景執行後，使用者可以連按好幾次。超過這個數字的會排隊，"
+                  "不會同時打出去。調高會加快多篇產出，也會同時放大 API 用量與"
+                  "SQLite 的寫入競爭。")
+    confirm_fact_updates = models.BooleanField(
+        "更正事實前先確認差異", default=False,
+        help_text="開啟後，使用者送出更正會先看到前後對照，確認才存成新版本。"
+                  "關閉則直接存成新版本——舊版本都留著，產稿時可以指定用哪一版。")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = verbose_name_plural = "產稿預設值"
+
+    def __str__(self):
+        return "產稿預設值"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # single row, always
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls) -> "SiteSettings":
+        return cls.objects.get_or_create(pk=1)[0]
+
+
 class Experiment(models.Model):
     """Groups runs that differ by exactly one variable, for A/B comparison.
 
@@ -71,6 +127,13 @@ class GenerationRun(models.Model):
                                     null=True, blank=True, related_name="runs")
     experiment = models.ForeignKey(Experiment, on_delete=models.SET_NULL,
                                    null=True, blank=True, related_name="runs")
+    # Which version of the brief's facts this draft was written from. Without it
+    # a side-by-side comparison is uninterpretable: two drafts that differ may
+    # differ because of the style, or because they were told different facts.
+    # Null on runs made before facts were versioned — those read `brief.facts`.
+    facts_version = models.ForeignKey("briefs.BriefFacts", on_delete=models.SET_NULL,
+                                      null=True, blank=True, related_name="runs",
+                                      verbose_name="採用的事實版本")
 
     mode = models.CharField("生成方式", max_length=8, choices=GENERATION_MODES, default="staged")
     retrieval_strategy = models.CharField("檢索策略", max_length=16,
@@ -98,6 +161,10 @@ class GenerationRun(models.Model):
     status = models.CharField(max_length=16, choices=STATUS, default="pending")
     error = models.TextField(blank=True)
     elapsed_ms = models.IntegerField(default=0)
+    # Set when a worker picks the run up, so a run that dies with the server —
+    # threads do not survive a restart — can be told apart from one that is
+    # merely slow, and marked failed instead of spinning on screen forever.
+    started_at = models.DateTimeField("開始執行時間", null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -106,6 +173,18 @@ class GenerationRun(models.Model):
 
     def __str__(self):
         return f"#{self.pk} {self.brief.title} → {self.outlet.name}"
+
+    @property
+    def facts(self) -> dict:
+        """The facts this run writes from — its own version, else the brief's.
+
+        Every stage reads this rather than `run.brief.facts`, so a later
+        correction to the brief cannot retroactively change what an existing
+        draft claims to have been written from.
+        """
+        if self.facts_version_id:
+            return self.facts_version.data or {}
+        return self.brief.facts or {}
 
     @property
     def latest_text(self) -> str:
@@ -132,12 +211,70 @@ class GenerationRun(models.Model):
         return self.revisions.filter(source="auto").count()
 
     @property
+    def in_progress(self) -> bool:
+        return self.status in ("pending", "running", "refining")
+
+    @property
+    def stage_labels(self) -> list[str]:
+        """Finished stages, for a waiting page that can say where it is."""
+        return [s.get("label") or s.get("name") for s in (self.stages or [])]
+
+    @property
     def is_staged(self) -> bool:
         return self.mode == "staged"
 
     @property
     def stage_list(self) -> list[dict]:
         return self.stages or []
+
+
+class DraftVersion(models.Model):
+    """One version of the copy, as the person waiting for it counts them.
+
+    Deliberately not the same thing as `Revision`. A revision is a record of
+    machinery — every auto-rewrite attempt, including the ones thrown away — and
+    the experiments count them. A draft version is what someone means when they
+    say "the second draft": the first one that arrived, then whatever they asked
+    for or typed afterwards. Folding the two together would either bury the
+    user's own edits among rejected rewrites, or throw away the record the
+    experiments are built on.
+
+    Same shape as `BriefFacts` on purpose: append-only, each one recording what
+    it was made from and the sentence that caused it. The reasons are the same
+    — nothing is overwritten, and when a rewrite loses something, `user_input`
+    is the only evidence of what was actually asked for.
+    """
+
+    SOURCES = [
+        ("generate", "系統產出"),
+        ("manual", "人工直接編輯"),
+        ("revise", "依意見重寫"),
+    ]
+
+    run = models.ForeignKey(GenerationRun, on_delete=models.CASCADE, related_name="draft_versions")
+    version = models.IntegerField("版本", default=1)
+    text = models.TextField("稿件內容", blank=True)
+    source = models.CharField("來源", max_length=16, choices=SOURCES, default="generate")
+    user_input = models.TextField("使用者當時的意見", blank=True)
+    parent = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True,
+                               related_name="children", verbose_name="以哪一版為基礎")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = verbose_name_plural = "稿件版本"
+        ordering = ["-version"]
+        unique_together = [("run", "version")]
+
+    def __str__(self):
+        return f"run#{self.run_id} 稿件 v{self.version}"
+
+    @property
+    def label(self) -> str:
+        return f"v{self.version}"
+
+    @property
+    def branched(self) -> bool:
+        return bool(self.parent_id) and self.parent.version != self.version - 1
 
 
 class Revision(models.Model):
@@ -148,7 +285,12 @@ class Revision(models.Model):
     fine-tuning) would later need — no separate annotation effort required.
     """
 
-    SOURCES = [("human", "人工意見"), ("auto", "LLM 評審意見（自動重寫）")]
+    # `manual` is not a rewrite at all — nobody asked the model for anything.
+    # It is the user editing the delivered text directly, kept as a revision so
+    # the model's own output survives underneath it: the evaluations point at
+    # that text, and overwriting it would quietly change what they measured.
+    SOURCES = [("human", "人工意見"), ("auto", "LLM 評審意見（自動重寫）"),
+               ("manual", "人工直接編輯")]
 
     run = models.ForeignKey(GenerationRun, on_delete=models.CASCADE, related_name="revisions")
     round = models.IntegerField("稿次", default=2)

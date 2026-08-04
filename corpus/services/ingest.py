@@ -44,11 +44,36 @@ _DROP_LINE_PATTERNS = [
     re.compile(r"分享的貼文$"),              # "X（@handle）分享的貼文"
     re.compile(r"^By\s+\S", re.I),           # byline of a linked article
     re.compile(r"Getty Images"),             # wire-service caption
-    re.compile(r"^(追蹤|訂閱|加入).{0,20}(粉絲團|IG|LINE|頻道|會員)"),
+    # Widened from `.{0,20}(粉絲團|IG|LINE|頻道|會員)`, which missed
+    # COOL-STYLE's own sign-off — "追蹤 @cool_magazine_taiwan Instagram 帳號，
+    # 觀看更多有趣的潮流、時事知識" — because the handle eats more than 20
+    # characters and 帳號 was not among the endings. It closes 18% of that
+    # outlet's articles, and duly turned up as its top "distinctive" phrase.
+    re.compile(r"^(追蹤|訂閱|加入).{0,40}(粉絲團|IG|Instagram|帳號|LINE|頻道|會員)", re.I),
+    re.compile(r"^※?免責聲明[：:]"),         # 聯合新聞網, on financial pieces
+    re.compile(r"^Powered by\s*$", re.I),    # 聯合新聞網 embedded-video credit,
+    re.compile(r"^GliaStudios$"),            # which is split across two lines
 ]
 
 # A "繼續閱讀" widget is header + linked title + byline; drop the title line too.
 _CONTINUE_READING = re.compile(r"^繼續閱讀$")
+
+# Everything from these lines to the end of the file is furniture. News sites
+# append a paywall pitch and then a list of unrelated headlines, and it is the
+# headlines that do the damage: they read as prose, so nothing downstream can
+# tell they were never part of the article.
+_TRUNCATE_PATTERNS = [
+    re.compile(r"^這則內容有觸動你嗎[？?]$"),        # 中時新聞網 (96% of articles)
+    re.compile(r"^將工商時報加入Google偏好來源$"),   # 工商時報 (100%)
+    re.compile(r"^你今年最好的選擇$"),               # 聯合新聞網 subscription pitch
+]
+
+# These head a block of related-article links that sits *inside* the body —
+# 聯合新聞網 puts it above the first paragraph — so the marker and the block
+# after it go, and the article resumes at the next blank line.
+_DROP_BLOCK_PATTERNS = [
+    re.compile(r"^【編輯推薦】$"),
+]
 
 
 @dataclass
@@ -90,9 +115,28 @@ def clean_body(raw: str) -> tuple[str, list[str]]:
     dropped: list[str] = []
     lines = raw.splitlines()
     skip_next_nonblank = 0
+    in_block = False
+    block_had_content = False
 
-    for line in lines:
+    for i, line in enumerate(lines):
         stripped = line.strip()
+
+        if stripped and any(p.match(stripped) for p in _TRUNCATE_PATTERNS):
+            dropped.extend(s for s in (x.strip() for x in lines[i:]) if s)
+            break
+
+        if in_block:
+            # The marker is followed by a blank, then the links, then the blank
+            # that ends the block — so only a blank *after* content closes it.
+            if not stripped:
+                if block_had_content:
+                    in_block = False
+                    kept.append("")
+                continue
+            dropped.append(stripped)
+            block_had_content = True
+            continue
+
         if not stripped:
             kept.append("")
             continue
@@ -100,6 +144,12 @@ def clean_body(raw: str) -> tuple[str, list[str]]:
         if skip_next_nonblank:
             skip_next_nonblank -= 1
             dropped.append(stripped)
+            continue
+
+        if any(p.match(stripped) for p in _DROP_BLOCK_PATTERNS):
+            dropped.append(stripped)
+            in_block = True
+            block_had_content = False
             continue
 
         if _CONTINUE_READING.match(stripped):

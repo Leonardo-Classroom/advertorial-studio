@@ -167,8 +167,10 @@ EMBED_LOCAL_MODEL = env("EMBED_LOCAL_MODEL", "BAAI/bge-m3")
 EMBED_LOCAL_DEVICE = env("EMBED_LOCAL_DEVICE", "cuda")
 EMBED_LOCAL_BATCH = env_int("EMBED_LOCAL_BATCH", 64)
 
-# Where the crawled style corpus lives.
-CORPUS_ROOT = Path(env("CORPUS_ROOT", "/mnt/d/OneDrive/Desktop/Alan/news report/dataset"))
+# Where the crawled style corpus lives: <outlet>/<author>/*.txt beneath this.
+# Inside the project (and git-ignored) rather than at an absolute path outside
+# it, so a checkout on another machine only has to drop the corpus in place.
+CORPUS_ROOT = Path(env("CORPUS_ROOT", str(BASE_DIR / "datasets" / "news")))
 
 # Vector index files (numpy matrices + id maps) live here.
 INDEX_DIR = BASE_DIR / "var" / "index"

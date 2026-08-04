@@ -6,5 +6,9 @@ db.sqlite3-shm
 db.sqlite3-wal
 var/
 media/
+# The crawled style corpus (CORPUS_ROOT): hundreds of thousands of .txt files
+# plus the archive they came from. It is input data, re-crawlable, and would
+# dwarf the repository — the database built from it is what matters.
+datasets/
 __pycache__/
 *.pyc

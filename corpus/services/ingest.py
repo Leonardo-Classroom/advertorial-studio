@@ -36,10 +36,15 @@ _HEADER_KEYS = {
 
 # Lines matching any of these are site furniture, not authored prose.
 _DROP_LINE_PATTERNS = [
-    re.compile(r"^延伸閱讀[：:]"),          # COOL-STYLE related-article link
+    re.compile(r"^[（(]?延伸閱讀[：:]"),     # COOL-STYLE related-article link,
+                                             # sometimes wrapped in parentheses
     re.compile(r"^繼續閱讀$"),               # GQ related-article widget header
     re.compile(r"^image via\b", re.I),       # COOL-STYLE image credit
     re.compile(r"^photo\s*(by|from|credit)", re.I),
+    # COOL-STYLE's own credit line, on a third of its articles. It escaped the
+    # repeated-line scan because the source differs every time — only the
+    # prefix repeats, which is why detection now looks at prefixes too.
+    re.compile(r"^source\s*[/／]", re.I),
     re.compile(r"^在 Instagram 查看這則貼文$"),
     re.compile(r"分享的貼文$"),              # "X（@handle）分享的貼文"
     re.compile(r"^By\s+\S", re.I),           # byline of a linked article
@@ -65,8 +70,18 @@ _CONTINUE_READING = re.compile(r"^繼續閱讀$")
 _TRUNCATE_PATTERNS = [
     re.compile(r"^這則內容有觸動你嗎[？?]$"),        # 中時新聞網 (96% of articles)
     re.compile(r"^將工商時報加入Google偏好來源$"),   # 工商時報 (100%)
+    re.compile(r"^推薦閱讀$"),                       # 工商時報 link list (30%)
     re.compile(r"^你今年最好的選擇$"),               # 聯合新聞網 subscription pitch
 ]
+
+# A line that is nothing but hashtags is 中時新聞網's end-of-article metadata,
+# sitting between the related-link list and a subscription advert. It is only
+# treated as the end when it is *near* the end: a quarter of that outlet's
+# articles carry one and every single one falls in the last three lines, but
+# COOL-STYLE occasionally writes tags mid-body, and truncating there would
+# throw away the rest of a real article.
+_HASHTAG_ONLY = re.compile(r"^#[^\s#]+(\s+#[^\s#]+)*$")
+_HASHTAG_TAIL_SLACK = 2      # non-blank lines that may follow and still count as the tail
 
 # These head a block of related-article links that sits *inside* the body —
 # 聯合新聞網 puts it above the first paragraph — so the marker and the block
@@ -121,7 +136,11 @@ def clean_body(raw: str) -> tuple[str, list[str]]:
     for i, line in enumerate(lines):
         stripped = line.strip()
 
-        if stripped and any(p.match(stripped) for p in _TRUNCATE_PATTERNS):
+        truncate = stripped and any(p.match(stripped) for p in _TRUNCATE_PATTERNS)
+        if not truncate and stripped and _HASHTAG_ONLY.match(stripped):
+            following = sum(1 for x in lines[i + 1:] if x.strip())
+            truncate = following <= _HASHTAG_TAIL_SLACK
+        if truncate:
             dropped.extend(s for s in (x.strip() for x in lines[i:]) if s)
             break
 

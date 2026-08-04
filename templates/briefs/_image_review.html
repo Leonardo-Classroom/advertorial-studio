@@ -66,13 +66,6 @@
               </div>
               <textarea name="caption_{{ image.pk }}" class="sm caption" rows="1"
                         placeholder="{{ image.display_caption|default:'圖說' }}">{{ image.display_caption }}</textarea>
-              {% if image.nearby_text %}
-                <details class="small muted" style="margin-top:5px">
-                  <summary>參考：簡報上鄰近的文字（僅供判斷，非輸入欄）</summary>
-                  <p style="margin:4px 0 0">{{ image.nearby_text|truncatechars:200 }}</p>
-                  <p style="margin:4px 0 0"><em>依位置推測，未必是這張圖的說明，不用填寫，也不會影響判斷結果。</em></p>
-                </details>
-              {% endif %}
             </div>
           </div>
           {% endfor %}

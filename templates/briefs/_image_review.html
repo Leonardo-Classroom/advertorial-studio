@@ -64,9 +64,16 @@
                 {% else %}<span class="pill sm">未判斷</span>{% endif %}
                 {% if image.ai_brand %}<span class="pill sm">{{ image.ai_brand }}</span>{% endif %}
               </div>
-              <p class="small" style="margin:0 0 6px">{{ image.ai_description }}</p>
+              {# The AI's description of what it sees is not shown here: it
+                 describes the picture, which the picture already does, and it
+                 crowded out the one thing on this card that is actually an
+                 input. It is still recorded on the row, and still shown in the
+                 enlarged view, where there is room for it. #}
+              {# Pre-filled rather than offered as a placeholder, so the
+                 suggested caption is text you can edit a word of instead of
+                 grey hint text you must retype in full to change. #}
               <textarea name="caption_{{ image.pk }}" class="sm caption" rows="1"
-                        placeholder="{{ image.ai_caption|default:'圖說' }}">{{ image.caption }}</textarea>
+                        placeholder="圖說">{{ image.display_caption }}</textarea>
               {% if image.nearby_text %}
                 <details class="small muted" style="margin-top:5px">
                   <summary>參考：簡報上鄰近的文字（僅供判斷，非輸入欄）</summary>

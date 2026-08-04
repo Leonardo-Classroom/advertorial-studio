@@ -4,6 +4,9 @@ db.sqlite3
 # recreated on every run and are meaningless without the .sqlite3 itself.
 db.sqlite3-shm
 db.sqlite3-wal
+# Hand-made snapshots taken before something irreversible (a re-ingest, a
+# migration). Same size as the database itself, and just as much not-source.
+db.sqlite3.bak*
 var/
 media/
 # The crawled style corpus (CORPUS_ROOT): hundreds of thousands of .txt files

@@ -30,7 +30,7 @@
       <strong>改動會立即儲存</strong>，不必再按確認。
     </p>
 
-    <form method="post" action="{{ action_url }}" class="img-form">
+    <form method="post" action="{{ action_url }}" class="img-form img-scroll">
       {% csrf_token %}
       {% regroup brief_images by source_file as files %}
       {% for file in files %}
@@ -85,9 +85,26 @@
 </div>
 
 <style>
+  /* The picture list scrolls in place, the way the extracted-facts pane does.
+     A deck yields up to forty thumbnails and this card sits between the facts
+     and the generate button — at full height it pushed 產出廣編稿 most of a
+     screen down on every visit.
+
+     `max-height`, not the pane's fixed height: this card is full width with
+     nothing to stay level with, so a brief holding three pictures should be
+     three pictures tall rather than a mostly-empty box. Released on narrow
+     screens for the same reason `.pane` is — a scroll region inside a scrolling
+     page is worse on touch than a long page is. */
+  .img-scroll { max-height:520px; overflow-y:auto; padding-right:6px; }
+  @media (max-width:700px){ .img-scroll { max-height:none; overflow-y:visible; padding-right:0; } }
   .img-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:14px; }
   .img-file + .img-file { margin-top:28px; padding-top:20px; border-top:1px solid var(--line,#e3e3e6); }
-  .img-file-head { font-size:15px; font-weight:700; margin:0 0 14px; }
+  /* Sticky so the source file stays named while you scroll its pictures: with
+     two levels of grouping, "which file is this" is otherwise lost the moment
+     the heading leaves the top of the box. */
+  .img-file-head { font-size:15px; font-weight:700; margin:0 0 14px;
+                   position:sticky; top:0; z-index:2; padding:2px 0;
+                   background:var(--panel,#fff); }
   .img-file-head .muted { font-weight:normal; }
   .img-slide + .img-slide { margin-top:20px; }
   .img-slide-head { font-size:13px; font-weight:650; color:var(--muted); margin:0 0 9px;

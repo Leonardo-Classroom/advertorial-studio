@@ -179,7 +179,8 @@ def induce(
     ).exclude(outlet=outlet)
     target_bodies = [a.body for a in _uniform_sample(qs, 200)]
     contrast_bodies = [a.body for a in _uniform_sample(contrast_qs, 200)]
-    terms = stats.distinctive_terms(target_bodies, contrast_bodies) if contrast_bodies else []
+    terms = (stats.distinctive_terms(target_bodies, contrast_bodies, exclude=outlet.name)
+             if contrast_bodies else [])
 
     samples_text = "\n\n".join(
         f"--- 第 {i + 1} 篇（{a.published_on}，作者 {a.author.name}）---\n"

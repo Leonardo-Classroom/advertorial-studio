@@ -55,6 +55,10 @@ _DROP_LINE_PATTERNS = [
     # characters and 帳號 was not among the endings. It closes 18% of that
     # outlet's articles, and duly turned up as its top "distinctive" phrase.
     re.compile(r"^(追蹤|訂閱|加入).{0,40}(粉絲團|IG|Instagram|帳號|LINE|頻道|會員)", re.I),
+    # Widget captions the crawler kept as text: GQ's gallery and video buttons
+    # (10% of its articles each), 中時新聞網's video-subscription line (6%).
+    re.compile(r"^(VIEW GALLERY|WATCH|SHOP NOW|READ MORE)$", re.I),
+    re.compile(r"^訂閱影音[：:]?$"),
     re.compile(r"^※?免責聲明[：:]"),         # 聯合新聞網, on financial pieces
     re.compile(r"^Powered by\s*$", re.I),    # 聯合新聞網 embedded-video credit,
     re.compile(r"^GliaStudios$"),            # which is split across two lines
@@ -72,6 +76,12 @@ _TRUNCATE_PATTERNS = [
     re.compile(r"^將工商時報加入Google偏好來源$"),   # 工商時報 (100%)
     re.compile(r"^推薦閱讀$"),                       # 工商時報 link list (30%)
     re.compile(r"^你今年最好的選擇$"),               # 聯合新聞網 subscription pitch
+    # 聯合新聞網's own section rails, each heading a run of unrelated headlines
+    # that continues to the end of the file: 房地產推薦新聞 closes 12% of its
+    # articles, 全球熱話題 another 6%. Their headlines are what put 敢買、偷走
+    # and 身分證外洩 into that outlet's "distinctive vocabulary".
+    re.compile(r"^.{0,6}推薦新聞$"),
+    re.compile(r"^.{0,6}熱話題$"),
 ]
 
 # A line that is nothing but hashtags is 中時新聞網's end-of-article metadata,
@@ -124,11 +134,17 @@ def _parse_date(raw: str) -> date | None:
         return None
 
 
-def clean_body(raw: str) -> tuple[str, list[str]]:
-    """Strip site furniture. Returns (clean_text, dropped_lines)."""
+def clean_body(raw: str, outlet: str = "") -> tuple[str, list[str]]:
+    """Strip site furniture. Returns (clean_text, dropped_lines).
+
+    `outlet` lets a line that is nothing but the publication's own name go —
+    a byline fragment left behind by the crawler. It is passed rather than
+    pattern-matched per outlet so a new source needs no new rule.
+    """
     kept: list[str] = []
     dropped: list[str] = []
     lines = raw.splitlines()
+    self_name = outlet.strip()
     skip_next_nonblank = 0
     in_block = False
     block_had_content = False
@@ -162,6 +178,10 @@ def clean_body(raw: str) -> tuple[str, list[str]]:
 
         if skip_next_nonblank:
             skip_next_nonblank -= 1
+            dropped.append(stripped)
+            continue
+
+        if self_name and stripped == self_name:
             dropped.append(stripped)
             continue
 
@@ -210,7 +230,8 @@ def parse_file(path: Path) -> ParsedArticle | None:
         # No separator found — not in the expected format.
         return None
 
-    body, dropped = clean_body("\n".join(lines[body_start:]))
+    body, dropped = clean_body("\n".join(lines[body_start:]),
+                               outlet=header.get("outlet", ""))
     title = header.get("title", "").strip()
     if not title or not body:
         return None

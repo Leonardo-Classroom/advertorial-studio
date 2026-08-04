@@ -64,17 +64,6 @@
                 {% else %}<span class="pill sm">未判斷</span>{% endif %}
                 {% if image.ai_brand %}<span class="pill sm">{{ image.ai_brand }}</span>{% endif %}
               </div>
-              {# The AI's description of what it sees is not shown here: it
-                 describes the picture, which the picture already does, and it
-                 crowded out the one thing on this card that is actually an
-                 input. It is still recorded on the row, and still shown in the
-                 enlarged view, where there is room for it. #}
-              {# The suggested caption is the value, not just a placeholder, so
-                 it is text you can edit a word of rather than grey hint text
-                 you must retype in full to change. The placeholder repeats it
-                 so that emptying the box still shows what the draft will use —
-                 which is that same suggestion, since a blank caption falls
-                 back to the AI's (see `BriefImage.display_caption`). #}
               <textarea name="caption_{{ image.pk }}" class="sm caption" rows="1"
                         placeholder="{{ image.display_caption|default:'圖說' }}">{{ image.display_caption }}</textarea>
               {% if image.nearby_text %}

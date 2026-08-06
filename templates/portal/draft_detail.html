@@ -154,27 +154,35 @@
 
 // The edit boxes hold rich text, not markdown: `**俐落都會感**` on screen is a
 // formatting instruction the reader has to decode, and four characters they can
-// break by deleting one. So bold shows as bold, Ctrl/⌘+B toggles it, and the
-// asterisks are put back only when the form is submitted.
+// break by deleting one. So bold and italic show as bold and italic —
+// Ctrl/⌘+B and Ctrl/⌘+I toggle them, a floating toolbar offers the same two on
+// selection — and the markdown marks are put back only when the form is
+// submitted.
+//
+// Everything below is delegated on `document` rather than bound to one
+// `.edit-form` node: switching draft versions replaces #draft-pane's markup
+// wholesale (see the fetch handler above), which would silently detach
+// listeners bound to the old, now-discarded form.
 (function () {
-  const form = document.querySelector('.edit-form');
-  if (!form) return;
-
-  // Ask the browser for <b> rather than a styled <span>; the serialiser below
-  // understands tags, and a span carrying font-weight is not a tag it can read.
+  // Ask the browser for <b>/<i> rather than styled <span>s; the serialiser
+  // below understands tags, and a span carrying font-weight or font-style is
+  // not a tag it can read.
   try { document.execCommand('styleWithCSS', false, false); } catch (e) { /* older browsers */ }
 
-  form.addEventListener('keydown', function (event) {
-    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'b') return;
-    if (!event.target.classList.contains('edit-rich')) return;
+  const HOTKEYS = {b: 'bold', i: 'italic'};
+
+  document.addEventListener('keydown', function (event) {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    const cmd = HOTKEYS[event.key.toLowerCase()];
+    if (!cmd || !event.target.classList.contains('edit-rich')) return;
     event.preventDefault();
-    document.execCommand('bold');
+    document.execCommand(cmd);
   });
 
   // Paste as plain text. Copying a paragraph out of the brief otherwise brings
   // its fonts, colours and links along, none of which survive to the draft.
-  form.addEventListener('paste', function (event) {
-    if (!event.target.classList.contains('edit-rich')) return;
+  document.addEventListener('paste', function (event) {
+    if (!event.target.classList || !event.target.classList.contains('edit-rich')) return;
     event.preventDefault();
     const text = (event.clipboardData || window.clipboardData).getData('text/plain');
     document.execCommand('insertText', false, text);
@@ -194,10 +202,14 @@
         return;
       }
       const inner = toMarkdown(child);
-      if (tag === 'b' || tag === 'strong') {
-        // ** ** around spaces is not bold in markdown, so the padding moves out.
+      const mark = tag === 'b' || tag === 'strong' ? '**'
+                 : tag === 'i' || tag === 'em' ? '*'
+                 : '';
+      if (mark) {
+        // Marks around spaces are not emphasis in markdown, so the padding
+        // moves outside the marks instead of wrapping them.
         const trimmed = inner.trim();
-        out += trimmed ? inner.replace(trimmed, '**' + trimmed + '**') : inner;
+        out += trimmed ? inner.replace(trimmed, mark + trimmed + mark) : inner;
         return;
       }
       // Any other element the browser invented (div, p, span from a paste) is
@@ -208,12 +220,105 @@
     return out;
   }
 
-  form.addEventListener('submit', function () {
+  document.addEventListener('submit', function (event) {
+    const form = event.target;
+    if (!form.classList || !form.classList.contains('edit-form')) return;
     form.querySelectorAll('.edit-rich').forEach(function (box) {
       const field = form.querySelector('input[name="' + box.dataset.for + '"]');
-      if (field) field.value = toMarkdown(box).replace(/ /g, ' ').trim();
+      if (field) field.value = toMarkdown(box).replace(/\u00a0/g, ' ').trim();
     });
   });
+
+  // Floating style toolbar. Built once and reused rather than rebuilt on each
+  // selection, since `selectionchange` fires continuously while a pointer
+  // drags a selection out.
+  const toolbar = document.createElement('div');
+  toolbar.className = 'style-toolbar';
+  toolbar.hidden = true;
+  toolbar.setAttribute('role', 'toolbar');
+  toolbar.setAttribute('aria-label', '文字樣式');
+  toolbar.innerHTML =
+    '<button type="button" data-cmd="bold" title="粗體 (Ctrl/⌘+B)"><strong>B</strong></button>' +
+    '<button type="button" data-cmd="italic" title="斜體 (Ctrl/⌘+I)"><em>I</em></button>';
+  document.body.appendChild(toolbar);
+
+  function toolbarState() {
+    toolbar.querySelectorAll('button[data-cmd]').forEach(function (btn) {
+      btn.classList.toggle('on', document.queryCommandState(btn.dataset.cmd));
+    });
+  }
+
+  // mousedown, not click: by the time click fires the browser has already
+  // moved focus off the edit-rich box, which collapses the very selection
+  // the button is meant to act on.
+  toolbar.addEventListener('mousedown', function (event) {
+    const btn = event.target.closest('button[data-cmd]');
+    if (!btn) { hideToolbar(); return; }
+    event.preventDefault();
+    document.execCommand(btn.dataset.cmd);
+    toolbarState();
+  });
+
+  // `selectionchange` alone is not enough to hide the toolbar: it is
+  // positioned right against the selection, so a click meant to land "beside"
+  // the selected text can land on the toolbar's own (button-free) padding
+  // instead — that click never reaches the contenteditable, the selection
+  // never changes, and `selectionchange` never fires. Hiding eagerly on any
+  // mousedown outside the toolbar, in the capture phase (before the click's
+  // own target handling), closes that gap directly instead of depending on a
+  // side effect of the click landing somewhere else.
+  document.addEventListener('mousedown', function (event) {
+    if (!toolbar.contains(event.target)) hideToolbar();
+  }, true);
+
+  function hideToolbar() { toolbar.hidden = true; }
+
+  function positionToolbar(rect) {
+    const margin = 8;
+    toolbar.hidden = false;
+    const width = toolbar.offsetWidth;
+    let left = rect.left + rect.width / 2 - width / 2;
+    left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+    let top = rect.top - toolbar.offsetHeight - 8;
+    if (top < margin) top = rect.bottom + 8; // selection hugs the top edge: flip below it
+    toolbar.style.left = left + 'px';
+    toolbar.style.top = top + 'px';
+  }
+
+  // Where the selection was finished — the Selection's focus end, i.e.
+  // wherever the mouse was released or the shift+arrow stopped. That is not
+  // always the visual/document end (a backward drag ends on the left), so a
+  // zero-width collapsed range at that exact node/offset is used to place the
+  // toolbar there, rather than centring it over the whole selection.
+  function selectionEndRect(sel) {
+    const r = document.createRange();
+    try {
+      r.setStart(sel.focusNode, sel.focusOffset);
+      r.collapse(true);
+    } catch (e) {
+      return sel.getRangeAt(0).getBoundingClientRect();
+    }
+    const rect = r.getBoundingClientRect();
+    return rect.width || rect.height ? rect : sel.getRangeAt(0).getBoundingClientRect();
+  }
+
+  document.addEventListener('selectionchange', function () {
+    const sel = document.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) { hideToolbar(); return; }
+    const anchor = sel.anchorNode;
+    const anchorEl = anchor && (anchor.nodeType === Node.ELEMENT_NODE ? anchor : anchor.parentElement);
+    const box = anchorEl && anchorEl.closest('.edit-rich');
+    if (!box || !box.contains(sel.focusNode)) { hideToolbar(); return; }
+    positionToolbar(selectionEndRect(sel));
+    toolbarState();
+  });
+
+  // The selection survives a scroll, but this fixed-position toolbar does not
+  // track it — hide rather than let it drift away from the text it applies to.
+  // Capture phase, because scroll does not bubble but this must still catch it
+  // on whichever ancestor container actually scrolled.
+  window.addEventListener('scroll', hideToolbar, true);
+  window.addEventListener('resize', hideToolbar);
 })();
 </script>
 {% endblock %}

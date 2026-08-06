@@ -43,6 +43,34 @@ def _base_queryset(outlet_id: int, author_id: int | None, min_chars: int):
     return qs
 
 
+_row_cache: dict[tuple[int, int | None, int], np.ndarray] = {}
+
+
+def _candidate_rows(outlet_id: int, author_id: int | None, min_chars: int) -> np.ndarray:
+    """Matrix row ids for an outlet/author/length filter, cached in-process.
+
+    This — not the matrix search itself — turned out to be the real cost of
+    `topical`/`typical` on a large outlet: fetching `vector_row` for a large
+    outlet's articles took ~25s on this project's OneDrive-mounted SQLite
+    file, dwarfing the sub-second search that follows it. The candidate set
+    only changes when the corpus is re-ingested and reindexed, which happens
+    out-of-process (management commands), so caching for the life of this
+    process is safe — matches how `index.py` caches the matrix itself.
+    """
+    key = (outlet_id, author_id, min_chars)
+    if key not in _row_cache:
+        qs = _base_queryset(outlet_id, author_id, min_chars)
+        # `.order_by()` drops Article.Meta.ordering — sorting tens of
+        # thousands of rows here is wasted work when all we need is the set
+        # of candidate rows.
+        _row_cache[key] = np.asarray(
+            list(qs.order_by().exclude(vector_row__isnull=True)
+                 .values_list("vector_row", flat=True)),
+            dtype=np.int64,
+        )
+    return _row_cache[key]
+
+
 def retrieve(
     strategy: str,
     outlet_id: int,
@@ -56,18 +84,18 @@ def retrieve(
     if strategy == "none" or count <= 0:
         return []
 
-    qs = _base_queryset(outlet_id, author_id, min_chars)
     if strategy == "random":
-        return _random(qs, count, seed)
+        return _random(_base_queryset(outlet_id, author_id, min_chars), count, seed)
     if strategy == "topical":
-        return _topical(qs, query_text, count)
+        return _topical(outlet_id, author_id, min_chars, query_text, count)
     if strategy == "typical":
-        return _typical(qs, query_text, count, outlet_id, author_id=author_id)
+        return _typical(outlet_id, author_id, min_chars, query_text, count)
     if strategy == "hybrid":
         half = max(1, count // 2)
-        topical = _topical(qs, query_text, half)
+        topical = _topical(outlet_id, author_id, min_chars, query_text, half)
         used = {e.article.id for e in topical}
-        rnd = _random(qs.exclude(id__in=used), count - len(topical), seed)
+        qs = _base_queryset(outlet_id, author_id, min_chars).exclude(id__in=used)
+        rnd = _random(qs, count - len(topical), seed)
         return topical + rnd
     raise ValueError(f"未知的檢索策略：{strategy}")
 
@@ -82,8 +110,8 @@ def _random(qs, count: int, seed: int | None) -> list[Exemplar]:
     return [Exemplar(articles[i], 0.0, "隨機抽樣") for i in picked if i in articles]
 
 
-def _typical(qs, query_text: str, count: int, outlet_id: int,
-             author_id: int | None = None,
+def _typical(outlet_id: int, author_id: int | None, min_chars: int,
+             query_text: str, count: int,
              pool_factor: int = 4, topic_weight: float = 0.4) -> list[Exemplar]:
     """Retrieve topically, then re-rank by how typical of the house voice.
 
@@ -97,7 +125,7 @@ def _typical(qs, query_text: str, count: int, outlet_id: int,
     outlet centroid, with topic deliberately the minority weight: relevance
     only has to be good enough to keep the vocabulary domain right.
     """
-    pool = _topical(qs, query_text, count * pool_factor)
+    pool = _topical(outlet_id, author_id, min_chars, query_text, count * pool_factor)
     if not pool:
         return []
 
@@ -123,7 +151,8 @@ def _typical(qs, query_text: str, count: int, outlet_id: int,
     ]
 
 
-def _topical(qs, query_text: str, count: int) -> list[Exemplar]:
+def _topical(outlet_id: int, author_id: int | None, min_chars: int,
+             query_text: str, count: int) -> list[Exemplar]:
     from core import embeddings
 
     if not index.is_built():
@@ -132,13 +161,7 @@ def _topical(qs, query_text: str, count: int) -> list[Exemplar]:
             "請先執行：python manage.py build_index --outlet <媒體>"
         )
 
-    # `.order_by()` drops Article.Meta.ordering — sorting tens of thousands of
-    # rows here is wasted work when all we need is the set of candidate rows.
-    rows = np.asarray(
-        list(qs.order_by().exclude(vector_row__isnull=True)
-             .values_list("vector_row", flat=True)),
-        dtype=np.int64,
-    )
+    rows = _candidate_rows(outlet_id, author_id, min_chars)
     if not rows.size:
         raise RuntimeError("符合條件的文章都還沒建立向量，請先擴大 build_index 的範圍。")
 

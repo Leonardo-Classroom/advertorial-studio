@@ -167,11 +167,20 @@ def _write_back_rows(all_ids: np.ndarray, changed_ids: list[int]) -> None:
 
 
 def _load_raw() -> tuple[np.ndarray, np.ndarray | None]:
+    """Load ids and the full matrix into memory (not mmap'd).
+
+    This directory lives on a network-mounted drive (OneDrive), where random
+    reads into a memmap are drastically slower than on local disk. `_topical`
+    fancy-indexes arbitrary row subsets — for a 200k-article outlet that meant
+    88.7s per query. At ~1.2GB for the whole corpus, loading it once into
+    memory (cached process-wide by `load()`) and paying one sequential read
+    is far cheaper than thousands of scattered mmap reads per query.
+    """
     d = index_dir()
     mpath, ipath = d / MATRIX_PATH, d / IDS_PATH
     if not mpath.exists() or not ipath.exists():
         return np.zeros(0, dtype=np.int64), None
-    return np.load(ipath), np.load(mpath, mmap_mode="r")
+    return np.load(ipath), np.load(mpath)
 
 
 def load() -> tuple[np.ndarray, np.ndarray]:

@@ -62,7 +62,15 @@ class Article(models.Model):
     class Meta:
         verbose_name = verbose_name_plural = "語料文章"
         ordering = ["-published_on", "-id"]
-        indexes = [models.Index(fields=["outlet", "published_on"])]
+        indexes = [
+            models.Index(fields=["outlet", "published_on"]),
+            # Covers retrieval._candidate_rows' filter (outlet, char_count,
+            # vector_row not null) so SQLite can answer it from the index
+            # alone. Without this it fell back to per-row table lookups —
+            # on this project's OneDrive-mounted db.sqlite3, ~200k random
+            # lookups for a large outlet cost ~24s on every call.
+            models.Index(fields=["outlet", "char_count", "vector_row"]),
+        ]
 
     def __str__(self):
         return self.title[:60]

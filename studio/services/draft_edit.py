@@ -92,16 +92,41 @@ def _sections(text: str) -> list[tuple[str, str, str]]:
     return out
 
 
-# Inline bold. The only markup that survives into the boxes, and it survives as
-# bold text rather than as asterisks — `**1000＋T500：俐落都會感**` on screen is
-# four characters of noise plus a formatting instruction nobody asked to read.
-BOLD = re.compile(r"\*\*(.+?)\*\*", re.S)
+# Inline bold and italic. The only markup that survives into the boxes, and it
+# survives as bold/italic text rather than as asterisks — `**1000＋T500：俐落
+# 都會感**` on screen is four characters of noise plus a formatting instruction
+# nobody asked to read.
+#
+# One combined pattern, tried longest-delimiter-first, rather than three
+# separate passes: two adjacent runs — `*italic*` immediately followed by
+# `**bold**`, with no space between them — leave a `***` seam that a
+# bold-then-italic sequence of passes would misparse (the bold pass would
+# consume 2 of those 3 stars as its own delimiter, folding an italic marker
+# into the middle of the bold text; a later italic pass would then hunt for
+# the next literal `*` and could close on one sitting inside the `<strong>`
+# tag the bold pass just emitted, producing broken markup). A single scan
+# tries `***…***` first at each position, so it claims a real triple-star run
+# whole, and otherwise still resolves the seam correctly by construction: at
+# the boundary itself neither the 2- nor 3-star alternative can match (there
+# are only 1 or 2 stars available going forward), so the engine falls back to
+# `*…*`, taking one star off the run for italic's own close and leaving the
+# rest for bold to match on the next scan position.
+EMPHASIS = re.compile(r"\*\*\*(?P<bi>.+?)\*\*\*|\*\*(?P<b>.+?)\*\*|\*(?P<i>.+?)\*", re.S)
+
+
+def _emphasis_html(m: re.Match) -> str:
+    if m["bi"] is not None:
+        return f"<strong><em>{m['bi']}</em></strong>"
+    if m["b"] is not None:
+        return f"<strong>{m['b']}</strong>"
+    return f"<em>{m['i']}</em>"
 
 
 def to_html(text: str):
-    """One block as editable rich text: escaped, with `**` turned into bold."""
+    """One block as editable rich text: escaped, with `*`/`**` turned into
+    italic/bold."""
     return mark_safe(  # noqa: S308 - escaped first, only our own tags added
-        BOLD.sub(r"<strong>\1</strong>", escape(text)).replace("\n", "<br>"))
+        EMPHASIS.sub(_emphasis_html, escape(text)).replace("\n", "<br>"))
 
 
 def _clean(value: str) -> str:

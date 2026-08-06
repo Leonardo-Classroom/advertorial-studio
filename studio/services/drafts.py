@@ -107,29 +107,55 @@ def ensure_first_version(run):
 SIMILAR_ENOUGH = 0.5
 
 
-def _inline(old: str, new: str) -> list[dict]:
-    """Character-level segments within one edited paragraph.
+# A diff unit: a whole `**bold**`/`*italic*` span where the source actually
+# pairs it up, or one character. Diffing raw characters can split a pair so
+# only one side lands in a segment — rendering that segment alone then shows
+# a stray asterisk with no partner, or (worse) pairs it with an unrelated
+# marker elsewhere and mangles the tags. Keeping an intact span as a single
+# unit means the matcher can only mark it whole: a segment either carries the
+# complete `**text**` or none of it, never half.
+ATOM = re.compile(r"\*\*.+?\*\*|\*.+?\*|.", re.S)
 
-    Characters, not words: Chinese has no spaces to split on, and a word
-    tokeniser would be a dependency and a guess. Runs of unchanged text stay
-    unmarked, so a paragraph that gained three characters shows three
-    characters, not itself twice.
+
+def _atoms(text: str) -> list[str]:
+    return ATOM.findall(text)
+
+
+def _inline(old: str, new: str) -> list[dict]:
+    """Segments within one edited paragraph, diffed by atom (see ATOM).
+
+    Character-level rather than word-level: Chinese has no spaces to split
+    on, and a word tokeniser would be a dependency and a guess. Runs of
+    unchanged text stay unmarked, so a paragraph that gained three characters
+    shows three characters, not itself twice. The cost of keeping emphasis
+    spans whole is coarser granularity for an edit made *inside* one — the
+    whole span swaps rather than showing just the changed character — which
+    reads fine since these spans are short phrases, not paragraphs.
     """
-    matcher = SequenceMatcher(a=old, b=new, autojunk=False)
+    old_atoms, new_atoms = _atoms(old), _atoms(new)
+    matcher = SequenceMatcher(a=old_atoms, b=new_atoms, autojunk=False)
     segments: list[dict] = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
-            segments.append({"text": old[i1:i2], "mark": "same"})
+            segments.append({"text": "".join(old_atoms[i1:i2]), "mark": "same"})
             continue
         if i2 > i1:
-            segments.append({"text": old[i1:i2], "mark": "del"})
+            segments.append({"text": "".join(old_atoms[i1:i2]), "mark": "del"})
         if j2 > j1:
-            segments.append({"text": new[j1:j2], "mark": "add"})
+            segments.append({"text": "".join(new_atoms[j1:j2]), "mark": "add"})
     return segments
 
 
 def segments_html(segments: list[dict]):
-    """One edited block as HTML, with only the changed runs marked."""
+    """One edited block as HTML, with only the changed runs marked.
+
+    Each segment is rendered through the same `**`/`*` → bold/italic renderer
+    the edit boxes use, so a diff reads with the same formatting as the
+    draft itself rather than showing the raw markdown symbols. This is safe
+    because segments are built from whole emphasis spans or single plain
+    characters (see ATOM) — a segment never contains half of a `**pair**`,
+    so there is nothing for the renderer to mis-pair.
+    """
     from django.utils.safestring import mark_safe
 
     from studio.services.draft_edit import to_html
@@ -143,7 +169,7 @@ def segments_html(segments: list[dict]):
             out.append(f"<del>{body}</del>")
         else:
             out.append(str(body))
-    return mark_safe("".join(out))  # noqa: S308 -每段都經過 escape
+    return mark_safe("".join(out))  # noqa: S308 - to_html escapes internally
 
 
 def _edited_block(old: str, new: str) -> dict:

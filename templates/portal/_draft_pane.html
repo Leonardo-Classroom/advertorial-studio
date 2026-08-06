@@ -44,24 +44,28 @@
 {% endif %}
 
 {% if show_diff %}
-  {% if base %}
-    <p class="small muted" style="margin:0 0 12px">
-      {{ viewing.label }} 與 {{ base.label }} 相比：<span class="d-add">綠色是新增</span>、<span class="d-del">紅色是刪除</span>。
-      整段換句話說時會整段標示。
-    </p>
-    <div class="draft-diff md">
-      {% for line in marked %}
-        {% if line.mark == 'edit' %}
-          <div class="d-edit">{% if line.heading %}<h2>{{ line.html }}</h2>{% else %}<p>{{ line.html }}</p>{% endif %}</div>
-        {% else %}
-          <div class="d-{{ line.mark }}">{{ line.text|markdown }}</div>
-        {% endif %}
-      {% endfor %}
+  <div class="grid g2 draft-live-row">
+    <div class="draft-diff-panel">
+      {% if base %}
+        <p class="small muted" style="margin:0 0 12px">
+          {{ viewing.label }} 與 {{ base.label }} 相比：<span class="d-add">綠色是新增</span>、<span class="d-del">紅色是刪除</span>。
+          整段換句話說時會整段標示。
+        </p>
+        <div class="draft-diff md">
+          {% for line in marked %}
+            {% if line.mark == 'edit' %}
+              <div class="d-edit">{% if line.heading %}<h2>{{ line.html }}</h2>{% else %}<p>{{ line.html }}</p>{% endif %}</div>
+            {% else %}
+              <div class="d-{{ line.mark }}">{{ line.text|markdown }}</div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="small muted" style="margin:0">只有這一個版本，沒有可以比較的對象。</p>
+      {% endif %}
     </div>
-  {% else %}
-    <p class="small muted" style="margin:0">只有這一個版本，沒有可以比較的對象。</p>
-  {% endif %}
-  {% include "portal/_draft_revise.html" %}
+    {% include "portal/_draft_revise.html" %}
+  </div>
 {% else %}
 <div id="d{{ run.pk }}" class="phone">
   <div class="grid g2 draft-live-row">

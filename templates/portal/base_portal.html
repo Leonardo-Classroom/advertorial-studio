@@ -347,8 +347,12 @@ li.d-add,li.d-del{display:list-item;padding:1px 6px}
    Scoped to #draft-pane so the shared [data-render="article"] element in the
    run-comparison and revision-history pages is unaffected. */
 #draft-pane .phone [data-render="article"]{max-height:70vh;overflow-y:auto;overscroll-behavior:contain}
+/* 版本差異 gets the same framed, height-capped treatment as the preview above,
+   paired with 要改哪裡 the same way. */
+.draft-diff-panel{border:1px solid var(--line);border-radius:12px;padding:20px 16px;
+  max-height:70vh;overflow-y:auto;overscroll-behavior:contain}
 .post-body strong{font-weight:650}
-.post-body em{color:var(--muted);font-style:normal}
+.post-body em{font-style:italic}
 .post-body .note,.aside .note{background:color-mix(in srgb,var(--warn) 10%,transparent);
   border-left:3px solid var(--warn);border-radius:0 6px 6px 0;
   padding:7px 12px;margin:0 0 16px;font-size:13.5px;color:var(--muted)}

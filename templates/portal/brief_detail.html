@@ -63,6 +63,59 @@
   </form>
 </div>
 
+<div class="card">
+  <div class="row tight" style="margin-bottom:10px">
+    <h2 style="margin:0">主打代言人</h2>
+    <span class="kol-status small muted" role="status" aria-live="polite" style="flex:1"></span>
+  </div>
+  <p class="small muted" style="margin:0 0 10px">
+    這篇稿子要以誰為敘事主角？其餘合作人選會被當成配角，是否提及由寫手視段落安排。
+    留空表示不指定主打，由寫手自行判斷比重。<strong>改動會立即儲存</strong>，不必再按確認。
+  </p>
+  <form method="post" action="{% url 'portal:brief_set_primary_kol' brief.pk %}" class="kol-form row tight">
+    {% csrf_token %}
+    <input type="text" name="primary_kol" list="kol-candidates" style="flex:1"
+           value="{{ latest_primary_kol }}" placeholder="例如：陳○○">
+    {% if kol_candidates %}
+    <datalist id="kol-candidates">
+      {% for name in kol_candidates %}<option value="{{ name }}">{% endfor %}
+    </datalist>
+    {% endif %}
+  </form>
+</div>
+
+<script>
+  // Same pattern as the picture review's auto-save: a decision, not data
+  // entry, so ticking/typing it should be the whole interaction.
+  (function () {
+    const form = document.querySelector('.kol-form');
+    const status = document.querySelector('.kol-status');
+    if (!form || !status || !window.fetch) return;
+
+    let token = 0;
+
+    function save() {
+      const mine = ++token;
+      status.textContent = '儲存中…';
+      fetch(form.action, {
+        method: 'POST',
+        body: new FormData(form),
+        credentials: 'same-origin',
+        headers: {'X-Requested-With': 'fetch'},
+      })
+        .then(function (response) {
+          if (!response.ok) throw new Error(response.status);
+          if (mine === token) status.textContent = '已儲存';
+        })
+        .catch(function () {
+          if (mine === token) status.textContent = '儲存失敗，請重新整理後再試一次';
+        });
+    }
+
+    form.addEventListener('change', save);
+  })();
+</script>
+
 {% url 'portal:brief_images' brief.pk as image_action_url %}
 {% include "briefs/_image_review.html" with action_url=image_action_url %}
 

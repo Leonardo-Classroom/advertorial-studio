@@ -19,6 +19,7 @@ urlpatterns = [
     path("briefs/<int:pk>/", views.brief_detail, name="brief_detail"),
     path("briefs/<int:pk>/facts/update/", views.brief_facts_update, name="brief_facts_update"),
     path("briefs/<int:pk>/facts/confirm/", views.brief_facts_confirm, name="brief_facts_confirm"),
+    path("briefs/<int:pk>/primary-kol/", views.brief_set_primary_kol, name="brief_set_primary_kol"),
     path("briefs/<int:pk>/images/", views.brief_images, name="brief_images"),
     path("briefs/<int:pk>/generate/", views.generate, name="generate"),
 

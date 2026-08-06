@@ -262,7 +262,10 @@ def ingest(brief, run_classify: bool = True, limit: int = 40) -> dict:
     verdicts = (classify_all(selected, brand=brand) if run_classify
                 else [dict(blank) for _ in selected])
 
-    brief.images.all().delete()  # re-running replaces, never accumulates
+    # Re-running replaces, never accumulates — but only the deck-derived rows.
+    # Manually uploaded pictures (`is_manual=True`) did not come from this
+    # parse and must survive a re-parse untouched.
+    brief.images.filter(is_manual=False).delete()
 
     stored = []
     for image, verdict in zip(selected, verdicts):
@@ -300,3 +303,39 @@ def ingest(brief, run_classify: bool = True, limit: int = 40) -> dict:
         "usable": sum(1 for r in stored if r.ai_category == CATEGORY_USABLE),
         **stats,
     }
+
+
+def save_manual_uploads(brief, files) -> tuple[list, list[str]]:
+    """Store operator-supplied pictures directly — no filter, no classification.
+
+    A deck picture passes through `ingest()`'s filter-then-classify pipeline
+    because a deck is mostly not usable material — logos, tables, duplicated
+    assets. A picture the operator picked and uploaded on purpose (a KOL
+    photo, a fresh product shot) has already passed that judgement, so it
+    starts approved instead of at whatever a classifier would have guessed.
+
+    `dhash` returning `None` (an unreadable image, per its own docstring) is
+    reused here as the upload's validity check rather than adding a separate
+    content-type test — a file that fails it is not treated as a picture.
+    Returns (stored, rejected_filenames).
+    """
+    from django.core.files.base import ContentFile
+
+    from briefs.models import BriefImage
+
+    stored: list = []
+    rejected: list[str] = []
+    for f in files:
+        blob = f.read()
+        phash = dhash(blob)
+        if phash is None:
+            rejected.append(f.name)
+            continue
+        record = BriefImage(
+            brief=brief, is_manual=True, approved=True,
+            md5=md5(blob), phash=phash,
+        )
+        record.file.save(f.name, ContentFile(blob), save=False)
+        record.save()
+        stored.append(record)
+    return stored, rejected

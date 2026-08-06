@@ -96,8 +96,9 @@ OUTPUT_SPEC_WITH_IMAGES = """【輸出格式】請完全照下列結構輸出，
 
 [[img:3]]
 
-編號只能用下面〈可用圖片〉清單裡有的。一張圖最多用一次，不必每張都用——
-挑真正搭得上該段內容的就好。標記單獨成行，前後空一行，不要寫在句子中間。
+編號只能用下面〈可用圖片〉清單裡有的。〈可用圖片〉清單裡的每一張都要放進文章，
+缺一不可；一張圖最多用一次，放在哪一段、用什麼順序由你判斷最合理的安排。
+標記單獨成行，前後空一行，不要寫在句子中間。
 不要再另外寫 `（Photo from ...）`，系統會自動加上圖說。）
 
 ## Hashtag
@@ -129,22 +130,24 @@ def image_roster(images) -> str:
 def build_image_section(images) -> str:
     if not images:
         return ""
-    return ("\n\n【可用圖片（簡報裡已核准的素材，只能用這些編號）】\n"
+    return ("\n\n【可用圖片（簡報裡已核准的素材，只能用這些編號；每一張都要放進文章）】\n"
             + image_roster(images))
 
 
 def build_outline_image_section(images) -> str:
     """The outline's version: plan around the pictures that exist.
 
-    Without this the outline stage answers "是否需要配圖，配什麼" by inventing a
+    Without this the outline stage answers "要不要配圖，配什麼" by inventing a
     photo brief — "這裡放一張 KOL street style 情境照" — for a shoot nobody is
     doing. Handing it the actual roster turns that line from a wish into an
-    assignment.
+    assignment — and a mandatory one: every approved picture must land
+    somewhere in the outline, not just the ones that happen to fit best.
     """
     if not images:
         return ""
-    return ("\n【可用圖片（簡報裡已核准的素材）——「是否需要配圖」請從這份清單挑，"
-            "不要描述一張不存在的照片】\n" + image_roster(images) + "\n")
+    return ("\n【可用圖片（簡報裡已核准的素材）——清單裡每一張都要在大綱裡安排落點，"
+            "由你決定放在哪一段、順序怎麼排；不要描述一張不存在的照片】\n"
+            + image_roster(images) + "\n")
 
 
 def build_instructions(style_guide_text: str, outlet_name: str, author_name: str | None) -> str:
@@ -191,6 +194,23 @@ def title_directive(facts: dict) -> str:
             "就依它的方向下標，並在〈待確認〉說明你為什麼沒有照用。")
 
 
+def primary_kol_directive(facts: dict) -> str:
+    """The lead talent, when the operator has named one.
+
+    Never auto-extracted — a deck can name a dozen KOLs and not one of them is
+    "the" one to build the article around, that call belongs to whoever knows
+    the campaign. Set only through the correction flow, same path `angle`
+    already uses. Empty when unset, and the writer picks its own emphasis as
+    before.
+    """
+    kol = str((facts or {}).get("primary_kol") or "").strip()
+    if not kol:
+        return ""
+    return ("\n\n【主打代言人（操作者指定，不要自行改變比重）】\n"
+            f"以「{kol}」為敘事主角，其餘合作人選視為配角，"
+            "是否提及、提及多少由篇幅與段落安排自行判斷。")
+
+
 def build_input(facts: dict, exemplars: list, extra_requirements: str = "") -> str:
     facts_json = json.dumps(writable_facts(facts), ensure_ascii=False, indent=2)
 
@@ -214,7 +234,7 @@ def build_input(facts: dict, exemplars: list, extra_requirements: str = "") -> s
     return f"""請依據以下素材，寫一篇廣編稿。
 
 【可用素材（唯一事實來源；這裡沒有的一律不准寫）】
-{facts_json}{title_directive(facts)}
+{facts_json}{title_directive(facts)}{primary_kol_directive(facts)}
 
 {exemplar_section}
 {extra}
@@ -269,7 +289,7 @@ SYNTHESIZE_TASK = """依據下方重點筆記與該媒體的風格慣例，訂�
 
 【必須被寫進稿子的項目——大綱要為它們安排位置，一個都不能列入「刻意不寫」】
 {must_cover}
-{images}{title}
+{images}{title}{primary_kol}
 請輸出 Markdown 大綱：
 
 ## 標題候選
@@ -280,7 +300,7 @@ SYNTHESIZE_TASK = """依據下方重點筆記與該媒體的風格慣例，訂�
 - 小標（若該段需要小標）
 - 這段要講什麼（一到兩句）
 - 這段用到哪些簡報事實
-- 是否需要配圖，配什麼
+- 配哪張圖（若〈可用圖片〉有清單，每張圖都要在某一段落有落點；這段沒有適合的就寫「無」）
 
 ## 結尾與 CTA
 依該媒體慣例安排。
@@ -289,9 +309,10 @@ SYNTHESIZE_TASK = """依據下方重點筆記與該媒體的風格慣例，訂�
 列出你決定捨棄的材料與原因——大綱的價值一半在於決定不寫什麼。
 但上面「必須被寫進稿子的項目」不在可捨棄之列，不得出現在這一節。
 
-## 必寫項目落點檢查
-逐一列出上面每個必寫項目，標明它被安排在第幾段。若有任何一項沒有落點，
-回到段落架構補上，不要留下未安排的項目。"""
+## 必寫項目與配圖落點檢查
+逐一列出上面每個必寫項目，標明它被安排在第幾段。若上面有〈可用圖片〉清單，
+再逐一列出清單裡的每一張圖，標明它被安排在第幾段。若有任何一項或任何一張圖
+沒有落點，回到段落架構補上，不要留下未安排的項目。"""
 
 
 def build_generate_from_outline(facts: dict, outline: str, exemplars: list,
@@ -320,7 +341,7 @@ def build_generate_from_outline(facts: dict, outline: str, exemplars: list,
 {outline}
 
 【可用素材（唯一事實來源）】
-{facts_json}{title_directive(facts)}
+{facts_json}{title_directive(facts)}{primary_kol_directive(facts)}
 
 {exemplar_section}{build_image_section(images)}
 {extra}

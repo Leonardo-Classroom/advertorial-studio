@@ -10,6 +10,7 @@ FACT_SCHEMA_HINT = {
     "slogan": "",
     "key_message": [],
     "kol": [],
+    "primary_kol": "",
     "target_audience": "",
     "publish_schedule": "",
     "deliverables": [],
@@ -354,6 +355,10 @@ class BriefImage(models.Model):
         "來源檔案內位置", default=0,
         help_text="該來源檔案內的第幾張投影片／第幾段／第幾頁，依格式而定，"
                   "不是跨檔案的絕對編號。")
+    is_manual = models.BooleanField(
+        "使用者手動上傳", default=False,
+        help_text="操作者直接上傳的素材（例如代言人照、新拍的產品照），"
+                  "不是從簡報抽出來的，沒有 source_file／slide_index 可言。")
     file = models.ImageField("圖片", upload_to="brief_images/")
 
     # Two hashes, deliberately. md5 catches the byte-identical copy-paste;
@@ -395,6 +400,8 @@ class BriefImage(models.Model):
         Falls back to deck wording for rows predating multi-file support,
         which had no source file and were all .pptx anyway.
         """
+        if self.is_manual:
+            return "手動上傳"
         if self.source_file_id:
             return self.source_file.location_label(self.slide_index)
         return f"第 {self.slide_index} 張投影片"

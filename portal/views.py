@@ -221,6 +221,11 @@ def brief_detail(request, pk):
         "sections": facts_text.to_sections(facts),
         "uncertain": facts_text.uncertain_items(facts),
         "latest_uncertain": facts_text.uncertain_items(latest.data if latest else {}),
+        # The primary-KOL form always acts on the newest version (see
+        # `brief_set_primary_kol`), so it reads from `latest` too, not
+        # `facts`/`viewing` — those can be an older version under inspection.
+        "latest_primary_kol": (latest.data.get("primary_kol") if latest else "") or "",
+        "kol_candidates": ((latest.data.get("kol") if latest else None) or []),
         "guides": StyleGuide.objects.filter(is_active=True).select_related("outlet", "author"),
         "confirm_updates": SiteSettings.load().confirm_fact_updates,
         "runs": runs,
@@ -251,6 +256,21 @@ def brief_images(request, pk):
         brief.parse_images = True
         brief.save(update_fields=["parse_images", "updated_at"])
         _ingest_images(request, brief)
+        return redirect("portal:brief_detail", pk=pk)
+
+    if request.POST.get("action") == "upload":
+        from briefs.services import images as image_service
+
+        files = request.FILES.getlist("images")
+        if not files:
+            messages.error(request, "請選擇至少一張圖片。")
+        else:
+            stored, rejected = image_service.save_manual_uploads(brief, files)
+            if stored:
+                messages.success(request, f"已上傳 {len(stored)} 張圖片，預設為可用素材。")
+            if rejected:
+                messages.warning(request, f"{len(rejected)} 個檔案無法辨識為圖片，已略過："
+                                          + "、".join(rejected))
         return redirect("portal:brief_detail", pk=pk)
 
     approved = set(request.POST.getlist("approved"))
@@ -365,6 +385,50 @@ def brief_facts_confirm(request, pk):
         "user_input": pending["user_input"],
         "rows": facts_text.diff(before, pending["data"]),
     })
+
+
+@login_required
+def brief_set_primary_kol(request, pk):
+    """Set the primary spokesperson directly — a plain field, not a correction.
+
+    Unlike `brief_facts_update`, this never goes through the model: the value
+    is exactly what the operator picked from the candidate list (or typed),
+    there is nothing to interpret, and a model call would only add latency
+    and a chance of it touching some other field. Still recorded as an
+    ordinary fact version via `add_facts_version` so it shows up in the
+    version history and feeds the same `primary_kol_directive` as any other
+    way of setting this field.
+
+    Saves itself on every change, the same as the picture review's checkboxes
+    (`portal:brief_images`) — there is nothing further to confirm, so a
+    button asking to confirm it would be asking the operator to confirm a
+    decision they already made by typing.
+    """
+    brief = get_object_or_404(_my_briefs(request), pk=pk)
+    is_fetch = request.headers.get("X-Requested-With") == "fetch"
+    if request.method != "POST":
+        return redirect("portal:brief_detail", pk=pk)
+
+    current = brief.latest_facts()
+    if current is None:
+        if is_fetch:
+            return HttpResponse("這份簡報還沒有抽出內容。", status=409)
+        messages.error(request, "這份簡報還沒有抽出內容。")
+        return redirect("portal:brief_detail", pk=pk)
+
+    value = (request.POST.get("primary_kol") or "").strip()
+    data = dict(current.data or {})
+    if data.get("primary_kol", "") != value:
+        data["primary_kol"] = value
+        brief.add_facts_version(
+            data, source="user_update", parent=current,
+            user_input=f"設定主打代言人：{value}" if value else "清除主打代言人")
+
+    if is_fetch:
+        return HttpResponse(status=204)
+    messages.success(request, f"主打代言人已設為「{value}」。" if value
+                              else "已清除主打代言人。")
+    return redirect("portal:brief_detail", pk=pk)
 
 
 @login_required

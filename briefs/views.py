@@ -105,6 +105,21 @@ def brief_images(request, pk):
         _ingest_images(request, brief)
         return redirect("briefs:detail", pk=pk)
 
+    if request.POST.get("action") == "upload":
+        from briefs.services import images as image_service
+
+        files = request.FILES.getlist("images")
+        if not files:
+            messages.error(request, "請選擇至少一張圖片。")
+        else:
+            stored, rejected = image_service.save_manual_uploads(brief, files)
+            if stored:
+                messages.success(request, f"已上傳 {len(stored)} 張圖片，預設為可用素材。")
+            if rejected:
+                messages.warning(request, f"{len(rejected)} 個檔案無法辨識為圖片，已略過："
+                                          + "、".join(rejected))
+        return redirect("briefs:detail", pk=pk)
+
     approved = set(request.POST.getlist("approved"))
     for image in brief.images.all():
         key = str(image.pk)

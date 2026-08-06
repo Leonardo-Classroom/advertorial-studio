@@ -22,12 +22,21 @@
     {% endif %}
   </div>
 
+  <form method="post" action="{{ action_url }}" enctype="multipart/form-data"
+        class="row tight" style="margin-bottom:14px">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="upload">
+    <input type="file" name="images" accept="image/*" multiple style="flex:1">
+    <button class="btn sm ghost">上傳圖片</button>
+  </form>
+
   {% if brief_images %}
     <p class="small muted">
       勾選的圖片才會被放進稿子。AI 的判斷已先勾好，但<strong>它會看錯</strong>——
       特別是簡報前段做市場分析用的<strong>競品照片</strong>，畫面上就是一雙好看的鞋，
       要靠你確認那是不是這次要推的品牌。圖說留空就用 AI 建議的版本。
-      <strong>改動會立即儲存</strong>，不必再按確認。
+      <strong>改動會立即儲存</strong>，不必再按確認。也可以直接上傳你自己的照片
+      （例如指定代言人照、新拍的產品照）——不需要 AI 判斷，預設就是可用素材。
     </p>
 
     <form method="post" action="{{ action_url }}" class="img-form img-scroll">
@@ -35,7 +44,7 @@
       {% regroup brief_images by source_file as files %}
       {% for file in files %}
       <div class="img-file">
-        <h3 class="img-file-head">{{ file.grouper.original_filename|default:"（無檔案）" }}
+        <h3 class="img-file-head">{{ file.grouper.original_filename|default:"手動上傳" }}
           <span class="muted">· {{ file.list|length }} 張</span></h3>
         {% regroup file.list by slide_index as slides %}
         {% for slide in slides %}

@@ -31,6 +31,7 @@ SECTIONS: list[tuple[str, str]] = [
     ("angle", "簡報指定的切角／標題"),
     ("key_message", "想傳達的重點"),
     ("kol", "合作人選"),
+    ("primary_kol", "主打代言人"),
     ("kol_content", "KOL 演繹內容"),
     ("activation", "實體活動／體驗"),
     ("consumer_info", "消費者資訊（售價、開賣日、通路）"),

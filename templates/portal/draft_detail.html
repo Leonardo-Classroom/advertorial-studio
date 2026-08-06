@@ -41,43 +41,20 @@
 <div class="card" style="border-style:dashed">
   <h2 style="margin-top:0">待確認 <span class="pill warn">不隨稿件刊出</span></h2>
   <p class="small muted" style="margin:0 0 10px">
-    這些是簡報沒寫、但稿子需要的資訊。跟品牌確認後，可以用下方「要改哪裡？」補進稿件。</p>
+    這些是簡報沒寫、但稿子需要的資訊。跟品牌確認後，可以用上方「要改哪裡？」補進稿件。</p>
   <div class="md">{{ notes }}</div>
 </div>
 {% endif %}{% endwith %}
 
-<div class="card">
-  <h2 style="margin-top:0">要改哪裡？</h2>
-  <p class="small muted">寫下想調整的地方，系統會依你的意見重寫一版。原本的版本都會留著。</p>
-  <form method="post" action="{% url 'portal:draft_revise' run.pk %}">
-    {% csrf_token %}
-    <textarea name="feedback"
-              placeholder="例如：第二段太像官方新聞稿，改得更口語一點；標題想強調價格。"></textarea>
-    {% if versions|length > 1 %}
-    <div class="row tight" style="margin-top:12px;flex:0 0 auto">
-      <label class="small muted" for="rev_base">根據版本更新</label>
-      <select id="rev_base" name="base_version" style="width:auto">
-        {% for ver in versions %}
-          <option value="{{ ver.version }}" {% if ver.pk == viewing.pk %}selected{% endif %}>{{ ver.label }}{% if forloop.first %}（最新）{% endif %}</option>
-        {% endfor %}
-      </select>
-      <span class="small muted">改動會套在這一版上，存成新的一版。</span>
-    </div>
-    {% else %}
-      <input type="hidden" name="base_version" value="{{ viewing.version }}">
-    {% endif %}
-    <button class="btn" style="margin-top:12px">依意見重寫</button>
-    <span class="small muted" style="margin-left:8px">重寫需 1–2 分鐘，會在背景進行。</span>
-  </form>
-</div>
 {% elif not run.in_progress %}
 <div class="card"><div class="empty">還沒有內容。</div></div>
 {% endif %}
 
 <script>
-// Version switching and the comparison redraw the draft card in place, the same
-// way the facts card does — a full reload would lose whatever is half-typed in
-// 要改哪裡 below it.
+// Version switching and the comparison redraw the draft card in place, the
+// same way the facts card does — a full reload would lose whatever is
+// half-typed in 要改哪裡, which now lives inside this same pane (beside the
+// preview), so its value is explicitly carried across the swap below instead.
 (function () {
   const pane = document.getElementById('draft-pane');
   if (!pane || !window.fetch) return;
@@ -95,6 +72,8 @@
       params.set('diff', '1');
       if (base) params.set('base', base.value);
     }
+    const feedbackBox = pane.querySelector('textarea[name="feedback"]');
+    const feedback = feedbackBox ? feedbackBox.value : '';
     const token = ++inFlight;
     pane.setAttribute('aria-busy', 'true');
     fetch(pane.dataset.url + '?' + params + '&partial=1', {
@@ -105,6 +84,10 @@
         if (token !== inFlight) return;
         pane.innerHTML = html;
         pane.classList.add('live');
+        if (feedback) {
+          const restored = pane.querySelector('textarea[name="feedback"]');
+          if (restored) restored.value = feedback;
+        }
         history.replaceState(null, '', pane.dataset.url +
           (params.toString() ? '?' + params : ''));
       })

@@ -320,6 +320,33 @@ li.d-add,li.d-del{display:list-item;padding:1px 6px}
   .phone [data-render="article"]{border:1px solid var(--line);border-radius:12px;
     padding:20px 16px}
 }
+/* 要改哪裡 is not part of the phone mockup the rules above style, so its width
+   cap and centring are undone here. It is also stretched (grid's default
+   align-items) to match the preview's height in AI編輯 — the flex column
+   below spends that extra height on the textarea rather than leaving it as
+   dead space under the button. */
+.draft-revise{max-width:none;margin-inline:0;margin-bottom:0;
+  display:flex;flex-direction:column}
+/* `display:flex` above is an author-origin rule, which beats the browser's
+   own `[hidden]{display:none}` regardless of specificity — same trap as the
+   style-toolbar above. Without this, the toggle JS setting `hidden` on this
+   element in 人工編輯/文章/純文字 has no visual effect. */
+.draft-revise[hidden]{display:none}
+.draft-revise form{flex:1;min-height:0;display:flex;flex-direction:column}
+.draft-revise textarea{flex:1;min-height:0}
+/* Paired with 要改哪裡 as two even columns (see .draft-live-row below), the
+   360px phone cap above leaves a wide empty margin down the middle of its own
+   column, on top of the grid gap — the preview is stretched to fill its
+   column here too instead, so the gap between the two boxes is just the grid
+   gap. */
+.draft-live-row [data-render="article"]{max-width:none;margin-inline:0}
+/* Capped and independently scrollable so a full draft doesn't stretch the
+   whole page under the toggle bar — but only in AI編輯, where the preview is
+   squeezed into half the row next to 要改哪裡. 文章 gets the full column and
+   reads top to bottom like the rest of the page, same as before this existed.
+   Scoped to #draft-pane so the shared [data-render="article"] element in the
+   run-comparison and revision-history pages is unaffected. */
+#draft-pane .phone [data-render="article"]{max-height:70vh;overflow-y:auto;overscroll-behavior:contain}
 .post-body strong{font-weight:650}
 .post-body em{color:var(--muted);font-style:normal}
 .post-body .note,.aside .note{background:color-mix(in srgb,var(--warn) 10%,transparent);
@@ -396,10 +423,12 @@ document.addEventListener('click', function (e) {
   const box = document.getElementById(btn.dataset.target);
   if (!box) return;
   // 手機 and 文章 show the same rendered article and differ only in width, so
-  // which element to reveal is stated separately from which view is selected.
-  const shows = btn.dataset.renderAs || btn.dataset.view;
+  // which element(s) to reveal is stated separately from which view is
+  // selected — space-separated, since AI編輯 reveals both the preview and its
+  // own 要改哪裡 panel, which 文章 does not.
+  const shows = (btn.dataset.renderAs || btn.dataset.view).split(/\s+/);
   box.querySelectorAll('[data-render]').forEach(function (el) {
-    el.hidden = el.dataset.render !== shows;
+    el.hidden = !shows.includes(el.dataset.render);
   });
   box.classList.toggle('phone', btn.dataset.view === 'mobile');
   btn.parentElement.querySelectorAll('button').forEach(function (b) {

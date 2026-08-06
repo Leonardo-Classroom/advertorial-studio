@@ -28,11 +28,11 @@
   <span style="flex:1"></span>
   {% if not show_diff %}
   <div class="toggle">
-    <button type="button" class="on" data-view="mobile" data-render-as="article"
-            data-target="d{{ run.pk }}">手機</button>
+    <button type="button" class="on" data-view="mobile" data-render-as="article ai"
+            data-target="d{{ run.pk }}">AI編輯</button>
+    <button type="button" data-view="edit" data-target="d{{ run.pk }}">人工編輯</button>
     <button type="button" data-view="article" data-target="d{{ run.pk }}">文章</button>
     <button type="button" data-view="raw" data-target="d{{ run.pk }}">純文字</button>
-    <button type="button" data-view="edit" data-target="d{{ run.pk }}">編輯</button>
   </div>
   {% endif %}
 </div>
@@ -61,9 +61,13 @@
   {% else %}
     <p class="small muted" style="margin:0">只有這一個版本，沒有可以比較的對象。</p>
   {% endif %}
+  {% include "portal/_draft_revise.html" %}
 {% else %}
 <div id="d{{ run.pk }}" class="phone">
-  <div data-render="article">{{ draft_text|article:run.brief }}</div>
+  <div class="grid g2 draft-live-row">
+    <div data-render="article">{{ draft_text|article:run.brief }}</div>
+    {% include "portal/_draft_revise.html" %}
+  </div>
   <pre class="doc" data-render="raw" hidden>{{ draft_text }}</pre>
 
   <form method="post" action="{% url 'portal:draft_edit' run.pk %}"

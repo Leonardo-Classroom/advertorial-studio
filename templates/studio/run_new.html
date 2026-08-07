@@ -49,7 +49,9 @@
       <div style="flex:2">
         <label>生成方式 *</label>
         <select name="mode">
-          {% for value, label in modes %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+          {% for value, label in modes %}
+            <option value="{{ value }}" {% if value == defaults.default_mode %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
         </select>
       </div>
       <div>

@@ -221,7 +221,8 @@ def primary_kol_directive(facts: dict) -> str:
             "是否提及、提及多少由篇幅與段落安排自行判斷。")
 
 
-def build_input(facts: dict, exemplars: list, extra_requirements: str = "") -> str:
+def build_input(facts: dict, exemplars: list, extra_requirements: str = "",
+                images=None) -> str:
     facts_json = json.dumps(writable_facts(facts), ensure_ascii=False, indent=2)
 
     if exemplars:
@@ -240,16 +241,17 @@ def build_input(facts: dict, exemplars: list, extra_requirements: str = "") -> s
         exemplar_section = "【風格範例文章】\n（本次不提供範例，請純粹依風格指南寫作）"
 
     extra = f"\n\n【額外要求】\n{extra_requirements.strip()}" if extra_requirements.strip() else ""
+    images = list(images or [])
 
     return f"""請依據以下素材，寫一篇廣編稿。
 
 【可用素材（唯一事實來源；這裡沒有的一律不准寫）】
 {facts_json}{title_directive(facts)}{primary_kol_directive(facts)}
 
-{exemplar_section}
+{exemplar_section}{build_image_section(images)}
 {extra}
 
-{OUTPUT_SPEC}"""
+{OUTPUT_SPEC_WITH_IMAGES if images else OUTPUT_SPEC}"""
 
 
 # --- 方案 B：多階段管線 ---------------------------------------------------

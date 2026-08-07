@@ -144,6 +144,25 @@ LLM_TIMEOUT = env_int("LLM_TIMEOUT", 180)
 LLM_SEND_TEMPERATURE = env_bool("LLM_SEND_TEMPERATURE", False)
 LLM_TEMPERATURE = float(env("LLM_TEMPERATURE", "0.8") or 0.8)
 
+# Local completion backend (Ollama), selected at runtime via SiteSettings.
+# llm_backend — same "which provider" / "which model" split as EMBED_BACKEND
+# below: whether to use it lives in the DB (an operational switch staff can
+# flip without a deploy), which model/endpoint it points at lives here.
+#
+# Two real, measured costs of flipping this on — not hypothetical, see
+# report/本地線上API比較.md: text generation has ~20% chance of running
+# 5-50x longer than normal (Qwen3.6 occasionally not fully suppressing its
+# thinking mode despite `reasoning:{"effort":"none"}`, cause unconfirmed);
+# image classification has ~30% chance of failing outright or returning a
+# blank description. `LOCAL_LLM_TIMEOUT` is generous on purpose — round 2's
+# benchmark forgot to wire a timeout through at all and one call hung 30
+# minutes; failing at 300s beats that, but is still a long wait for a user.
+LOCAL_LLM_BASE_URL = env("LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
+LOCAL_LLM_API_KEY = env("LOCAL_LLM_API_KEY", "ollama")
+LOCAL_LLM_MODEL = env("LOCAL_LLM_MODEL", "qwen3.6:27b-q4_K_M")
+LOCAL_LLM_VISION_MODEL = env("LOCAL_LLM_VISION_MODEL", "qwen3-vl:32b-fast")
+LOCAL_LLM_TIMEOUT = env_int("LOCAL_LLM_TIMEOUT", 300)
+
 # Embedding model. This Azure resource has no text-embedding-3-* deployment;
 # Cohere Embed v4 is what is actually reachable (verified 2026-07-26).
 EMBED_MODEL = env("EMBED_MODEL", "embed-v-4-0")

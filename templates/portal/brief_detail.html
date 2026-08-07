@@ -121,6 +121,12 @@
 
 <div class="card">
   <h2 style="margin-top:0">產出廣編稿</h2>
+  {% if llm_backend == "local" %}
+    <p class="small" style="margin:0 0 10px;color:var(--warn,#b45309)">
+      ⚠ 目前使用本地模型產稿——耗時與品質跟線上不同，且實測有明確機率
+      （文字約 20%、圖片辨識約 30%）明顯變慢或失敗，請留意。
+    </p>
+  {% endif %}
   {% if not guides %}
     <p class="small muted">目前沒有可用的風格，請聯繫系統管理者。</p>
   {% else %}

@@ -2,7 +2,24 @@
 
 Everything that talks to a chat/reasoning model goes through here so the
 backing model can be swapped via `.env` alone. Uses the OpenAI-compatible
-*Responses* API, which is what the Azure AI Services endpoint exposes.
+*Responses* API, which is what the Azure AI Services endpoint exposes — and,
+verified across several rounds of local testing (report/本地線上API比較.md),
+what Ollama's OpenAI-compatible layer exposes too, text and vision both.
+
+Two clients, not one: `SiteSettings.llm_backend` (a staff-facing toggle,
+`/manage/advanced/`) picks online vs. local per call. The judge is the one
+caller that is *never* affected by that toggle — every judge call passes an
+explicit `model=`, and that is what routes it to `_online_client()`
+regardless of the writer backend. This split exists because of a real
+mistake: an early benchmark script tried to keep the judge online via
+`monkeypatch`, and `complete_json()`'s internal call to `complete(...)` — a
+bare name, resolved at call time through the module's current globals —
+silently picked up the patched local version anyway, so the "online judge"
+was quietly grading the local model's output against itself. Here there is
+only one `complete()`/`complete_vision()`, so `complete_json()` calling it
+does not have that failure mode — but it is exactly the kind of thing that
+is easy to break again while touching this file, so re-verify the judge
+path stays online after any change here (see report §四 for how).
 """
 from __future__ import annotations
 
@@ -15,7 +32,7 @@ from openai import OpenAI
 
 
 @lru_cache(maxsize=1)
-def get_client() -> OpenAI:
+def _online_client() -> OpenAI:
     if not settings.LLM_API_KEY:
         raise RuntimeError(
             "LLM_API_KEY 未設定。請在專案根目錄的 .env 填入金鑰（可參考 .env.example）。"
@@ -27,12 +44,42 @@ def get_client() -> OpenAI:
     )
 
 
+@lru_cache(maxsize=1)
+def _local_client() -> OpenAI:
+    return OpenAI(
+        base_url=settings.LOCAL_LLM_BASE_URL,
+        api_key=settings.LOCAL_LLM_API_KEY or "ollama",
+        timeout=settings.LOCAL_LLM_TIMEOUT,
+    )
+
+
+def _backend() -> str:
+    """"online" or "local" — lazy import so `core` never depends on `studio`
+    at module load time (only when a call actually needs to know)."""
+    from studio.models import SiteSettings
+
+    return SiteSettings.load().llm_backend
+
+
+def get_client() -> OpenAI:
+    """The writer client for the currently-configured backend.
+
+    Each backend's client is cached separately (see `_online_client` /
+    `_local_client`) precisely so flipping the toggle doesn't get stuck
+    serving whichever one a single shared `lru_cache` happened to build first.
+    """
+    return _local_client() if _backend() == "local" else _online_client()
+
+
 def current_model() -> str:
-    return settings.LLM_MODEL
+    return settings.LOCAL_LLM_MODEL if _backend() == "local" else settings.LLM_MODEL
 
 
 def judge_model() -> str:
-    """The model used for evaluation, held apart from the writing model."""
+    """The model used for evaluation, held apart from the writing model.
+
+    Always online, regardless of `llm_backend` — see module docstring.
+    """
     return getattr(settings, "LLM_JUDGE_MODEL", None) or settings.LLM_MODEL
 
 
@@ -61,16 +108,33 @@ def complete(
 
     `instructions` is system-level guidance (style guide / role).
     `user_input`   is the task payload (brief facts, exemplars, format spec).
+
+    An explicit `model=` means this is a judge call (the only caller that
+    passes one is `evaluate.py`, via `judge_model()`) — that always goes to
+    the online client, never the local backend, no matter what
+    `SiteSettings.llm_backend` is set to.
     """
-    client = get_client()
+    is_judge_call = model is not None
+    local = not is_judge_call and _backend() == "local"
+
+    client = _online_client() if is_judge_call else get_client()
     if timeout is not None:
         client = client.with_options(timeout=timeout)
+    elif local:
+        client = client.with_options(timeout=settings.LOCAL_LLM_TIMEOUT)
+
     kwargs = {
-        "model": model or settings.LLM_MODEL,
+        "model": model or (settings.LOCAL_LLM_MODEL if local else settings.LLM_MODEL),
         "instructions": instructions,
         "input": user_input,
     }
-    if settings.LLM_SEND_TEMPERATURE:
+    if local:
+        # Qwen3.6 defaults to an extended-thinking mode that turns a
+        # sub-second reply into 15-70x the latency (本地API效能評估.md §2.2)
+        # unless told not to. The online model needs no equivalent — it
+        # already runs with reasoning_tokens == 0 by default (API價錢評估.md).
+        kwargs["reasoning"] = {"effort": "none"}
+    elif settings.LLM_SEND_TEMPERATURE:
         kwargs["temperature"] = settings.LLM_TEMPERATURE if temperature is None else temperature
     if max_output_tokens:
         kwargs["max_output_tokens"] = max_output_tokens
@@ -102,8 +166,15 @@ def complete_vision(
 ) -> str:
     """Single-shot completion over one image plus text.
 
-    Same endpoint, same key, same model as `complete` — the deployed model is
-    multimodal, so looking at a picture needs no separate vision service.
+    Online: same endpoint, same key, same model as `complete` — the deployed
+    model is multimodal, so looking at a picture needs no separate vision
+    service. Local: a *different* model than `complete`'s text path
+    (`LOCAL_LLM_VISION_MODEL`) — Ollama has no single model spanning both at
+    a size this GPU can hold (本地API效能評估.md §一), so the writer and the
+    classifier are two separate local models, unlike the online setup.
+
+    Same judge-isolation rule as `complete`: an explicit `model=` always
+    routes online.
     """
     import base64
 
@@ -112,22 +183,30 @@ def complete_vision(
     if mime is None:
         raise ValueError(f"不支援的圖片格式：{image_ext}")
 
-    client = get_client()
+    is_judge_call = model is not None
+    local = not is_judge_call and _backend() == "local"
+
+    client = _online_client() if is_judge_call else get_client()
     if timeout is not None:
         client = client.with_options(timeout=timeout)
+    elif local:
+        client = client.with_options(timeout=settings.LOCAL_LLM_TIMEOUT)
 
     encoded = base64.b64encode(image_bytes).decode()
-    response = client.responses.create(
-        model=model or settings.LLM_MODEL,
-        instructions=instructions,
-        input=[{
+    kwargs = {
+        "model": model or (settings.LOCAL_LLM_VISION_MODEL if local else settings.LLM_MODEL),
+        "instructions": instructions,
+        "input": [{
             "role": "user",
             "content": [
                 {"type": "input_text", "text": user_input},
                 {"type": "input_image", "image_url": f"data:{mime};base64,{encoded}"},
             ],
         }],
-    )
+    }
+    if local:
+        kwargs["reasoning"] = {"effort": "none"}
+    response = client.responses.create(**kwargs)
     return _extract_text(response)
 
 

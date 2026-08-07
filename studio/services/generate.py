@@ -52,7 +52,7 @@ def run_generation(run: GenerationRun, stop_after_outline: bool = False,
         instructions = prompts.build_instructions(
             guide_text, run.outlet.name, run.author.name if run.author else None
         )
-        user_input = prompts.build_input(facts, exemplars)
+        user_input = prompts.build_input(facts, exemplars, images=run.brief.usable_images())
 
         output = llm.complete(
             instructions=instructions, user_input=user_input, timeout=600

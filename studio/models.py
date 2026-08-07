@@ -27,6 +27,18 @@ GENERATION_MODES = [
     ("single", "方案 A：單次生成（較快，結構較鬆）"),
 ]
 
+# Which provider `core.llm` uses for writing and image classification — never
+# for the judge, which always stays online (see core/llm.py's module
+# docstring for why that split exists and what went wrong the one time it
+# didn't). The local option's cost is not hypothetical: report/本地線上API比較.md
+# measured ~20% of local text generations running 5-50x longer than normal,
+# and ~30% of local image classifications either failing outright or
+# returning a blank description.
+LLM_BACKENDS = [
+    ("online", "線上 API，使用 gpt-5.4"),
+    ("local", "本地模型，文字用 qwen3.6:27b-q4_K_M、圖片用 qwen3-vl:32b-fast"),
+]
+
 
 class SiteSettings(models.Model):
     """Generation defaults, set once by staff instead of asked on every form.
@@ -44,9 +56,20 @@ class SiteSettings(models.Model):
 
     Models and keys deliberately do *not* live here. They belong to `.env`:
     swapping the judge model mid-corpus makes every prior score incomparable,
-    which is not something a web form should make easy.
+    which is not something a web form should make easy. `llm_backend` below
+    is the one exception to "not here" — it is a pure on/off switch (which
+    provider, not which model or endpoint), same shape as `EMBED_BACKEND` in
+    `.env` for the embedding service. The model names/URLs it switches between
+    still live in `.env` (`LLM_MODEL` / `LOCAL_LLM_MODEL` etc.), unchanged.
     """
 
+    default_mode = models.CharField(
+        "預設生成方式", max_length=8, choices=GENERATION_MODES, default="staged",
+        help_text="「產出廣編稿」預設用哪個方案。方案 B 結構完整度較高但慢，"
+                  "方案 A 較快，兩者的取捨見系統報告書 §七之四。")
+    llm_backend = models.CharField(
+        "文字／圖片生成使用的 API", max_length=8, choices=LLM_BACKENDS, default="online",
+        help_text="只影響寫稿與圖片辨識，評審永遠走線上——避免本地模型評自己的稿子。")
     retrieval_strategy = models.CharField(
         "檢索策略", max_length=16, choices=RETRIEVAL_STRATEGIES, default="typical",
         help_text="決定拿哪幾篇該媒體的舊文章當語感範例。實測三種策略產出分不出差異。")

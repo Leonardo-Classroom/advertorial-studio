@@ -10,7 +10,7 @@ from accounts.decorators import staff_required
 from briefs.models import Brief
 from corpus.models import Article, Author, EmbeddingIndex, Outlet, StyleGuide
 from studio.models import (
-    GENERATION_MODES, RETRIEVAL_STRATEGIES, SELECTABLE_STRATEGIES,
+    GENERATION_MODES, LLM_BACKENDS, RETRIEVAL_STRATEGIES, SELECTABLE_STRATEGIES,
     Evaluation, Experiment, GenerationRun, SiteSettings,
 )
 from studio.services import evaluate as evaluate_service
@@ -54,6 +54,12 @@ def advanced(request):
     settings_row = SiteSettings.load()
 
     if request.method == "POST":
+        mode = request.POST.get("default_mode", settings_row.default_mode)
+        if mode in dict(GENERATION_MODES):
+            settings_row.default_mode = mode
+        backend = request.POST.get("llm_backend", settings_row.llm_backend)
+        if backend in dict(LLM_BACKENDS):
+            settings_row.llm_backend = backend
         strategy = request.POST.get("retrieval_strategy", settings_row.retrieval_strategy)
         if strategy in dict(SELECTABLE_STRATEGIES):
             settings_row.retrieval_strategy = strategy
@@ -74,6 +80,8 @@ def advanced(request):
         "section": "advanced",
         "settings": settings_row,
         "strategies": SELECTABLE_STRATEGIES,
+        "modes": GENERATION_MODES,
+        "backends": LLM_BACKENDS,
     })
 
 
@@ -111,7 +119,7 @@ def run_new(request):
             author_id=author_id or None,
             style_guide_id=guide_id or None,
             experiment_id=experiment_id or None,
-            mode=request.POST.get("mode", "staged"),
+            mode=request.POST.get("mode", defaults.default_mode),
             retrieval_strategy=defaults.retrieval_strategy,
             exemplar_count=defaults.exemplar_count,
             max_rewrites=max(0, min(defaults.max_rewrites, 3)),

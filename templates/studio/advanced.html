@@ -7,6 +7,31 @@
   <form method="post">
     {% csrf_token %}
 
+    <label>預設生成方式</label>
+    <select name="default_mode">
+      {% for value, label in modes %}
+        <option value="{{ value }}" {% if value == settings.default_mode %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <p class="small muted" style="margin:4px 0 16px">
+      「產出廣編稿」預設用哪個方案。方案 B 結構完整度較高但慢；方案 A 較快、
+      結構較鬆。
+    </p>
+
+    <label>文字／圖片生成使用的 API</label>
+    <select name="llm_backend">
+      {% for value, label in backends %}
+        <option value="{{ value }}" {% if value == settings.llm_backend %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <p class="small muted" style="margin:4px 0 16px">
+      <strong>切換本地模型前請先看過 <code class="mono">report/本地線上API比較.md</code>。</strong>
+      實測本地文字生成約 20% 機率耗時拉長到正常值的 5～50 倍（曾經一次卡了近
+      30 分鐘才回應）；本地圖片辨識約 30% 機率失敗或給出空白結果。這不是
+      「偶爾比較慢」，是有明確機率的風險，開啟前請有心理準備。
+      評審永遠走線上，不受這個設定影響。
+    </p>
+
     <label>檢索策略</label>
     <select name="retrieval_strategy">
       {% for value, label in strategies %}

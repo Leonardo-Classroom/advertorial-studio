@@ -24,7 +24,8 @@
 
 <style>
   .upload-waiting-row{align-items:center}
-  .upload-waiting-spin{display:inline-block;width:28px;height:28px;flex:0 0 auto;
+  .upload-waiting-row .upload-waiting-spin{display:inline-block;width:28px;height:28px;
+    min-width:28px;flex:0 0 auto;
     border-radius:50%;border:3px solid var(--line,#e3e3e6);border-top-color:var(--accent,#2b5cff);
     animation:upload-waiting-spin .8s linear infinite}
   @keyframes upload-waiting-spin{to{transform:rotate(360deg)}}

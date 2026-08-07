@@ -1,10 +1,11 @@
+{% load image_filters %}
 {% comment %}
    Picture review, shared by the portal and the staff backend.
 
    Same gate as the extracted facts: nothing here reaches a draft until a human
-   has looked at it. The AI's verdict arrives pre-ticked so review is a check
-   rather than data entry, but it is only a suggestion — the categories it got
-   wrong are exactly what this page exists to catch.
+   has looked at it. The AI's category and caption are only a suggestion —
+   nothing arrives pre-ticked, even a "usable" verdict, because the categories
+   it got wrong are exactly what this page exists to catch.
 
    `action_url` is passed by the including template so the two interfaces post
    to their own endpoint.
@@ -13,7 +14,13 @@
   <div class="row tight" style="margin-bottom:10px">
     <h2 style="margin:0">簡報圖片</h2>
     <span class="img-status small muted" role="status" aria-live="polite" style="flex:1"></span>
-    {% if not brief_images %}
+    {% if brief_images %}
+    <form method="post" action="{{ action_url }}" style="flex:0">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="classify">
+      <button class="btn sm ghost" data-loading="classifyimg">解析無圖說的圖片</button>
+    </form>
+    {% else %}
     <form method="post" action="{{ action_url }}" style="flex:0">
       {% csrf_token %}
       <input type="hidden" name="action" value="parse">
@@ -32,9 +39,11 @@
 
   {% if brief_images %}
     <p class="small muted">
-      勾選的圖片才會被放進稿子。AI 的判斷已先勾好，但<strong>它會看錯</strong>——
-      特別是簡報前段做市場分析用的<strong>競品照片</strong>，畫面上就是一雙好看的鞋，
-      要靠你確認那是不是這次要推的品牌。圖說留空就用 AI 建議的版本。
+      勾選的圖片才會被放進稿子。AI 只負責分類與建議圖說，<strong>不會自動幫你勾選</strong>——
+      每一張都要你自己確認過才算數，特別是簡報前段做市場分析用的<strong>競品照片</strong>，
+      畫面上就是一雙好看的鞋，要靠你確認那是不是這次要推的品牌。圖說留空就用 AI 建議的版本；
+      <strong>還沒有圖說的圖片沒辦法勾選</strong>——按上面的「解析無圖說的圖片」
+      可以一次補上還沒判斷過的圖，已經有圖說的不會重跑。
       <strong>改動會立即儲存</strong>，不必再按確認。也可以直接上傳你自己的照片
       （例如指定代言人照、新拍的產品照）——不需要 AI 判斷，預設就是可用素材。
     </p>
@@ -45,12 +54,14 @@
       {% for file in files %}
       <div class="img-file">
         <h3 class="img-file-head">{{ file.grouper.original_filename|default:"手動上傳" }}
-          <span class="muted">· {{ file.list|length }} 張</span></h3>
+          <span class="muted">· {{ file.list|length }} 張<span
+            class="img-count">{% with n=file.list|approved_count %}{% if n %}・已選 {{ n }} 張{% endif %}{% endwith %}</span></span></h3>
         {% regroup file.list by slide_index as slides %}
         {% for slide in slides %}
         <div class="img-slide">
           <h4 class="img-slide-head">{{ slide.list.0.location_label }}
-            <span class="muted">· {{ slide.list|length }} 張</span></h4>
+            <span class="muted">· {{ slide.list|length }} 張<span
+              class="img-count">{% with n=slide.list|approved_count %}{% if n %}・已選 {{ n }} 張{% endif %}{% endwith %}</span></span></h4>
           <div class="img-grid">
           {% for image in slide.list %}
           <div class="img-item{% if not image.approved %} off{% endif %}">
@@ -167,9 +178,41 @@
 <script>
   // Dim on toggle, so the selection reads at a glance instead of forcing the
   // operator to scan twenty checkboxes to see what they just chose.
+  //
+  // A picture with no caption yet cannot be ticked on — captionless is the
+  // normal state now for anything extracted without classification (or
+  // classified as not usable), and a draft placing an image needs something
+  // to say about it. Blocking the tick, not just warning, keeps that a rule
+  // rather than a thing someone can miss.
+  // The file/slide headings show how many of their pictures are ticked, so
+  // that count has to move the instant a checkbox does — it is rendered from
+  // the server on load, but nothing here reloads the page afterwards.
+  function updateImgCounts() {
+    document.querySelectorAll('.img-slide').forEach(function (slide) {
+      const n = slide.querySelectorAll('.img-pick input[type=checkbox]:checked').length;
+      const span = slide.querySelector('.img-slide-head .img-count');
+      if (span) span.textContent = n ? '・已選 ' + n + ' 張' : '';
+    });
+    document.querySelectorAll('.img-file').forEach(function (file) {
+      const n = file.querySelectorAll('.img-pick input[type=checkbox]:checked').length;
+      const span = file.querySelector('.img-file-head .img-count');
+      if (span) span.textContent = n ? '・已選 ' + n + ' 張' : '';
+    });
+  }
+
   document.querySelectorAll('.img-pick input[type=checkbox]').forEach(function (box) {
     box.addEventListener('change', function () {
-      box.closest('.img-item').classList.toggle('off', !box.checked);
+      const item = box.closest('.img-item');
+      const caption = item.querySelector('textarea.caption');
+      if (box.checked && caption && !caption.value.trim()) {
+        box.checked = false;
+        alert('這張圖還沒有圖說，請先填寫圖說才能勾選採用。');
+        caption.focus();
+        updateImgCounts();
+        return;
+      }
+      item.classList.toggle('off', !box.checked);
+      updateImgCounts();
     });
   });
 

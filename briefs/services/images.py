@@ -80,8 +80,26 @@ def hamming(a: str, b: str) -> int:
     return bin(int(a, 16) ^ int(b, 16)).count("1")
 
 
+def is_animated(blob: bytes) -> bool:
+    """True for multi-frame image formats (animated GIF/WEBP/APNG).
+
+    A moving image has no single frame that represents it, and vision models
+    are inconsistent about handling them — a real deck GIF sent to the local
+    Qwen3-VL backend came back "invalid image input" outright rather than
+    silently grabbing frame 0. Simplest and most honest: don't send them,
+    on either backend — this is a format limitation, not a local-only one.
+    """
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(blob)) as img:
+            return getattr(img, "is_animated", False)
+    except Exception:  # noqa: BLE001 - an unreadable image just isn't animated
+        return False
+
+
 def filter_candidates(images: list[dict]) -> tuple[list[dict], dict[str, int]]:
-    """Apply the four local rules. Returns (kept, counts-per-rule-rejected).
+    """Apply the five local rules. Returns (kept, counts-per-rule-rejected).
 
     Kept images come back largest-first. That ordering is load-bearing: it
     decides which copy survives a near-duplicate collapse (the highest-fidelity
@@ -90,7 +108,7 @@ def filter_candidates(images: list[dict]) -> tuple[list[dict], dict[str, int]]:
     "is this a photograph" — hero shots are large, chart fragments and icons
     are not.
     """
-    stats = {"duplicate": 0, "near_duplicate": 0, "vector": 0, "too_small": 0}
+    stats = {"duplicate": 0, "near_duplicate": 0, "vector": 0, "too_small": 0, "animated": 0}
     kept: list[dict] = []
     seen_md5: set[str] = set()
     kept_phashes: list[str] = []
@@ -101,6 +119,9 @@ def filter_candidates(images: list[dict]) -> tuple[list[dict], dict[str, int]]:
             continue
         if len(image["blob"]) < MIN_BYTES:
             stats["too_small"] += 1
+            continue
+        if is_animated(image["blob"]):
+            stats["animated"] += 1
             continue
 
         digest = md5(image["blob"])
@@ -282,9 +303,9 @@ def ingest(brief, run_classify: bool = True, limit: int = 40) -> dict:
             ai_category=verdict["category"],
             ai_brand=verdict.get("brand_seen", ""),
             ai_caption=verdict["caption"],
-            # Pre-set to the model's verdict so review is a check, not data
-            # entry — but nothing is used until the operator saves the page.
-            approved=verdict["category"] == CATEGORY_USABLE,
+            # Never pre-ticked, even for a "usable" verdict — the model's
+            # category is a filter (it decides what the operator has to look
+            # at), not a decision. Approval is the human's alone to give.
         )
         # `source_file.pk` keeps this collision-free now that `slide_index` is
         # only unique within one file — two files can each have a "slide 3".
@@ -303,6 +324,54 @@ def ingest(brief, run_classify: bool = True, limit: int = 40) -> dict:
         "usable": sum(1 for r in stored if r.ai_category == CATEGORY_USABLE),
         **stats,
     }
+
+
+def classify_missing(brief) -> dict:
+    """Run classification on stored pictures that still have no caption.
+
+    `ingest()` may have run with `run_classify=False` — the extraction/filter
+    pass is cheap and now always runs, but the vision call is not, so a brief
+    can sit with pictures visible and un-judged until the operator asks for
+    this explicitly. A picture that already carries a caption, AI-suggested or
+    operator-typed, is left untouched: this tops up what is missing, it does
+    not re-judge what someone already decided.
+
+    Manually uploaded pictures are never a target — they start approved with
+    no classification by design (`save_manual_uploads`), and an empty caption
+    on one of those means the operator has not written one yet, not that it is
+    waiting on this pass.
+    """
+    targets = [image for image in brief.images.filter(is_manual=False)
+              if not image.display_caption()]
+    if not targets:
+        return {"classified": 0, "usable": 0}
+
+    brand = str((brief.facts or {}).get("brand") or "").strip()
+    payloads = []
+    for image in targets:
+        image.file.open("rb")
+        try:
+            blob = image.file.read()
+        finally:
+            image.file.close()
+        payloads.append({
+            "blob": blob, "ext": image.file.name.rsplit(".", 1)[-1],
+            "slide_heading": image.slide_heading, "nearby_text": image.nearby_text,
+            "slide_index": image.slide_index, "location": image.location_label,
+        })
+
+    verdicts = classify_all(payloads, brand=brand)
+    usable = 0
+    for image, verdict in zip(targets, verdicts):
+        image.ai_description = verdict["description"]
+        image.ai_category = verdict["category"]
+        image.ai_brand = verdict.get("brand_seen", "")
+        image.ai_caption = verdict["caption"]
+        # Not auto-approved, even when the verdict is "usable" — see ingest().
+        image.save(update_fields=["ai_description", "ai_category", "ai_brand", "ai_caption"])
+        if verdict["category"] == CATEGORY_USABLE:
+            usable += 1
+    return {"classified": len(targets), "usable": usable}
 
 
 def save_manual_uploads(brief, files) -> tuple[list, list[str]]:

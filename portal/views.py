@@ -274,6 +274,17 @@ def brief_images(request, pk):
                                           + "、".join(rejected))
         return redirect("portal:brief_detail", pk=pk)
 
+    if request.POST.get("action") == "classify":
+        from briefs.services import images as image_service
+
+        summary = image_service.classify_missing(brief)
+        if summary["classified"]:
+            messages.success(request, f"已辨識 {summary['classified']} 張圖片，"
+                                      f"其中 {summary['usable']} 張判定可用。")
+        else:
+            messages.info(request, "沒有需要辨識的圖片——已經有圖說的都跳過了。")
+        return redirect("portal:brief_detail", pk=pk)
+
     approved = set(request.POST.getlist("approved"))
     for image in brief.images.all():
         key = str(image.pk)

@@ -85,7 +85,8 @@ def _ingest_images(request, brief) -> None:
         f"圖片解析完成：簡報共 {summary['found']} 張圖，"
         f"規則過濾後剩 {summary['kept']} 張"
         f"（重複 {summary['duplicate']}、近似重複 {summary['near_duplicate']}、"
-        f"向量圖 {summary['vector']}、過小 {summary['too_small']}），"
+        f"向量圖 {summary['vector']}、過小 {summary['too_small']}、"
+        f"動態圖 {summary['animated']}），"
         f"送辨識 {summary['stored']} 張，判定可用 {summary['usable']} 張。請逐張核對。")
 
 
@@ -118,6 +119,17 @@ def brief_images(request, pk):
             if rejected:
                 messages.warning(request, f"{len(rejected)} 個檔案無法辨識為圖片，已略過："
                                           + "、".join(rejected))
+        return redirect("briefs:detail", pk=pk)
+
+    if request.POST.get("action") == "classify":
+        from briefs.services import images as image_service
+
+        summary = image_service.classify_missing(brief)
+        if summary["classified"]:
+            messages.success(request, f"已辨識 {summary['classified']} 張圖片，"
+                                      f"其中 {summary['usable']} 張判定可用。")
+        else:
+            messages.info(request, "沒有需要辨識的圖片——已經有圖說的都跳過了。")
         return redirect("briefs:detail", pk=pk)
 
     approved = set(request.POST.getlist("approved"))

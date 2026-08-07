@@ -65,13 +65,17 @@ def _extract_facts_and_images(brief) -> None:
         return  # every file failed; only stub markers, nothing to extract from
     facts = ppt_extract.extract_facts(brief.raw_text)
     brief.add_facts_version(facts, source="extract")
-    if not brief.parse_images:
-        return
     # Pictures are an extra, and their failure is not the batch's failure: the
     # facts are already saved and a draft can be written without illustrations.
     # Letting this raise would report a fully usable brief as 批次處理失敗.
+    #
+    # Extraction/filtering is local and cheap, so it always runs — the operator
+    # should see what pictures the deck has regardless of whether they asked
+    # for AI judgement on them. `parse_images` now only decides whether the
+    # (slow, costs a vision call per picture) classification pass runs right
+    # away; skipped here, it stays available later via image_service.classify_missing.
     try:
-        image_service.ingest(brief)
+        image_service.ingest(brief, run_classify=brief.parse_images)
     except Exception as exc:  # noqa: BLE001 - see above
         type(brief).objects.filter(pk=brief.pk).update(
             note=f"圖片解析失敗：{type(exc).__name__}: {exc}（文字內容不受影響，稿子仍可正常產出）")

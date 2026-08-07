@@ -14,10 +14,12 @@
 
     <label style="display:flex;align-items:flex-start;gap:8px;margin-top:18px;font-weight:normal;cursor:pointer">
       <input type="checkbox" name="parse_images" value="1" style="width:auto;margin-top:3px">
-      <span>一併解析簡報圖片
+      <span>上傳時就辨識圖片用途
         <span class="small muted" style="display:block;margin-top:2px">
-          抽出圖片並用影像辨識判斷用途（產品照／表格排版／裝飾），競品照會自動排除。
-          圖片解析在文字抽取＋事實抽取都完成後才跑——分類需要知道品牌是誰。
+          圖片一律會抽出來，這個開關只決定要不要現在就用影像辨識判斷用途
+          （產品照／表格排版／裝飾，競品照會自動排除）。分類需要知道品牌是誰，
+          所以在文字抽取＋事實抽取都完成後才跑；不勾選就先只看圖，之後在
+          簡報頁按「解析無圖說的圖片」再判斷。
         </span>
       </span>
     </label>

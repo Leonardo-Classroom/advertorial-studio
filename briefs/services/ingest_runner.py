@@ -63,6 +63,11 @@ def _extract_facts_and_images(brief) -> None:
     brief.recompute_from_source_files()
     if not brief.source_files.filter(status="done").exists():
         return  # every file failed; only stub markers, nothing to extract from
+    # A note from an earlier attempt is stale the moment a new one starts — if
+    # this attempt fails too, the except blocks below set their own; if it
+    # succeeds, nothing else will clear it and the page would go on showing a
+    # failure that already got fixed by trying again.
+    type(brief).objects.filter(pk=brief.pk).update(note="")
     facts = ppt_extract.extract_facts(brief.raw_text)
     brief.add_facts_version(facts, source="extract")
     # Pictures are an extra, and their failure is not the batch's failure: the
@@ -73,7 +78,7 @@ def _extract_facts_and_images(brief) -> None:
     # should see what pictures the deck has regardless of whether they asked
     # for AI judgement on them. `parse_images` now only decides whether the
     # (slow, costs a vision call per picture) classification pass runs right
-    # away; skipped here, it stays available later via image_service.classify_missing.
+    # away; skipped here, it stays available later via image_service.classify_checked.
     try:
         image_service.ingest(brief, run_classify=brief.parse_images)
     except Exception as exc:  # noqa: BLE001 - see above

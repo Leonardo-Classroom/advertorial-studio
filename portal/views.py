@@ -277,12 +277,18 @@ def brief_images(request, pk):
     if request.POST.get("action") == "classify":
         from briefs.services import images as image_service
 
-        summary = image_service.classify_missing(brief)
-        if summary["classified"]:
+        summary = image_service.classify_checked(brief)
+        if summary.get("failed"):
+            messages.error(
+                request,
+                f"辨識 {summary['classified']} 張，其中 {summary['failed']} 張沒有結果"
+                f"——本地辨識服務沒有回應。請確認 Ollama 還活著"
+                f"（./restart_ollama.sh 可以重啟），再重跑一次。")
+        elif summary["classified"]:
             messages.success(request, f"已辨識 {summary['classified']} 張圖片，"
                                       f"其中 {summary['usable']} 張判定可用。")
         else:
-            messages.info(request, "沒有需要辨識的圖片——已經有圖說的都跳過了。")
+            messages.info(request, "沒有需要辨識的圖片——請先勾選要辨識的圖片，已經有圖說的都跳過了。")
         return redirect("portal:brief_detail", pk=pk)
 
     approved = set(request.POST.getlist("approved"))
@@ -300,6 +306,15 @@ def brief_images(request, pk):
 
     messages.success(request, f"已確認 {len(approved)} 張圖片可用於稿件。")
     return redirect("portal:brief_detail", pk=pk)
+
+
+@login_required
+def brief_images_progress(request, pk):
+    """How far the running classify pass has got — see the staff twin."""
+    from briefs.services import images as image_service
+
+    get_object_or_404(_my_briefs(request), pk=pk)
+    return JsonResponse(image_service.read_classify_progress(pk))
 
 
 def _pending_key(pk) -> str:
@@ -555,7 +570,8 @@ def draft_detail(request, pk):
         "base": base,
         "base_options": others,
         "show_diff": show_diff,
-        "marked": draft_service.mark_paragraphs(base.text, draft_text) if base else None,
+        "marked": (draft_service.mark_paragraphs(base.text, draft_text, run.brief)
+                   if base else None),
         "draft_text": draft_text,
         "edit_sections": draft_edit_service.to_fields(draft_text, run.brief),
         "revisions": _human_revisions(run),
@@ -577,6 +593,9 @@ def draft_edit(request, pk):
         messages.error(request, "這篇稿子還沒有內容可以編輯。")
         return redirect("portal:draft_detail", pk=pk)
 
+    # Captions ride inside the `[[img:N|…]]` tokens, so a caption edit changes
+    # the text like any other edit and needs no special case here — it saves a
+    # new version and leaves older ones with the captions they were saved with.
     after = draft_edit_service.from_fields(base.text, request.POST)
     if after.strip() == base.text.strip():
         messages.info(request, "內容沒有變動，未儲存。")

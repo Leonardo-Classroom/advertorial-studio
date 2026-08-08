@@ -85,6 +85,30 @@
     evaluate: '評估稿件中', revise: '重寫稿件中',
   };
 
+  // "解析勾選的圖片" now only classifies whatever got ticked (see
+  // classify_checked() in briefs/services/images.py), so a flat guess is
+  // wrong whether one picture or forty are selected. Estimate instead as
+  // count × per-picture seconds, where the per-picture figure is rendered
+  // onto the button by the server (`data-secs-each`) — the two backends are
+  // an order of magnitude apart (local ~25s each and sequential, online a
+  // few seconds each and concurrent), and only the server knows which one
+  // is active. Falls back to the local figure: over-estimating the wait is
+  // much less alarming than a bar that fills and then sits there.
+  const CLASSIFY_FALLBACK_SECS = 25;
+
+  // Pictures the classify pass will actually touch: ticked and still without
+  // a caption — matches classify_checked()'s own filter, so the count feeding
+  // the estimate is the same set doing the work, not every ticked picture.
+  function countPendingClassify() {
+    let n = 0;
+    document.querySelectorAll('.img-item').forEach(function (item) {
+      const box = item.querySelector('input[type=checkbox]');
+      const caption = item.querySelector('textarea.caption');
+      if (box && box.checked && caption && !caption.value.trim()) n++;
+    });
+    return n;
+  }
+
   // Generation now runs the same five stages every time — the controls that
   // used to cut it short (pausing at the outline, a rewrite budget of 0) are
   // gone from both forms, so there is nothing left to branch on. Only the
@@ -108,11 +132,45 @@
   const elBar = document.getElementById('loading-bar');
   let timer = null;
 
-  function start(steps, name) {
+  // Real progress, for the one operation that can report it. Everything else
+  // here is a timetable — but the classify pass writes its running count to
+  // the cache as each picture lands (classify_checked in
+  // briefs/services/images.py), so this can show what is actually happening
+  // rather than what the median run did. Polled, because the request that
+  // would otherwise answer is the one being waited on.
+  //
+  // Failures are ignored on purpose: this is decoration over a wait that
+  // works fine without it, and a progress endpoint that 500s must not put an
+  // error in front of someone whose real job is still running.
+  let progressPoll = null;
+  let progressSeen = null;
+
+  function startProgressPoll(url) {
+    if (!url || !window.fetch) return;
+    progressPoll = setInterval(function () {
+      fetch(url, {credentials: 'same-origin', headers: {'X-Requested-With': 'fetch'}})
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (data) {
+          if (data && typeof data.total === 'number' && data.total > 0) {
+            progressSeen = data;
+          }
+        })
+        .catch(function () {});
+    }, 2000);
+  }
+
+  function stopProgressPoll() {
+    if (progressPoll) { clearInterval(progressPoll); progressPoll = null; }
+    progressSeen = null;
+  }
+
+  function start(steps, name, expectedOverride) {
     // Expected total: the last step's start plus a share of the run again, so
-    // the bar has somewhere to go during the final stage.
+    // the bar has somewhere to go during the final stage. `classifyimg` passes
+    // its own count-based estimate instead — its "steps" is just one label.
     const last = steps[steps.length - 1][0];
-    const expected = Math.max(last * 1.35, last + 20);
+    const expected = expectedOverride != null ? expectedOverride
+      : Math.max(last * 1.35, last + 20);
     elTitle.textContent = TITLES[name] || '處理中';
     box.hidden = false;
 
@@ -123,11 +181,27 @@
 
       let i = 0;
       while (i + 1 < steps.length && secs >= steps[i + 1][0]) i++;
-      elStep.textContent = steps.length > 1
+      let label = steps.length > 1
         ? '步驟 ' + (i + 1) + '／' + steps.length + '：' + steps[i][1]
         : steps[i][1];
+      if (progressSeen) {
+        // "第 3／11 張" counts the picture being worked on, not the one just
+        // finished — `done` is completions, so the one in flight is done+1,
+        // clamped so the last picture does not read as "第 12／11 張".
+        const at = Math.min(progressSeen.done + 1, progressSeen.total);
+        label += '（第 ' + at + '／' + progressSeen.total + ' 張）';
+      }
+      elStep.textContent = label;
 
-      if (secs < expected) {
+      if (progressSeen) {
+        // Real counts beat the clock: drive the bar off pictures finished.
+        // Still capped at 92% — the last picture's result has not been saved
+        // and the response has not come back, so this is not "done" yet.
+        elBar.style.width = (progressSeen.done / progressSeen.total * 92).toFixed(1) + '%';
+        elOf.textContent = secs < expected
+          ? '，通常約需 ' + Math.round(expected) + ' 秒'
+          : '，比平常久一些，仍在處理中';
+      } else if (secs < expected) {
         elBar.style.width = (secs / expected * 92).toFixed(1) + '%';
         elOf.textContent = '，通常約需 ' + Math.round(expected) + ' 秒';
       } else {
@@ -155,7 +229,14 @@
       const btn = e.submitter;
       setTimeout(function () { btn.disabled = true; }, 0);
     }
-    start(steps, name);
+    const each = Number(e.submitter && e.submitter.dataset.secsEach) || CLASSIFY_FALLBACK_SECS;
+    const expectedOverride = name === 'classifyimg'
+      ? Math.max(countPendingClassify(), 1) * each
+      : null;
+    start(steps, name, expectedOverride);
+    if (name === 'classifyimg' && e.submitter) {
+      startProgressPoll(e.submitter.dataset.progressUrl);
+    }
   });
 
   // Returning via the back button restores the page from cache with the overlay
@@ -163,6 +244,7 @@
   window.addEventListener('pageshow', function (ev) {
     if (!ev.persisted) return;
     if (timer) { clearInterval(timer); timer = null; }
+    stopProgressPoll();
     box.hidden = true;
     document.querySelectorAll('form[data-loading-done]').forEach(function (f) {
       delete f.dataset.loadingDone;

@@ -117,7 +117,8 @@
 </script>
 
 {% url 'portal:brief_images' brief.pk as image_action_url %}
-{% include "briefs/_image_review.html" with action_url=image_action_url %}
+{% url 'portal:brief_images_progress' brief.pk as image_progress_url %}
+{% include "briefs/_image_review.html" with action_url=image_action_url progress_url=image_progress_url %}
 
 <div class="card">
   <h2 style="margin-top:0">產出廣編稿</h2>

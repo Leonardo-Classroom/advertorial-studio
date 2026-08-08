@@ -18,7 +18,15 @@
     <form method="post" action="{{ action_url }}" style="flex:0">
       {% csrf_token %}
       <input type="hidden" name="action" value="classify">
-      <button class="btn sm ghost" data-loading="classifyimg">解析無圖說的圖片</button>
+      {% comment %}
+         每張圖的預估秒數由後端決定，因為兩者差一個數量級：本地是 qwen3-vl:8b，
+         實測一張 13~28s，而且 workers=1 是循序跑的（見 briefs/services/images.py
+         的 classify_all）；線上則是併發呼叫、每張幾秒。寫死一個平均值不論取哪個
+         都會誤導其中一邊。
+      {% endcomment %}
+      <button class="btn sm ghost" data-loading="classifyimg"
+              data-secs-each="{% if llm_backend == 'local' %}25{% else %}8{% endif %}"
+              data-progress-url="{{ progress_url }}">解析勾選的圖片</button>
     </form>
     {% else %}
     <form method="post" action="{{ action_url }}" style="flex:0">
@@ -42,8 +50,8 @@
       勾選的圖片才會被放進稿子。AI 只負責分類與建議圖說，<strong>不會自動幫你勾選</strong>——
       每一張都要你自己確認過才算數，特別是簡報前段做市場分析用的<strong>競品照片</strong>，
       畫面上就是一雙好看的鞋，要靠你確認那是不是這次要推的品牌。圖說留空就用 AI 建議的版本；
-      <strong>還沒有圖說的圖片沒辦法勾選</strong>——按上面的「解析無圖說的圖片」
-      可以一次補上還沒判斷過的圖，已經有圖說的不會重跑。
+      看縮圖就可以先勾選——按上面的「解析勾選的圖片」會幫勾選的圖補上 AI 判斷與建議圖說，
+      已經有圖說的不會重跑。
       <strong>改動會立即儲存</strong>，不必再按確認。也可以直接上傳你自己的照片
       （例如指定代言人照、新拍的產品照）——不需要 AI 判斷，預設就是可用素材。
     </p>
@@ -82,6 +90,16 @@
                 {% elif image.ai_category == 'layout' %}<span class="pill warn sm">表格／排版</span>
                 {% elif image.ai_category == 'decoration' %}<span class="pill sm">裝飾</span>
                 {% else %}<span class="pill sm">未判斷</span>{% endif %}
+                {% comment %}
+                   AI 現在每一張都寫圖說，包含它認為不該入稿的。所以圖說存在
+                   不再等於「這張可以用」——這個 pill 就是補回那個區別，免得
+                   看到有圖說就直接勾走一張版位示意圖。刻意不重用「未判斷」：
+                   那是 category=unknown（辨識失敗、模型沒回答）的標籤，兩者
+                   混在一起會讓「服務壞掉」和「模型判斷過」再次難以分辨。
+                {% endcomment %}
+                {% if not image.is_manual and image.ai_category != 'usable' and image.ai_caption %}
+                <span class="pill sm" title="AI 判定這張不適合入稿，圖說只是描述畫面，不是文案">不建議入稿</span>
+                {% endif %}
                 {% if image.ai_brand %}<span class="pill sm">{{ image.ai_brand }}</span>{% endif %}
               </div>
               <textarea name="caption_{{ image.pk }}" class="sm caption" rows="1"
@@ -179,11 +197,10 @@
   // Dim on toggle, so the selection reads at a glance instead of forcing the
   // operator to scan twenty checkboxes to see what they just chose.
   //
-  // A picture with no caption yet cannot be ticked on — captionless is the
-  // normal state now for anything extracted without classification (or
-  // classified as not usable), and a draft placing an image needs something
-  // to say about it. Blocking the tick, not just warning, keeps that a rule
-  // rather than a thing someone can miss.
+  // A picture can be ticked on straight from the thumbnail, with no caption
+  // yet — that is what "解析勾選的圖片" is for: it fills in AI judgement and
+  // a suggested caption for whatever got checked, skipping anything that
+  // already has one.
   // The file/slide headings show how many of their pictures are ticked, so
   // that count has to move the instant a checkbox does — it is rendered from
   // the server on load, but nothing here reloads the page afterwards.
@@ -203,14 +220,6 @@
   document.querySelectorAll('.img-pick input[type=checkbox]').forEach(function (box) {
     box.addEventListener('change', function () {
       const item = box.closest('.img-item');
-      const caption = item.querySelector('textarea.caption');
-      if (box.checked && caption && !caption.value.trim()) {
-        box.checked = false;
-        alert('這張圖還沒有圖說，請先填寫圖說才能勾選採用。');
-        caption.focus();
-        updateImgCounts();
-        return;
-      }
       item.classList.toggle('off', !box.checked);
       updateImgCounts();
     });

@@ -160,8 +160,15 @@ LLM_TEMPERATURE = float(env("LLM_TEMPERATURE", "0.8") or 0.8)
 LOCAL_LLM_BASE_URL = env("LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434/v1")
 LOCAL_LLM_API_KEY = env("LOCAL_LLM_API_KEY", "ollama")
 LOCAL_LLM_MODEL = env("LOCAL_LLM_MODEL", "qwen3.6:27b-q4_K_M")
-LOCAL_LLM_VISION_MODEL = env("LOCAL_LLM_VISION_MODEL", "qwen3-vl:32b-fast")
+LOCAL_LLM_VISION_MODEL = env("LOCAL_LLM_VISION_MODEL", "qwen3-vl:8b")
 LOCAL_LLM_TIMEOUT = env_int("LOCAL_LLM_TIMEOUT", 300)
+# Vision gets its own, much shorter budget. 300s is sized for text generation,
+# where Qwen3.6's unsuppressed thinking mode produces a genuine long tail; a
+# picture through qwen3-vl:8b measures 10~25s (one outlier at 53s) even
+# including a cold model load, so anything past ~2 minutes is not a slow
+# answer, it is a stuck one. Sharing the text figure meant a hung Ollama held
+# every remaining picture for five minutes each — see `classify`.
+LOCAL_LLM_VISION_TIMEOUT = env_int("LOCAL_LLM_VISION_TIMEOUT", 120)
 
 # Embedding model. This Azure resource has no text-embedding-3-* deployment;
 # Cohere Embed v4 is what is actually reachable (verified 2026-07-26).

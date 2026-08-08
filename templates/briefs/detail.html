@@ -69,6 +69,7 @@
 </div>
 
 {% url 'briefs:images' brief.pk as image_action_url %}
-{% include "briefs/_image_review.html" with action_url=image_action_url %}
+{% url 'briefs:images_progress' brief.pk as image_progress_url %}
+{% include "briefs/_image_review.html" with action_url=image_action_url progress_url=image_progress_url %}
 {% endif %}
 {% endblock %}

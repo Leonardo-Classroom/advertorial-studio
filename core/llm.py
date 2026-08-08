@@ -61,6 +61,16 @@ def _backend() -> str:
     return SiteSettings.load().llm_backend
 
 
+def is_local_backend() -> bool:
+    """Whether the writer/vision backend is currently local, per `SiteSettings`.
+
+    Public wrapper around `_backend()` for callers outside this module that
+    need to make a decision based on which backend is active — e.g. how many
+    picture-classification calls to run at once (see `briefs/services/images.py`).
+    """
+    return _backend() == "local"
+
+
 def get_client() -> OpenAI:
     """The writer client for the currently-configured backend.
 

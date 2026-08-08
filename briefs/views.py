@@ -45,12 +45,15 @@ def brief_upload(request):
 
 @staff_required
 def brief_detail(request, pk):
+    from studio.models import SiteSettings
+
     brief = get_object_or_404(Brief, pk=pk)
     source_files = list(brief.source_files.order_by("order", "pk"))
     ingest_runner.reap_stale(source_files)
     ingest_runner.reap_stale_brief(brief)
     return render(request, "briefs/detail.html", {
         "section": "briefs",
+        "llm_backend": SiteSettings.load().llm_backend,
         "brief": brief,
         "source_files": source_files,
         "files_in_progress": brief.processing,
@@ -124,12 +127,18 @@ def brief_images(request, pk):
     if request.POST.get("action") == "classify":
         from briefs.services import images as image_service
 
-        summary = image_service.classify_missing(brief)
-        if summary["classified"]:
+        summary = image_service.classify_checked(brief)
+        if summary.get("failed"):
+            messages.error(
+                request,
+                f"辨識 {summary['classified']} 張，其中 {summary['failed']} 張沒有結果"
+                f"——本地辨識服務沒有回應。請確認 Ollama 還活著"
+                f"（./restart_ollama.sh 可以重啟），再重跑一次。")
+        elif summary["classified"]:
             messages.success(request, f"已辨識 {summary['classified']} 張圖片，"
                                       f"其中 {summary['usable']} 張判定可用。")
         else:
-            messages.info(request, "沒有需要辨識的圖片——已經有圖說的都跳過了。")
+            messages.info(request, "沒有需要辨識的圖片——請先勾選要辨識的圖片，已經有圖說的都跳過了。")
         return redirect("briefs:detail", pk=pk)
 
     approved = set(request.POST.getlist("approved"))
@@ -145,6 +154,19 @@ def brief_images(request, pk):
 
     messages.success(request, f"已確認 {len(approved)} 張圖片可用於稿件。")
     return redirect("briefs:detail", pk=pk)
+
+
+@staff_required
+def brief_images_progress(request, pk):
+    """How far the running classify pass has got, for the waiting overlay.
+
+    Served while the classify POST is still in flight, so it relies on
+    `runserver` being threaded (it is, by default) — a single-threaded server
+    would queue this behind the very request it is reporting on.
+    """
+    from briefs.services import images as image_service
+
+    return JsonResponse(image_service.read_classify_progress(pk))
 
 
 @staff_required

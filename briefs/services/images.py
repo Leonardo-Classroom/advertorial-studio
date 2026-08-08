@@ -157,7 +157,9 @@ CLASSIFY_TASK = """請看這張從簡報中抽出的圖片，輸出這個 JSON�
   "description": "一句話描述圖片實際畫面。這是給編輯核對用的，不是文案",
   "category": "usable / layout / decoration 三選一",
   "brand_seen": "圖中若出現可辨識的品牌（鞋身logo、包裝、店招），寫出品牌名；認不出來就留空字串",
-  "caption": "若 category 是 usable，寫一句可放在文章裡的圖說；否則留空字串"
+  "caption": "一句圖說，每張都要寫，不因分類而略過。usable 就寫可直接放進文章的版本；
+              layout / decoration 則客觀描述畫面內容即可，不要寫成推銷文案——
+              這種圖多半不會入稿，圖說只是讓編輯在列表上認出它是什麼"
 }}
 
 這篇稿子是要為【{brand}】寫的。分類標準：
@@ -175,7 +177,7 @@ CLASSIFY_TASK = """請看這張從簡報中抽出的圖片，輸出這個 JSON�
 【附近文字（推測，可能不準）】{nearby}"""
 
 
-def classify(image: dict, brand: str = "", timeout: float = 120) -> dict:
+def classify(image: dict, brand: str = "", timeout: float | None = None) -> dict:
     """Ask the model what one picture is. Never raises — failures degrade to unknown.
 
     `brand` is what makes this judgement possible rather than merely descriptive.
@@ -186,26 +188,83 @@ def classify(image: dict, brand: str = "", timeout: float = 120) -> dict:
 
     One bad picture must not abort the upload, so a failed call is recorded as
     `unknown` with the reason attached and left for the reviewer to judge.
+
+    `timeout` defaults per backend rather than to one flat number: local goes
+    to `LOCAL_LLM_VISION_TIMEOUT`, deliberately its own setting rather than the
+    300s `LOCAL_LLM_TIMEOUT` the text path uses. See that setting for the
+    measurements — the short version is that a stuck local call is far more
+    likely than a slow one, so waiting longer buys nothing and costs the whole
+    batch.
+
+    `timeout` is enforced twice, deliberately. It is passed down to the HTTP
+    client as usual, but that alone is not trustworthy against the local
+    backend — a real run sat past both that timeout and an outer 180s wrapper
+    with nothing raised (report/本地線上API比較.md §五), because the client's
+    timeout measures gaps between bytes, not total call time, and a model that
+    keeps trickling tokens (or the connection itself stalling) never triggers
+    it. So the call also runs on its own daemon thread with a hard `join`
+    deadline around it — an actual wall clock that does not care why the call
+    is still running. Deliberately a bare `threading.Thread(daemon=True)`,
+    not `ThreadPoolExecutor`: the executor's worker threads are *not* daemon
+    threads, so an abandoned one is still tracked by `concurrent.futures`'s
+    own atexit machinery and can hold up interpreter shutdown waiting for a
+    call that may never return. A daemon thread carries no such promise —
+    on the deadline the call is abandoned, not cancelled (Python cannot kill
+    a blocked native call), but this function returns immediately either
+    way, which is the part that matters: one stuck picture no longer holds
+    up the rest of the batch, the request serving it, or the process itself.
     """
+    if timeout is None:
+        from django.conf import settings
+
+        timeout = (settings.LOCAL_LLM_VISION_TIMEOUT if llm.is_local_backend()
+                   else 120)
+
     heading = f"（標題：{image['slide_heading']}）" if image.get("slide_heading") else ""
     nearby = image.get("nearby_text") or "（附近沒有文字）"
     # Named in the source format's own terms — a Word file has no slide 3, and
     # telling the model it does is a detail it may well try to reconcile.
     location = image.get("location") or f"第 {image['slide_index']} 張投影片"
 
-    try:
-        data = llm.complete_json_vision(
-            instructions=CLASSIFY_ROLE,
-            user_input=CLASSIFY_TASK.format(
-                brand=brand or "本次合作品牌（簡報未指明，請以畫面中出現的主要品牌為準）",
-                location=location, heading=heading, nearby=nearby),
-            image_bytes=image["blob"],
-            image_ext=image["ext"],
-            timeout=timeout,
-        )
-    except Exception as exc:  # noqa: BLE001 - one picture must not fail the upload
+    outcome: dict = {}
+
+    def _call():
+        try:
+            outcome["data"] = llm.complete_json_vision(
+                instructions=CLASSIFY_ROLE,
+                user_input=CLASSIFY_TASK.format(
+                    brand=brand or "本次合作品牌（簡報未指明，請以畫面中出現的主要品牌為準）",
+                    location=location, heading=heading, nearby=nearby),
+                image_bytes=image["blob"],
+                image_ext=image["ext"],
+                timeout=timeout,
+            )
+        except Exception as exc:  # noqa: BLE001 - reported on the calling side
+            outcome["error"] = exc
+
+    import threading
+
+    worker = threading.Thread(target=_call, daemon=True)
+    worker.start()
+    # A small grace beyond `timeout` itself: if the client-side timeout is
+    # ever actually honoured, let it be the one to raise, so the error below
+    # still reflects what really happened.
+    worker.join(timeout=timeout + 10)
+
+    # `_error` marks the two "the service did not answer" outcomes so a batch
+    # can tell them apart from a picture the model genuinely judged. Only these
+    # two count toward `classify_all`'s give-up rule — a blank or unparseable
+    # answer is the model being unhelpful, which says nothing about whether the
+    # next call will work, but a timeout or a connection error usually means
+    # the server is gone and every remaining picture will pay the same wait.
+    if worker.is_alive():
+        return {"description": "（逾時未回應，已略過這張圖）", "category": CATEGORY_UNKNOWN,
+                "brand_seen": "", "caption": "", "_error": "timeout"}
+    if "error" in outcome:
+        exc = outcome["error"]
         return {"description": f"（辨識失敗：{type(exc).__name__}）", "category": CATEGORY_UNKNOWN,
-                "brand_seen": "", "caption": ""}
+                "brand_seen": "", "caption": "", "_error": type(exc).__name__}
+    data = outcome.get("data") or {}
 
     category = str(data.get("category") or "").strip().lower()
     if category not in (CATEGORY_USABLE, CATEGORY_LAYOUT, CATEGORY_DECORATION):
@@ -218,24 +277,89 @@ def classify(image: dict, brand: str = "", timeout: float = 120) -> dict:
     }
 
 
-def classify_all(images: list[dict], brand: str = "", workers: int = 6) -> list[dict]:
+# Two in a row, not one: a single timeout can be one awkward picture, but two
+# consecutive service failures have never yet been anything but a dead server.
+GIVE_UP_AFTER = 2
+ABANDONED = {"description": "（辨識服務沒有回應，已中止這批的其餘圖片）",
+             "category": CATEGORY_UNKNOWN, "brand_seen": "", "caption": "",
+             "_error": "abandoned"}
+
+
+def classify_all(images: list[dict], brand: str = "", workers: int | None = None,
+                 on_done=None) -> list[dict]:
     """Classify a batch concurrently, preserving input order.
 
     Sequential calls would put minutes into an HTTP request — forty pictures at
-    a few seconds each. The generation endpoint was measured holding per-call
-    latency flat at eight concurrent requests, so the bottleneck is round trips,
-    not the service. `classify` swallows its own failures, so one bad picture
-    still cannot take the batch down.
+    a few seconds each. The online endpoint was measured holding per-call
+    latency flat at eight concurrent requests, so there the bottleneck is round
+    trips, not the service, and concurrency genuinely shortens wall-clock time.
+
+    A single local GPU is the opposite case: one 4090 running one loaded model
+    can only actually compute one inference at a time, so several concurrent
+    requests just queue up inside Ollama and contend for the same VRAM/context
+    rather than running in parallel — plausible extra cause of the unexplained
+    tail latency and blank outputs measured in report/本地線上API比較.md §五,
+    on top of adding no real speedup. So `workers` defaults to 1 for the local
+    backend and 6 for online, unless the caller overrides it explicitly.
+
+    `classify` swallows its own failures (including its own timeout), so one
+    bad picture still cannot take the batch down.
+
+    It also gives up. A local Ollama that has wedged (twice now: the kernel
+    D-state incident in report/本地線上API比較.md §二, and again mid-batch on
+    2026-08-08, where seven pictures came back in 10~21s each and the eighth
+    request simply never returned) does not recover on its own, so every
+    remaining picture pays the full timeout for nothing — eleven pictures at
+    120s is twenty-two minutes of a progress bar that will never finish
+    usefully. After `GIVE_UP_AFTER` consecutive service-level failures the
+    rest are marked abandoned without being sent. Sequential only: under
+    concurrency the calls are already in flight together, so there is nothing
+    left to skip.
+
+    `on_done(n)` fires as each picture finishes, with the running count. It is
+    what lets the waiting overlay say "第 3／11 張" instead of guessing from a
+    clock — the request doing the work is the one being waited on, so this
+    callback is the only place that actually knows. It reports *completions*,
+    not position: under concurrency the pictures do not finish in order, so a
+    count is the only figure that stays true.
     """
     if not images:
         return []
+    if workers is None:
+        workers = 1 if llm.is_local_backend() else 6
     if workers <= 1:
-        return [classify(image, brand=brand) for image in images]
+        results = []
+        consecutive = 0
+        for image in images:
+            if consecutive >= GIVE_UP_AFTER:
+                results.append(dict(ABANDONED))
+            else:
+                verdict = classify(image, brand=brand)
+                consecutive = consecutive + 1 if verdict.get("_error") else 0
+                results.append(verdict)
+            if on_done:
+                on_done(len(results))
+        return results
 
+    import threading
     from concurrent.futures import ThreadPoolExecutor
 
+    lock = threading.Lock()
+    done = 0
+
+    def _one(image):
+        nonlocal done
+        verdict = classify(image, brand=brand)
+        if on_done:
+            # Counting in the worker threads, so the lock is what keeps two
+            # simultaneous finishes from reading the same number.
+            with lock:
+                done += 1
+                on_done(done)
+        return verdict
+
     with ThreadPoolExecutor(max_workers=min(workers, len(images))) as pool:
-        return list(pool.map(lambda image: classify(image, brand=brand), images))
+        return list(pool.map(_one, images))
 
 
 def ingest(brief, run_classify: bool = True, limit: int = 40) -> dict:
@@ -326,25 +450,70 @@ def ingest(brief, run_classify: bool = True, limit: int = 40) -> dict:
     }
 
 
-def classify_missing(brief) -> dict:
-    """Run classification on stored pictures that still have no caption.
+# Progress for the waiting overlay. Kept in the cache rather than on the Brief
+# row because it is worth nothing once the run ends — writing it to the
+# database would mean a write per picture for a number no one reads afterwards.
+# The TTL is a backstop: a run killed mid-way (server restart) leaves a stale
+# entry that would otherwise make the next page load think work is in flight.
+#
+# Assumes writer and reader share a cache. They do under `runserver`, which is
+# one process serving both the classify POST and the progress GET on separate
+# threads, and the project has no CACHES setting so that is Django's
+# per-process LocMemCache. Moving to a multi-worker server (gunicorn et al.)
+# without also configuring a shared cache would not break the classify pass,
+# but the poll would land on a worker that never wrote anything and the count
+# would simply never appear.
+_PROGRESS_TTL = 900
 
-    `ingest()` may have run with `run_classify=False` — the extraction/filter
-    pass is cheap and now always runs, but the vision call is not, so a brief
-    can sit with pictures visible and un-judged until the operator asks for
-    this explicitly. A picture that already carries a caption, AI-suggested or
-    operator-typed, is left untouched: this tops up what is missing, it does
-    not re-judge what someone already decided.
 
-    Manually uploaded pictures are never a target — they start approved with
-    no classification by design (`save_manual_uploads`), and an empty caption
-    on one of those means the operator has not written one yet, not that it is
-    waiting on this pass.
+def classify_progress_key(brief_pk) -> str:
+    return f"classify_progress:{brief_pk}"
+
+
+def read_classify_progress(brief_pk) -> dict:
+    """`{"done": n, "total": m}` while a classify pass runs, `{}` otherwise."""
+    from django.core.cache import cache
+
+    return cache.get(classify_progress_key(brief_pk)) or {}
+
+
+def _write_classify_progress(brief_pk, done: int, total: int) -> None:
+    from django.core.cache import cache
+
+    cache.set(classify_progress_key(brief_pk), {"done": done, "total": total},
+              _PROGRESS_TTL)
+
+
+def classify_checked(brief) -> dict:
+    """Run classification on checked pictures that still have no caption.
+
+    The checkbox no longer requires a caption to tick on — the operator can
+    select pictures on sight, from the thumbnail alone, before AI has looked
+    at any of them. This is the other half of that: instead of blindly
+    classifying every un-judged picture in the brief, it only spends a vision
+    call on the ones the operator actually chose, skipping the rest. A picture
+    that already carries a caption, AI-suggested or operator-typed, is left
+    untouched: this tops up what is missing, it does not re-judge what someone
+    already decided.
+
+    Manually uploaded pictures *are* included, which they did not used to be.
+    The old rule reasoned that an operator-chosen picture has already passed
+    human judgement so there is nothing for a classifier to add — true of the
+    category, but the caption is a separate need, and the reasoning stopped
+    holding once the "no caption, no tick" rule went away. A hand-uploaded KOL
+    shot would otherwise sit approved and captionless with no way to ask for
+    one, and reach the draft with no `<figcaption>` at all.
+
+    What comes back is applied differently for those, though: only the
+    description and caption are kept, never the category. The operator picked
+    that picture on purpose, and letting the model relabel it `layout` would
+    overturn a human decision with a guess — the exact inversion this review
+    page exists to prevent.
     """
-    targets = [image for image in brief.images.filter(is_manual=False)
+    targets = [image for image in brief.images.filter(approved=True)
               if not image.display_caption()]
     if not targets:
-        return {"classified": 0, "usable": 0}
+        return {"classified": 0, "usable": 0, "failed": 0}
 
     brand = str((brief.facts or {}).get("brand") or "").strip()
     payloads = []
@@ -360,18 +529,45 @@ def classify_missing(brief) -> dict:
             "slide_index": image.slide_index, "location": image.location_label,
         })
 
-    verdicts = classify_all(payloads, brand=brand)
+    # Published before the first call so the overlay can say "第 0／11 張"
+    # immediately, rather than showing nothing until the first picture lands —
+    # with the local backend that first gap is 30 seconds or more.
+    total = len(targets)
+    _write_classify_progress(brief.pk, 0, total)
+    try:
+        verdicts = classify_all(
+            payloads, brand=brand,
+            on_done=lambda n: _write_classify_progress(brief.pk, n, total))
+    finally:
+        # Cleared even when the batch raises: a leftover entry would leave the
+        # next visitor's overlay counting against a run that is already over.
+        from django.core.cache import cache
+
+        cache.delete(classify_progress_key(brief.pk))
+
     usable = 0
+    failed = 0
     for image, verdict in zip(targets, verdicts):
         image.ai_description = verdict["description"]
-        image.ai_category = verdict["category"]
         image.ai_brand = verdict.get("brand_seen", "")
         image.ai_caption = verdict["caption"]
+        fields = ["ai_description", "ai_brand", "ai_caption"]
+        if not image.is_manual:
+            # Deck pictures get the category; hand-uploaded ones keep whatever
+            # they had — see the docstring. This is why the field list is built
+            # rather than fixed.
+            image.ai_category = verdict["category"]
+            fields.append("ai_category")
         # Not auto-approved, even when the verdict is "usable" — see ingest().
-        image.save(update_fields=["ai_description", "ai_category", "ai_brand", "ai_caption"])
+        image.save(update_fields=fields)
         if verdict["category"] == CATEGORY_USABLE:
             usable += 1
-    return {"classified": len(targets), "usable": usable}
+        if verdict.get("_error"):
+            failed += 1
+    # `failed` separated out because "0 張判定可用" reads as a verdict on the
+    # pictures when it is often a verdict on the service — the whole reason a
+    # dead Ollama went unnoticed for a whole afternoon.
+    return {"classified": len(targets), "usable": usable, "failed": failed}
 
 
 def save_manual_uploads(brief, files) -> tuple[list, list[str]]:

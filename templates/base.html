@@ -168,6 +168,69 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
 .toggle button:hover{color:var(--ink)}
 .toggle button.on{background:var(--accent);color:#fff}
 .toggle button.on:hover{color:#fff}
+/* File-type glyphs, shared by the upload picker and the source-file lists.
+   The colours are the conventions people already read, so they are fixed
+   rather than themed — but drawn with `currentColor` at low opacity, which
+   keeps them legible on either background. */
+.picker-icon{flex:none;display:inline-flex;align-items:center;vertical-align:middle}
+.t-pptx{color:#d2683a}
+.t-docx{color:#2b6cb0}
+.t-pdf{color:#c0362c}
+.t-other{color:var(--muted)}
+/* One source file per line: the names are long, and run together on one line
+   they read as a single unbroken string of punctuation. */
+.src-files{display:flex;flex-direction:column;gap:5px;margin:6px 0 10px}
+.src-file{display:flex;align-items:center;gap:8px;min-width:0}
+.src-file a{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+/* Numbered pager. Every page is one click, rather than 上一頁/下一頁 walking.
+   Centred under the table with the total above it — the count is a caption for
+   the whole list, not a label for the buttons, so it reads as a line of its
+   own rather than as something sitting beside them. */
+.pager-wrap{margin-top:16px}
+/* Above the table, left with the rows it counts. */
+.list-count{margin:0 0 8px}
+.pager{display:flex;flex-wrap:wrap;gap:4px;justify-content:center}
+.pager .pg{min-width:30px;padding:5px 8px;border:1px solid var(--line);border-radius:7px;
+  font-size:13px;text-align:center;color:var(--muted);background:transparent}
+.pager a.pg:hover{color:var(--ink);border-color:var(--muted);text-decoration:none}
+.pager .pg.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:650}
+/* The ellipsis is a gap in the sequence, not a control — no box around it. */
+.pager .pg.gap{border-color:transparent;min-width:auto;padding:5px 2px}
+/* The arrow at either end of the range: kept in place so the row does not
+   re-flow as you page, but visibly not a target. */
+.pager .pg.off{opacity:.35}
+/* Sortable column headings. They stay heading-coloured rather than link-blue —
+   a row of six blue words reads as navigation, not as a table header.
+
+   The cell's padding moves onto the link so the whole header is the target,
+   not just the few characters of the label: a 10px miss above or beside the
+   word did nothing, which reads as a broken control rather than a near miss.
+   The hover tint is what makes that enlarged area visible. */
+th.th-sortable{padding:0}
+.th-sort{color:inherit;display:flex;align-items:center;gap:3px;white-space:nowrap;
+  padding:10px;border-radius:6px}
+.th-sort:hover{color:var(--ink);text-decoration:none;background:var(--bg)}
+.th-sort.on{color:var(--ink);font-weight:700}
+/* The arrow was a 10px grey-blue caret that vanished next to the label. It is
+   the only thing on screen saying which column is in force, so it now carries
+   the accent as a filled chip. */
+.th-arrow{font-size:9px;line-height:1;color:#fff;background:var(--accent);
+  border-radius:4px;padding:3px 4px;margin-left:2px}
+/* An inline on/off switch, used where the state is the only thing to set and
+   opening a detail page to set it is the whole interaction. */
+.switch{display:inline-flex;align-items:center;gap:8px;margin:0;cursor:pointer}
+.switch input{position:absolute;opacity:0;width:0;height:0}
+.switch-track{width:34px;height:19px;border-radius:19px;background:var(--line);
+  position:relative;transition:background .15s;flex:none}
+.switch-track::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;
+  border-radius:50%;background:var(--panel);transition:transform .15s;
+  box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.switch input:checked + .switch-track{background:var(--good)}
+.switch input:checked + .switch-track::after{transform:translateX(15px)}
+.switch input:focus-visible + .switch-track{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){
+  .switch-track,.switch-track::after{transition:none}
+}
 </style>
 </head>
 <body>
@@ -179,8 +242,8 @@ details>summary{cursor:pointer;color:var(--muted);font-size:13.5px;padding:5px 0
     <a href="{% url 'studio:home' %}" class="{% if section == 'home' %}on{% endif %}">總覽</a>
     <a href="{% url 'corpus:articles' %}" class="{% if section == 'corpus' %}on{% endif %}">語料庫</a>
     <a href="{% url 'corpus:guides' %}" class="{% if section == 'guides' %}on{% endif %}">風格指南</a>
-    <a href="{% url 'briefs:list' %}" class="{% if section == 'briefs' %}on{% endif %}">簡報</a>
-    <a href="{% url 'studio:runs' %}" class="{% if section == 'runs' %}on{% endif %}">生成紀錄</a>
+    {% if show_briefs_nav %}<a href="{% url 'briefs:list' %}" class="{% if section == 'briefs' %}on{% endif %}">專案</a>{% endif %}
+    {% if show_runs_nav %}<a href="{% url 'studio:runs' %}" class="{% if section == 'runs' %}on{% endif %}">生成紀錄</a>{% endif %}
     <a href="{% url 'studio:experiments' %}" class="{% if section == 'experiments' %}on{% endif %}">A/B 實驗</a>
     <a href="{% url 'accounts:list' %}" class="{% if section == 'users' %}on{% endif %}">使用者</a>
     <a href="{% url 'studio:advanced' %}" class="{% if section == 'advanced' %}on{% endif %}">高級</a>

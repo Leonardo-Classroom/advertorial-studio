@@ -1,0 +1,25 @@
+{% comment %}
+  A sortable table header row, shared by the project and draft lists so the two
+  cannot drift apart. The including view supplies `sortable` (a list of
+  (key, label) pairs), plus `sort`, `dir` and `flip`.
+
+  The active heading links to the opposite direction so clicking it again
+  flips; the others start at their own natural direction, decided by the view.
+{% endcomment %}
+<tr>
+  {% for k, label in sortable %}
+  {% comment %}
+    `qs_extra` carries the filters and page size through, or sorting a filtered
+    list would quietly clear the filter — the rows would change for a reason
+    nothing on screen explains.
+  {% endcomment %}
+  <th class="th-sortable"><a href="?sort={{ k }}{% if sort == k %}&dir={{ flip }}{% endif %}{{ qs_extra }}"
+         class="th-sort{% if sort == k %} on{% endif %}">{{ label }}{% if sort == k %}<span class="th-arrow">{% if dir == 'desc' %}▼{% else %}▲{% endif %}</span>{% endif %}</a></th>
+  {% endfor %}
+  {% comment %}
+    A trailing action column ("看文章") has nothing to sort by, but it still
+    needs a heading cell — without one the header row is a cell short of the
+    body and every column below it shifts left.
+  {% endcomment %}
+  {% if action_col %}<th></th>{% endif %}
+</tr>

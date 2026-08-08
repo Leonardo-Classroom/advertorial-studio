@@ -1,0 +1,58 @@
+{% comment %}
+  Numbered pager, shared by the project and draft lists.
+
+  The view supplies `page`, `page_range` (from `get_elided_page_range`, which
+  the template cannot call because it takes an argument) and `pager_qs` — every
+  other query parameter, already encoded, so paging keeps the sort and filters
+  it was reached with. `core.pagination.paginate` builds all three.
+
+  The range elides rather than listing every page: at 3-per-page a few hundred
+  drafts is a hundred-odd numbers, which is a worse way to find page 40 than
+  typing it into the URL. Django's own rule keeps the ends, the neighbours, and
+  an ellipsis between.
+{% endcomment %}
+{% if page.has_other_pages %}
+<div class="pager-wrap">
+  {% comment %}
+    The total lives above the table, not here — it answers "how many matched"
+    before you start reading, and after a filter that is the first thing you
+    look for.
+  {% endcomment %}
+  <nav class="pager" aria-label="分頁">
+    {% comment %}
+      « and » jump to the ends. Worth having separately from ‹ › once the range
+      elides: on page 30 of 67 the last page is not on screen to click, and
+      without these the only way there is to edit the URL.
+    {% endcomment %}
+    {% if page.has_previous %}
+      <a class="pg" href="?page=1{{ pager_qs }}"
+         aria-label="第一頁" title="第一頁">«</a>
+      <a class="pg" href="?page={{ page.previous_page_number }}{{ pager_qs }}"
+         aria-label="上一頁" title="上一頁">‹</a>
+    {% else %}
+      <span class="pg off" aria-hidden="true">«</span>
+      <span class="pg off" aria-hidden="true">‹</span>
+    {% endif %}
+
+    {% for p in page_range %}
+      {% if p == page.paginator.ELLIPSIS %}
+        <span class="pg gap" aria-hidden="true">{{ p }}</span>
+      {% elif p == page.number %}
+        <span class="pg on" aria-current="page">{{ p }}</span>
+      {% else %}
+        <a class="pg" href="?page={{ p }}{{ pager_qs }}">{{ p }}</a>
+      {% endif %}
+    {% endfor %}
+
+    {% if page.has_next %}
+      <a class="pg" href="?page={{ page.next_page_number }}{{ pager_qs }}"
+         aria-label="下一頁" title="下一頁">›</a>
+      <a class="pg" href="?page={{ page.paginator.num_pages }}{{ pager_qs }}"
+         aria-label="最後一頁" title="最後一頁">»</a>
+    {% else %}
+      <span class="pg off" aria-hidden="true">›</span>
+      <span class="pg off" aria-hidden="true">»</span>
+    {% endif %}
+  </nav>
+</div>
+{% endif %}

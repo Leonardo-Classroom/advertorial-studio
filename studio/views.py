@@ -1,12 +1,12 @@
 import random
 
 from django.contrib import messages
-from django.core.paginator import Paginator
 from django.db.models import Avg, Count
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from accounts.decorators import staff_required
+from core.pagination import paginate
 from briefs.models import Brief
 from corpus.models import Article, Author, EmbeddingIndex, Outlet, StyleGuide
 from studio.models import (
@@ -51,7 +51,18 @@ def advanced(request):
     strong enough to want to try in production and weak enough to want to undo
     without a deploy.
     """
+    from django.conf import settings as django_settings
+
     settings_row = SiteSettings.load()
+
+    # The model names come from settings rather than from the choice labels, so
+    # this page cannot go on naming a model that was swapped out months ago.
+    names = {
+        "online": f"使用 {django_settings.LLM_MODEL}",
+        "local": f"文字用 {django_settings.LOCAL_LLM_MODEL}"
+                 f"、圖片用 {django_settings.LOCAL_LLM_VISION_MODEL}",
+    }
+    backends = [(value, f"{label}，{names[value]}") for value, label in LLM_BACKENDS]
 
     if request.method == "POST":
         mode = request.POST.get("default_mode", settings_row.default_mode)
@@ -72,6 +83,10 @@ def advanced(request):
             messages.error(request, "數值格式不正確，未儲存。")
             return redirect("studio:advanced")
         settings_row.confirm_fact_updates = request.POST.get("confirm_fact_updates") == "on"
+        # Unchecked checkboxes are simply absent from a POST, so these read as
+        # False when switched off — no separate hidden field needed.
+        settings_row.show_briefs_nav = request.POST.get("show_briefs_nav") == "on"
+        settings_row.show_runs_nav = request.POST.get("show_runs_nav") == "on"
         settings_row.save()
         messages.success(request, "已更新產稿預設值。之後建立的稿件會採用新設定，既有紀錄不受影響。")
         return redirect("studio:advanced")
@@ -81,7 +96,7 @@ def advanced(request):
         "settings": settings_row,
         "strategies": SELECTABLE_STRATEGIES,
         "modes": GENERATION_MODES,
-        "backends": LLM_BACKENDS,
+        "backends": backends,
     })
 
 
@@ -90,7 +105,7 @@ def runs(request):
     qs = GenerationRun.objects.select_related("brief", "outlet", "author", "experiment")
     return render(request, "studio/runs.html", {
         "section": "runs",
-        "page": Paginator(qs, 30).get_page(request.GET.get("page")),
+        **paginate(request, qs, 30),
     })
 
 

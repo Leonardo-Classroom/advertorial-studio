@@ -2,7 +2,8 @@
 {% block content %}
 <h1>作者</h1>
 <p class="sub">「風格信心度」依樣本數判定。樣本太少的作者不適合單獨建個人風格模型，
-  建議改用該媒體的全站風格指南。</p>
+  建議改用該媒體的全站風格指南。
+  <a href="{% url 'corpus:articles' %}">← 回語料庫</a></p>
 
 <div class="card">
   <form method="get" class="row">
@@ -20,7 +21,7 @@
 
 <div class="card">
   <div class="scroll"><table>
-    <tr><th>作者</th><th>媒體</th><th>文章數</th><th>風格信心度</th><th></th></tr>
+    {% include "_sort_head.html" with action_col=True %}
     {% for a in page %}
     <tr>
       <td>{{ a.name }}</td>
@@ -35,14 +36,6 @@
     </tr>
     {% endfor %}
   </table></div>
-  {% if page.has_other_pages %}
-  <div class="row tight" style="margin-top:14px">
-    <div class="small muted">第 {{ page.number }} / {{ page.paginator.num_pages }} 頁</div>
-    <div style="flex:0;display:flex;gap:8px">
-      {% if page.has_previous %}<a class="btn sm ghost" href="?page={{ page.previous_page_number }}&outlet={{ sel_outlet }}">上一頁</a>{% endif %}
-      {% if page.has_next %}<a class="btn sm ghost" href="?page={{ page.next_page_number }}&outlet={{ sel_outlet }}">下一頁</a>{% endif %}
-    </div>
-  </div>
-  {% endif %}
+  {% include "_pager.html" with unit="位作者" %}
 </div>
 {% endblock %}

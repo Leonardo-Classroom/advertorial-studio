@@ -63,6 +63,18 @@ class Article(models.Model):
         verbose_name = verbose_name_plural = "語料文章"
         ordering = ["-published_on", "-id"]
         indexes = [
+            # Matches `ordering` exactly, direction included. Without it the
+            # unfiltered corpus list — 304k rows — had no index to read in
+            # order, so SQLite built a temporary B-tree over the whole table
+            # on every page load: `EXPLAIN QUERY PLAN` said
+            # `USE TEMP B-TREE FOR ORDER BY`, and /manage/corpus/ took 28
+            # seconds to return 40 rows. With it, 0.03s.
+            #
+            # `-published_on` rather than `published_on`: SQLite will not read
+            # an ascending index backwards to satisfy a two-column descending
+            # sort, so the directions have to be spelled out.
+            models.Index(fields=["-published_on", "-id"],
+                         name="corpus_article_recent_idx"),
             models.Index(fields=["outlet", "published_on"]),
             # Covers retrieval._candidate_rows' filter (outlet, char_count,
             # vector_row not null) so SQLite can answer it from the index

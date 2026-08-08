@@ -34,9 +34,18 @@ GENERATION_MODES = [
 # measured ~20% of local text generations running 5-50x longer than normal,
 # and ~30% of local image classifications either failing outright or
 # returning a blank description.
+# Labels without model names. They used to spell them out — "…圖片用
+# qwen3-vl:32b-fast" — which duplicated `settings` and promptly drifted: the
+# vision model moved to qwen3-vl:8b and this dropdown went on naming the old
+# one. Names are read from `settings` at render time instead (see
+# `studio.views.advanced`), so there is one source of truth.
+#
+# They also cannot live here even if the drift were acceptable: `choices` is
+# captured in migrations, so a label built from settings would make
+# `makemigrations` want a new migration every time a model name changed.
 LLM_BACKENDS = [
-    ("online", "線上 API，使用 gpt-5.4"),
-    ("local", "本地模型，文字用 qwen3.6:27b-q4_K_M、圖片用 qwen3-vl:32b-fast"),
+    ("online", "線上 API"),
+    ("local", "本地模型"),
 ]
 
 
@@ -70,6 +79,18 @@ class SiteSettings(models.Model):
     llm_backend = models.CharField(
         "文字／圖片生成使用的 API", max_length=8, choices=LLM_BACKENDS, default="online",
         help_text="只影響寫稿與圖片辨識，評審永遠走線上——避免本地模型評自己的稿子。")
+    # Nav visibility. Both default on, and both are only about the *link* —
+    # the pages stay reachable by URL, and neither hides anything from anyone
+    # who has the address. They exist because these two lists overlap with the
+    # portal for whoever only ever looks at their own work; what they must not
+    # be mistaken for is a permission. The switch to turn them back on lives on
+    # this same page, which is never hidden, so this cannot lock anyone out.
+    show_briefs_nav = models.BooleanField(
+        "後台顯示「專案」", default=True,
+        help_text="關掉只是收起導覽連結。後台看得到所有使用者的專案，前台只看得到自己的。")
+    show_runs_nav = models.BooleanField(
+        "後台顯示「生成紀錄」", default=True,
+        help_text="關掉只是收起導覽連結。失敗的稿件只有這裡看得到，前台一律不顯示。")
     retrieval_strategy = models.CharField(
         "檢索策略", max_length=16, choices=RETRIEVAL_STRATEGIES, default="typical",
         help_text="決定拿哪幾篇該媒體的舊文章當語感範例。實測三種策略產出分不出差異。")
@@ -289,11 +310,21 @@ class DraftVersion(models.Model):
         unique_together = [("run", "version")]
 
     def __str__(self):
-        return f"run#{self.run_id} 稿件 v{self.version}"
+        return f"run#{self.run_id} 稿件 p{self.version:02d}"
 
     @property
     def label(self) -> str:
-        return f"v{self.version}"
+        """`p1`, `p2`… — deliberately not `v`, which names a *facts* version.
+
+        A draft page shows both numbers at once ("以 v3 的內容產出的第 p1 稿"),
+        and while both were spelled `v` there was nothing in the label itself
+        to say which was which — a run written from v03 of the facts and edited
+        twice read as "v3" and "v2" side by side.
+
+        Zero-padded so the labels are the same width down a column and sort as
+        text the way they do as numbers: p9 sorts after p10, p09 does not.
+        """
+        return f"p{self.version:02d}"
 
     @property
     def branched(self) -> bool:

@@ -29,10 +29,6 @@
         {% endfor %}
       </select>
     </div>
-    <div style="flex:0;min-width:auto">
-      <label><input type="checkbox" name="indexed" value="1" {% if indexed_only %}checked{% endif %}
-        style="width:auto"> 只看已建索引</label>
-    </div>
     <div style="flex:0;min-width:auto"><button class="btn">篩選</button></div>
   </form>
 </div>
@@ -54,16 +50,6 @@
     {% endfor %}
   </table></div>
 
-  {% if page.has_other_pages %}
-  <div class="row tight" style="margin-top:14px">
-    <div class="small muted">第 {{ page.number }} / {{ page.paginator.num_pages }} 頁</div>
-    <div style="flex:0;display:flex;gap:8px">
-      {% if page.has_previous %}<a class="btn sm ghost"
-        href="?page={{ page.previous_page_number }}&q={{ q }}&outlet={{ sel_outlet }}&author={{ sel_author }}{% if indexed_only %}&indexed=1{% endif %}">上一頁</a>{% endif %}
-      {% if page.has_next %}<a class="btn sm ghost"
-        href="?page={{ page.next_page_number }}&q={{ q }}&outlet={{ sel_outlet }}&author={{ sel_author }}{% if indexed_only %}&indexed=1{% endif %}">下一頁</a>{% endif %}
-    </div>
-  </div>
-  {% endif %}
+  {% include "_pager.html" with unit="篇" %}
 </div>
 {% endblock %}

@@ -25,15 +25,7 @@
       </tr>
       {% endfor %}
     </table></div>
-    {% if page.has_other_pages %}
-    <div class="row tight" style="margin-top:14px">
-      <div class="small muted">第 {{ page.number }} / {{ page.paginator.num_pages }} 頁</div>
-      <div style="flex:0;display:flex;gap:8px">
-        {% if page.has_previous %}<a class="btn sm ghost" href="?page={{ page.previous_page_number }}">上一頁</a>{% endif %}
-        {% if page.has_next %}<a class="btn sm ghost" href="?page={{ page.next_page_number }}">下一頁</a>{% endif %}
-      </div>
-    </div>
-    {% endif %}
+    {% include "_pager.html" with unit="筆" %}
   {% else %}
     <div class="empty">還沒有生成紀錄。<br><br><a class="btn" href="{% url 'studio:run_new' %}">開始第一次生成</a></div>
   {% endif %}

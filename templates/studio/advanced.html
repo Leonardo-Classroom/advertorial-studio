@@ -82,6 +82,23 @@
       </span>
     </label>
 
+    <h3 style="margin:22px 0 4px">後台導覽</h3>
+    <p class="small muted" style="margin:0 0 10px">
+      只是收起導覽連結，網址仍然進得去，也不影響任何權限。
+      這兩頁與前台的差別在於範圍：<strong>後台看得到所有使用者的資料</strong>，
+      前台只看得到自己的；失敗的稿件也只有後台列得出來。
+    </p>
+    <label class="switch" style="display:flex;width:fit-content;margin-bottom:10px">
+      <input type="checkbox" name="show_briefs_nav" {% if settings.show_briefs_nav %}checked{% endif %}>
+      <span class="switch-track"></span>
+      <span class="small">顯示「專案」</span>
+    </label>
+    <label class="switch" style="display:flex;width:fit-content;margin-bottom:18px">
+      <input type="checkbox" name="show_runs_nav" {% if settings.show_runs_nav %}checked{% endif %}>
+      <span class="switch-track"></span>
+      <span class="small">顯示「生成紀錄」</span>
+    </label>
+
     <button class="btn" style="margin-top:20px">儲存</button>
   </form>
 </div>

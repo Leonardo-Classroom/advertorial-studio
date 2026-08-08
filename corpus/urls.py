@@ -10,4 +10,5 @@ urlpatterns = [
     path("authors/", views.authors, name="authors"),
     path("guides/", views.guides, name="guides"),
     path("guides/<int:pk>/", views.guide_detail, name="guide_detail"),
+    path("guides/<int:pk>/toggle/", views.guide_toggle, name="guide_toggle"),
 ]

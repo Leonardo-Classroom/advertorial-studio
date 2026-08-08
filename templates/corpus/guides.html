@@ -11,16 +11,38 @@ python manage.py extract_style_guide --outlet GQ --author "Daniel Hsu"
 python manage.py extract_style_guide --outlet COOL-STYLE --all-authors --min-articles 500</pre>
 </div>
 
+{% comment %}
+  This page has no form of its own, so nothing would otherwise put a CSRF
+  token in the document — and the switches post with fetch, which needs one.
+{% endcomment %}
+<form hidden>{% csrf_token %}</form>
+
 <div class="card">
+  <div class="row tight" style="margin-bottom:10px">
+    <h3 style="margin:0;flex:1">已產生的指南</h3>
+    <span class="guide-status small muted" role="status" aria-live="polite"></span>
+  </div>
   {% if guides %}
     <div class="scroll"><table>
-      <tr><th>範圍</th><th>取樣</th><th>模型</th><th>狀態</th><th>更新</th></tr>
+      <tr><th>範圍</th><th>取樣</th><th>模型</th><th>啟用</th><th>更新</th></tr>
       {% for g in guides %}
       <tr>
         <td><a href="{% url 'corpus:guide_detail' g.pk %}">{{ g.scope_label }}</a></td>
         <td>{{ g.sample_size }} 篇</td>
         <td class="small muted">{{ g.model }}</td>
-        <td>{% if g.is_active %}<span class="pill good">啟用</span>{% else %}<span class="pill">停用</span>{% endif %}</td>
+        {% comment %}
+          A switch rather than a badge: this is the only thing deciding whether
+          a guide is offered on the front end, and it was two page loads away.
+          The track carries the state on its own, so there is no wording beside
+          it — but the checkbox keeps an `aria-label`, which is what a screen
+          reader announces now that there is no visible text to read.
+        {% endcomment %}
+        <td><label class="switch">
+          <input type="checkbox" data-toggle="{% url 'corpus:guide_toggle' g.pk %}"
+                 {% if g.is_active %}checked{% endif %}
+                 aria-label="啟用「{{ g.scope_label }}」">
+          <span class="switch-track"></span>
+        </label></td>
         <td class="small muted">{{ g.updated_at|date:"Y-m-d H:i" }}</td>
       </tr>
       {% endfor %}
@@ -29,4 +51,40 @@ python manage.py extract_style_guide --outlet COOL-STYLE --all-authors --min-art
     <div class="empty">還沒有風格指南。請用上面的指令產生。</div>
   {% endif %}
 </div>
+
+<script>
+// The switch is the decision; there is nothing further to confirm, so it saves
+// itself — same pattern as the picture review's checkboxes. The desired state
+// is sent explicitly rather than "toggle": two fast clicks would otherwise
+// race, and the later one could undo the earlier.
+(function () {
+  const status = document.querySelector('.guide-status');
+  if (!status || !window.fetch) return;
+  const csrf = document.querySelector('[name=csrfmiddlewaretoken]');
+
+  document.addEventListener('change', function (event) {
+    const box = event.target.closest && event.target.closest('input[data-toggle]');
+    if (!box) return;
+
+    const on = box.checked;
+    status.textContent = '儲存中…';
+
+    const body = new FormData();
+    body.append('is_active', on ? '1' : '0');
+    if (csrf) body.append('csrfmiddlewaretoken', csrf.value);
+
+    fetch(box.dataset.toggle, {
+      method: 'POST', body: body, credentials: 'same-origin',
+      headers: {'X-Requested-With': 'fetch'},
+    })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); status.textContent = '已儲存'; })
+      .catch(function () {
+        // Put the switch back rather than leaving it showing a state the
+        // server never accepted.
+        box.checked = !on;
+        status.textContent = '儲存失敗，請重新整理後再試一次';
+      });
+  });
+})();
+</script>
 {% endblock %}

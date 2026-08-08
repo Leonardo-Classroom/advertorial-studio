@@ -92,6 +92,9 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                # Staff nav visibility (studio/advanced). Skips the query
+                # entirely for non-staff — see the processor.
+                "studio.context_processors.nav_settings",
             ],
         },
     },

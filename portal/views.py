@@ -29,7 +29,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.text import slugify
 
 from briefs.models import Brief
-from briefs.services import facts_text, facts_update
+from briefs.services import facts_edit, facts_text, facts_update
 from briefs.services import ingest_runner
 from briefs.services import upload as upload_service
 from corpus.models import StyleGuide
@@ -219,6 +219,9 @@ def brief_detail(request, pk):
         "marked_sections": (facts_text.to_sections_marked(base.data, facts) if base else None),
         "marked_uncertain": (facts_text.uncertain_marked(base.data, facts) if base else None),
         "sections": facts_text.to_sections(facts),
+        # Editable copies of the version being viewed, so 人工編輯 edits what is
+        # on screen rather than always the newest.
+        "edit_fields": facts_edit.to_fields(facts),
         "uncertain": facts_text.uncertain_items(facts),
         "latest_uncertain": facts_text.uncertain_items(latest.data if latest else {}),
         # The primary-KOL form always acts on the newest version (see
@@ -315,6 +318,50 @@ def brief_images_progress(request, pk):
 
     get_object_or_404(_my_briefs(request), pk=pk)
     return JsonResponse(image_service.read_classify_progress(pk))
+
+
+def _chosen_facts_version(brief, wanted):
+    """The fact version a form named, else the newest.
+
+    Same rule as the correction box: editing an older version on purpose is how
+    you carry a good early one forward, and the versions in between stay put.
+    """
+    versions = list(brief.fact_versions.all())
+    if not versions:
+        return None
+    return next((v for v in versions if str(v.version) == str(wanted)), versions[0])
+
+
+@login_required
+def brief_facts_edit(request, pk):
+    """Save facts the user retyped directly, field by field.
+
+    Deliberately not routed through `confirm_fact_updates` the way the
+    natural-language correction is. That confirmation exists because a model
+    merge can change a field nobody mentioned; here the user typed the values
+    themselves, so showing them a diff of their own typing asks them to check
+    the one thing they cannot have got wrong by surprise.
+    """
+    from briefs.services import facts_edit
+
+    brief = get_object_or_404(_my_briefs(request), pk=pk)
+    if request.method != "POST":
+        return redirect("portal:brief_detail", pk=pk)
+
+    base = _chosen_facts_version(brief, request.POST.get("base_version"))
+    if base is None:
+        messages.error(request, "這份簡報還沒有可以編輯的內容。")
+        return redirect("portal:brief_detail", pk=pk)
+
+    merged = facts_edit.from_fields(base.data, request.POST)
+    if merged == (base.data or {}):
+        messages.info(request, "內容沒有變動，未儲存。")
+        return redirect("portal:brief_detail", pk=pk)
+
+    version = brief.add_facts_version(merged, source="user_edit", parent=base)
+    messages.success(request, f"已依 {base.label} 存成 {version.label}。"
+                              f"{base.label} 仍然留著，可以從上方切回去看。")
+    return redirect("portal:brief_detail", pk=pk)
 
 
 def _pending_key(pk) -> str:

@@ -1,0 +1,36 @@
+{% comment %}
+  The natural-language correction box, paired beside the facts the way
+  要改哪裡 is paired beside a draft. It used to be a second top-level card in a
+  g2 grid; moving it inside the facts card is what lets the 人工編輯 toggle
+  hide it — the two are alternative ways to change the same thing, and showing
+  a box that asks a model to edit the facts while you are typing them by hand
+  offers a choice that was already made.
+{% endcomment %}
+<form class="card facts-update" method="post" data-render="ai"
+      action="{% url 'portal:brief_facts_update' brief.pk %}" data-loading="factsupdate">
+  {% csrf_token %}
+  <h2 style="margin-top:0">要更正什麼？</h2>
+  <p class="small muted" style="margin:0 0 10px">
+    用平常說話的方式寫就好{% if uncertain %}，左邊編號的問題可以直接用「1. …」「2. …」回答{% endif %}。
+  </p>
+  <textarea id="correction" name="correction" required
+            placeholder="例如：品牌名要改成 XX；合作的是陳○○不是陳○；開賣日是 9/15。"></textarea>
+  {% if versions|length > 1 %}
+  <div class="row tight" style="margin-top:12px;flex:0 0 auto">
+    <label class="small muted" for="base_version">根據版本更新</label>
+    <select id="base_version" name="base_version" style="width:auto">
+      {% for ver in versions %}
+        <option value="{{ ver.version }}" {% if ver.pk == viewing.pk %}selected{% endif %}>{{ ver.label }}{% if forloop.first %}（最新）{% endif %}</option>
+      {% endfor %}
+    </select>
+    <span class="small muted">改動會套在這一版上，存成新的一版。</span>
+  </div>
+  {% else %}
+    <input type="hidden" name="base_version" value="{{ viewing.version }}">
+  {% endif %}
+  <div class="row tight" style="margin-top:12px;flex:0 0 auto">
+    <button class="btn">更新</button>
+    <span class="small muted">{% if confirm_updates %}更新後會先讓你看改了哪些地方，確認才會存成新版本。
+      {% else %}會存成新的一版，舊版本都留著，產稿時可以指定用哪一版。{% endif %}</span>
+  </div>
+</form>

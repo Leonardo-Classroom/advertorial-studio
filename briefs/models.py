@@ -292,6 +292,11 @@ class BriefFacts(models.Model):
     SOURCES = [
         ("extract", "上傳時抽取"),
         ("user_update", "使用者更正"),
+        # Distinct from `user_update`: that one is a sentence a model folded in
+        # and carries the sentence in `user_input`, so the screen can say what
+        # was asked for. A hand edit has no sentence to show, and reusing
+        # `user_update` would render "依你這句話更新的：「」".
+        ("user_edit", "使用者手動編輯"),
         ("revert", "還原自舊版本"),
         ("staff_edit", "管理者手動編輯"),
     ]

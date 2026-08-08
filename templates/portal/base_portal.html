@@ -152,17 +152,11 @@ pre.doc{background:var(--bg);border:1px solid var(--line);border-radius:8px;padd
 .md li{margin:4px 0}
 .md hr{border:none;border-top:1px solid var(--line);margin:22px 0}
 .md strong{font-weight:650}
-/* The facts and the box you correct them in, side by side at one fixed height.
-   The facts are reference material you read *while* writing the correction, so
-   the box has to stay on screen while they scroll — with the box below them,
-   every correction meant scrolling down to type and back up to check.
-   Height is capped rather than fitted to content because a 15-section deck
-   would otherwise push the box a screen and a half down the page.
-   Stacked on a narrow screen the constraint stops helping: there is no second
-   column to stay level with, so both panes go back to their natural height. */
-.pane{height:520px;display:flex;flex-direction:column;overflow:hidden}
-.pane-body{flex:1;min-height:0;overflow-y:auto}
-.pane textarea{flex:1;min-height:0;resize:none}
+/* `.pane` used to fix both the facts card and the correction card to one
+   520px height so they stayed level side by side. Both are now inside a single
+   card whose contents can be a full-width form, so nothing carries the class
+   any more — the height cap moved to `.facts-view-panel`, which is the part
+   that actually needs to stay scrollable beside the correction box. */
 /* A card whose own heading is the toggle. Collapsed by default where the
    content is a record rather than a task — the list of drafts already produced
    is worth having to hand, not worth the top of the page on every visit. */
@@ -178,9 +172,15 @@ details.card[open]>summary{margin-bottom:14px}
 /* Two rows, labels right-aligned against a shared column, so the 比較版本
    select sits directly under the 檢視版本 one — they are the same kind of
    choice and reading them as a pair is the point of showing both. */
-.facts-controls{display:grid;grid-template-columns:auto auto;gap:8px 10px;align-items:center}
-.facts-controls>label{justify-self:end;margin:0}
+/* The label used to be a grid cell beside its row; it now sits inside the row
+   itself, so the reset that killed the global `label{margin:14px 0 5px}` has
+   to follow it in — otherwise every label in here re-inherits 14px of top
+   margin and pushes itself off the line it is labelling. Same reason the
+   columns are gone: with the labels inside, the two rows are just rows, and a
+   two-column grid laid them out side by side instead of stacked. */
+.facts-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
 .fc-line{display:flex;align-items:center;gap:10px}
+.fc-line>label{margin:0;white-space:nowrap}
 .fc-check{display:flex;align-items:center;gap:5px;margin:0;cursor:pointer;white-space:nowrap}
 .fc-check input{width:auto;margin:0}
 /* The 套用 button exists for the no-JS case; with the live swap running, the
@@ -188,11 +188,11 @@ details.card[open]>summary{margin-bottom:14px}
    Keyed on `.live` alone — the draft card carries it without being a `.pane`,
    and requiring both left the button showing there. */
 .live .facts-apply{display:none}
-.pane[aria-busy=true] .pane-body{opacity:.5;transition:opacity .15s}
-@media (max-width:700px){
-  .pane{height:auto}
-  .pane textarea{min-height:150px}
-}
+/* Dims while a version swap is in flight. Keyed on the card rather than on an
+   inner body element: both live cards set `aria-busy` on themselves, and the
+   old selector needed a `.pane-body` that no longer exists — so the facts card
+   silently lost its loading feedback and the draft card never had any. */
+.card[aria-busy=true]{opacity:.55;transition:opacity .15s}
 /* The extracted facts, laid out to be read rather than edited. Label above
    value, full width: a label column would cap every value at whatever is left
    beside it, and these values are sentences — product details and KOL briefs
@@ -316,6 +316,28 @@ li.d-add,li.d-del{display:list-item;padding:1px 6px}
    that looked like plain text read as uneditable, which is the whole thing
    this box was added to stop. */
 .edit-image .edit-cap{flex:1;min-width:0;margin:0;font-size:12.5px;padding:5px 8px}
+/* The facts view paired with 要更正什麼, same treatment as the draft preview
+   paired with 要改哪裡: framed and independently scrollable so a long brief
+   doesn't stretch the card past the toggle bar. */
+.facts-view-panel{border:1px solid var(--line);border-radius:12px;padding:16px;
+  max-height:70vh;overflow-y:auto;overscroll-behavior:contain}
+.facts-update{display:flex;flex-direction:column;margin:0}
+.facts-update[hidden]{display:none}
+.facts-update textarea{flex:1;min-height:150px}
+@media (max-width:900px){ .facts-view-panel{max-height:none;overflow-y:visible} }
+/* Hand-edited facts. One box per line so a list is edited as the lines it is,
+   the same way the draft editor gives a bullet its own box. */
+.facts-edit .fe-line{width:100%;margin:0;font-size:13.5px;padding:5px 8px}
+.facts-edit textarea.fe-line{resize:vertical;line-height:1.6}
+.facts-edit dd{margin:0 0 12px}
+.facts-edit .fe-row{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.facts-edit .fe-row:last-child{margin-bottom:0}
+/* Quiet until you go for it: a column of red ✕ down the side reads as a list
+   of errors rather than a list of facts. */
+.facts-edit .fe-del{flex:none;border:1px solid var(--line);background:transparent;
+  border-radius:6px;color:var(--muted);font:inherit;font-size:12px;line-height:1;
+  padding:6px 8px;cursor:pointer}
+.facts-edit .fe-del:hover{color:var(--bad);border-color:var(--bad)}
 .post-figure{margin:22px 0;text-align:center}
 .post-figure img{max-width:100%;height:auto;border-radius:6px}
 .post-figure figcaption{margin-top:7px;font-size:12.5px;color:var(--muted);line-height:1.6}

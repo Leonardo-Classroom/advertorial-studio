@@ -30,37 +30,15 @@
 {% endif %}
 
 {% if not files_in_progress and versions %}
-<div class="grid g2">
-  <div class="card pane" id="facts-pane" data-url="{% url 'portal:brief_detail' brief.pk %}">
-    {% include "portal/_facts_pane.html" %}
-  </div>
-
-  <form class="card pane" method="post" action="{% url 'portal:brief_facts_update' brief.pk %}"
-        data-loading="factsupdate">
-    {% csrf_token %}
-    <h2 style="margin:0 0 8px">要更正什麼？</h2>
-    <p class="small muted" style="margin:0 0 10px">
-      用平常說話的方式寫就好{% if uncertain %}，左邊編號的問題可以直接用「1. …」「2. …」回答{% endif %}。
-    </p>
-    <textarea id="correction" name="correction" required
-              placeholder="例如：品牌名要改成 XX；合作的是陳○○不是陳○；開賣日是 9/15。"></textarea>
-    {% if versions|length > 1 %}
-    <div class="row tight" style="margin-top:12px;flex:0 0 auto">
-      <label class="small muted" for="base_version">根據版本更新</label>
-      <select id="base_version" name="base_version" style="width:auto">
-        {% for ver in versions %}
-          <option value="{{ ver.version }}">{{ ver.label }}{% if forloop.first %}（最新）{% endif %}</option>
-        {% endfor %}
-      </select>
-      <span class="small muted">改動會套在這一版上，存成新的一版。</span>
-    </div>
-    {% endif %}
-    <div class="row tight" style="margin-top:12px;flex:0 0 auto">
-      <button class="btn">更新</button>
-      <span class="small muted">{% if confirm_updates %}更新後會先讓你看改了哪些地方，確認才會存成新版本。
-        {% else %}會存成新的一版，舊版本都留著，產稿時可以指定用哪一版。{% endif %}</span>
-    </div>
-  </form>
+{% comment %}
+  One card, like the draft card: the correction box moved inside
+  `_facts_pane.html` so the 人工編輯 toggle can hide it. `.pane` is gone with
+  it — that class fixes a 520px height for a side-by-side pair of equal boxes,
+  which stopped describing this card once its contents could be a full-width
+  form of twenty fields.
+{% endcomment %}
+<div class="card" id="facts-pane" data-url="{% url 'portal:brief_detail' brief.pk %}">
+  {% include "portal/_facts_pane.html" %}
 </div>
 
 <div class="card">
@@ -270,6 +248,81 @@
       .then(function () {
         if (token === inFlight) pane.removeAttribute('aria-busy');
       });
+  });
+})();
+
+// The list boxes in 人工編輯: typing in the spare one grows another under it,
+// and ✕ removes a line. Both delegated on `document` rather than bound to the
+// boxes, because the whole facts card is replaced by the version swap above
+// and listeners attached to the old inputs would go with it.
+//
+// Numbering is never repaired after a removal. It does not need to be: the
+// server collects `f_<key>_<n>` by prefix and sorts, so holes are harmless —
+// which is also why ✕ can simply delete the row instead of renumbering every
+// box under it.
+(function () {
+  // Built rather than cloned: the spare row and a real line are no longer the
+  // same shape — the spare has no ✕, because there is nothing there to delete
+  // yet. These two must match `_facts_pane.html`'s markup.
+  function spareRow(name) {
+    const row = document.createElement('div');
+    row.className = 'fe-row';
+    const box = document.createElement('input');
+    box.type = 'text';
+    box.className = 'sm fe-line';
+    box.name = name;
+    box.placeholder = '新增一行';
+    row.appendChild(box);
+    return row;
+  }
+
+  function delButton() {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'fe-del';
+    btn.title = '刪除這一行';
+    btn.setAttribute('aria-label', '刪除這一行');
+    btn.textContent = '✕';
+    return btn;
+  }
+
+  // `f_<key>_<n>`. The key itself contains underscores (`f_kol_content_8`), so
+  // the index comes off the end rather than from splitting on "_".
+  function nextName(name) {
+    const parts = name.match(/^(.*)_(\d+)$/);
+    return parts ? parts[1] + '_' + (Number(parts[2]) + 1) : null;
+  }
+
+  document.addEventListener('input', function (event) {
+    const box = event.target.closest && event.target.closest('.facts-edit input.fe-line');
+    if (!box || !box.value.trim()) return;
+    const dd = box.closest('dd');
+    const rows = dd ? dd.querySelectorAll('.fe-row') : [];
+    // Only the last box grows a successor; typing into an existing line is an
+    // edit, not an addition.
+    const last = rows[rows.length - 1];
+    if (!last || last.querySelector('input.fe-line') !== box) return;
+    const name = nextName(box.name);
+    if (!name) return;
+    // The spare has become a real line: it gets a ✕, and loses the placeholder
+    // that would otherwise reappear as "新增一行" if it were emptied again.
+    if (!last.querySelector('.fe-del')) last.appendChild(delButton());
+    box.placeholder = '';
+    dd.appendChild(spareRow(name));
+  });
+
+  document.addEventListener('click', function (event) {
+    const btn = event.target.closest && event.target.closest('.facts-edit .fe-del');
+    if (!btn) return;
+    const row = btn.closest('.fe-row');
+    const dd = row && row.closest('dd');
+    if (!dd) return;
+    const name = row.querySelector('input.fe-line').name;
+    row.remove();
+    // Never leave a field with no box at all — there would be no way to put a
+    // line back, and the field would also vanish from the submission entirely,
+    // which the server reads as "not sent, keep the old value".
+    if (!dd.querySelector('.fe-row')) dd.appendChild(spareRow(name));
   });
 })();
 </script>

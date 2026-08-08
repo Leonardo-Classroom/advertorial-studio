@@ -1,15 +1,25 @@
 {% comment %}
-  The facts card's whole interior — header controls included, because the
-  comparison dropdown appears and disappears with the checkbox above it.
+  The facts card's whole interior — header controls, the read-only view, the
+  hand-edit form, and the correction box beside it. All of it lives in one card
+  so the toggle can swap between them, mirroring the draft card: 要更正什麼 and
+  人工編輯 are alternative ways to change the same thing, and a box asking a
+  model to edit the facts has no business being on screen while you are typing
+  them by hand.
+
   Swapped in by fetch from brief_detail.html; also rendered by the plain page
   load, so the two can never drift apart.
+
+  Heading, version controls and toggle share one row, laid out exactly like the
+  draft card's. They were briefly stacked on two lines: while this card was one
+  half of a two-column grid the three groups genuinely did not fit, but folding
+  the correction box inside made the card full width and the room came back.
 {% endcomment %}
-<div class="row tight" style="margin-bottom:8px">
-  <h2 style="margin:0;flex:1">抽出的內容</h2>
+<div class="row tight" style="margin-bottom:10px">
+  <h2 style="margin:0">抽出的內容</h2>
   {% if versions|length > 1 %}
-  <form method="get" class="facts-controls">
-    <label class="small muted" for="v">檢視版本</label>
+  <form method="get" class="facts-controls" style="margin-left:12px">
     <div class="fc-line">
+      <label class="small muted" for="v">檢視版本</label>
       <select id="v" name="v" data-facts-control style="width:auto">
         {% for ver in versions %}
           <option value="{{ ver.version }}" {% if ver.pk == viewing.pk %}selected{% endif %}>
@@ -25,8 +35,8 @@
     </div>
 
     {% if show_diff and base_options %}
-    <label class="small muted" for="base">比較版本</label>
     <div class="fc-line">
+      <label class="small muted" for="base">比較版本</label>
       <select id="base" name="base" data-facts-control style="width:auto">
         {% for ver in base_options %}
           <option value="{{ ver.version }}" {% if ver.pk == base.pk %}selected{% endif %}>{{ ver.label }}</option>
@@ -36,73 +46,142 @@
     {% endif %}
   </form>
   {% endif %}
+  <span style="flex:1"></span>
+  {% comment %}
+    Hidden while a comparison is on screen: 人工編輯 edits one version, and a
+    two-version view has no single answer to "which one am I typing into".
+  {% endcomment %}
+  {% if not show_diff %}
+  <div class="toggle">
+    <button type="button" class="on" data-view="ai" data-render-as="article ai"
+            data-target="fb{{ brief.pk }}">AI編輯</button>
+    <button type="button" data-view="edit" data-target="fb{{ brief.pk }}">人工編輯</button>
+  </div>
+  {% endif %}
 </div>
 
-<div class="pane-body">
-  {% if show_diff %}
-    {% if base %}
-      <p class="small muted" style="margin:0 0 12px">
-        {{ viewing.label }} 與 {{ base.label }} 相比：<span class="d-add">綠色是新增</span>、<span class="d-del">紅色是刪除</span>。
+<div id="fb{{ brief.pk }}">
+  {% comment %}
+    Read-only facts paired with the correction box as two columns, the way the
+    draft preview is paired with 要改哪裡. The hand-edit form is a sibling of
+    this row rather than a cell in it, so it takes the full width when showing.
+  {% endcomment %}
+  <div class="grid g2 facts-live-row">
+    <div class="facts-view-panel" data-render="article">
+      {% if show_diff %}
+        {% if base %}
+          <p class="small muted" style="margin:0 0 12px">
+            {{ viewing.label }} 與 {{ base.label }} 相比：<span class="d-add">綠色是新增</span>、<span class="d-del">紅色是刪除</span>。
+          </p>
+        {% else %}
+          <p class="small muted" style="margin:0 0 12px">只有這一個版本，沒有可以比較的對象。</p>
+        {% endif %}
+      {% endif %}
+
+      {% if viewing.source == 'user_update' %}
+        <p class="small muted" style="margin:0 0 10px">
+          {{ viewing.label }} 是{% if viewing.branched %}以 {{ viewing.parent.label }} 為基礎、{% endif %}依你這句話更新的：「{{ viewing.user_input }}」
+        </p>
+      {% elif viewing.source == 'user_edit' %}
+        <p class="small muted" style="margin:0 0 10px">
+          {{ viewing.label }} 是{% if viewing.branched %}以 {{ viewing.parent.label }} 為基礎、{% endif %}你自己動手改的。
+        </p>
+      {% endif %}
+
+      {% if marked_uncertain %}
+      <div class="msg warning" style="margin-bottom:14px">
+        <strong>這幾處系統不確定，請你確認：</strong>
+        <ol style="margin:6px 0 0;padding-left:22px">
+          {% for u in marked_uncertain %}<li class="d-{{ u.mark }}">{{ u.text }}</li>{% endfor %}
+        </ol>
+      </div>
+      {% elif uncertain %}
+      <div class="msg warning" style="margin-bottom:14px">
+        <strong>這幾處系統不確定，請你確認：</strong>
+        <ol style="margin:6px 0 0;padding-left:22px">
+          {% for u in uncertain %}<li>{{ u }}</li>{% endfor %}
+        </ol>
+      </div>
+      {% endif %}
+
+      <p class="small muted">
+        產出的稿件<strong>只會寫這裡有的東西</strong>——品牌、產品型號、合作人選都以此為準，
+        系統不會自己補上沒寫的資訊。有錯就寫在右邊，或切到「人工編輯」直接改。
       </p>
-    {% else %}
-      <p class="small muted" style="margin:0 0 12px">只有這一個版本，沒有可以比較的對象。</p>
-    {% endif %}
-  {% endif %}
 
-  {% if viewing.source == 'user_update' %}
-    <p class="small muted" style="margin:0 0 10px">
-      {{ viewing.label }} 是{% if viewing.branched %}以 {{ viewing.parent.label }} 為基礎、{% endif %}依你這句話更新的：「{{ viewing.user_input }}」
+      {% if marked_sections %}
+        <dl class="facts">
+          {% for s in marked_sections %}
+            <dt>{{ s.label }}{% if s.changed %} <span class="d-flag">不一樣</span>{% endif %}</dt>
+            <dd>
+              {% if s.lines|length > 1 %}
+                <ul>{% for line in s.lines %}<li class="d-{{ line.mark }}">{{ line.text }}</li>{% endfor %}</ul>
+              {% else %}
+                <span class="d-{{ s.lines.0.mark }}">{{ s.lines.0.text }}</span>
+              {% endif %}
+            </dd>
+          {% endfor %}
+        </dl>
+      {% elif sections %}
+        <dl class="facts">
+          {% for s in sections %}
+            <dt>{{ s.label }}</dt>
+            <dd>
+              {% if s.lines|length > 1 %}
+                <ul>{% for line in s.lines %}<li>{{ line }}</li>{% endfor %}</ul>
+              {% else %}
+                {{ s.lines.0 }}
+              {% endif %}
+            </dd>
+          {% endfor %}
+        </dl>
+      {% else %}
+        <p class="small muted">這一版沒有抽出任何內容。</p>
+      {% endif %}
+    </div>
+
+    {% include "portal/_facts_update.html" %}
+  </div>
+
+  <form method="post" action="{% url 'portal:brief_facts_edit' brief.pk %}"
+        class="facts-edit" data-render="edit" hidden>
+    {% csrf_token %}
+    <input type="hidden" name="base_version" value="{{ viewing.version }}">
+    <p class="small muted" style="margin:0 0 12px">
+      直接改這裡的文字，按儲存會<strong>存成新的一版</strong>，舊版本都留著。
+      改錯字、改人名這種說得出正確答案的修正，用這裡比「要更正什麼」快，也不會動到你沒提到的欄位。
+      留空的欄位不會寫進稿子；清空一行就是刪掉那一行。
     </p>
-  {% endif %}
-
-  {% if marked_uncertain %}
-  <div class="msg warning" style="margin-bottom:14px">
-    <strong>這幾處系統不確定，請你確認：</strong>
-    <ol style="margin:6px 0 0;padding-left:22px">
-      {% for u in marked_uncertain %}<li class="d-{{ u.mark }}">{{ u.text }}</li>{% endfor %}
-    </ol>
-  </div>
-  {% elif uncertain %}
-  <div class="msg warning" style="margin-bottom:14px">
-    <strong>這幾處系統不確定，請你確認：</strong>
-    <ol style="margin:6px 0 0;padding-left:22px">
-      {% for u in uncertain %}<li>{{ u }}</li>{% endfor %}
-    </ol>
-  </div>
-  {% endif %}
-
-  <p class="small muted">
-    產出的稿件<strong>只會寫這裡有的東西</strong>——品牌、產品型號、合作人選都以此為準，
-    系統不會自己補上沒寫的資訊。有錯就寫在右邊，不必自己動格式。
-  </p>
-
-  {% if marked_sections %}
     <dl class="facts">
-      {% for s in marked_sections %}
-        <dt>{{ s.label }}{% if s.changed %} <span class="d-flag">不一樣</span>{% endif %}</dt>
+      {% for field in edit_fields %}
+        <dt><label for="{{ field.name }}">{{ field.label }}</label></dt>
         <dd>
-          {% if s.lines|length > 1 %}
-            <ul>{% for line in s.lines %}<li class="d-{{ line.mark }}">{{ line.text }}</li>{% endfor %}</ul>
+          {% if field.kind == 'list' %}
+            {% for item in field.items %}
+              <div class="fe-row">
+                <input type="text" name="{{ item.name }}" value="{{ item.value }}" class="sm fe-line">
+                <button type="button" class="fe-del" title="刪除這一行"
+                        aria-label="刪除「{{ item.value }}」這一行">✕</button>
+              </div>
+            {% endfor %}
+            {% comment %}
+              The spare box has no ✕ — there is no line there to delete yet.
+              It grows one as soon as it holds something (see brief_detail.html),
+              at which point a fresh spare appears under it.
+            {% endcomment %}
+            <div class="fe-row">
+              <input type="text" name="{{ field.blank }}" class="sm fe-line" placeholder="新增一行">
+            </div>
           {% else %}
-            <span class="d-{{ s.lines.0.mark }}">{{ s.lines.0.text }}</span>
+            <textarea name="{{ field.name }}" id="{{ field.name }}" rows="1"
+                      class="sm fe-line">{{ field.value }}</textarea>
           {% endif %}
         </dd>
       {% endfor %}
     </dl>
-  {% elif sections %}
-    <dl class="facts">
-      {% for s in sections %}
-        <dt>{{ s.label }}</dt>
-        <dd>
-          {% if s.lines|length > 1 %}
-            <ul>{% for line in s.lines %}<li>{{ line }}</li>{% endfor %}</ul>
-          {% else %}
-            {{ s.lines.0 }}
-          {% endif %}
-        </dd>
-      {% endfor %}
-    </dl>
-  {% else %}
-    <p class="small muted">這一版沒有抽出任何內容。</p>
-  {% endif %}
+    <div class="row tight" style="margin-top:14px">
+      <button class="btn">儲存</button>
+      <span class="small muted">依 {{ viewing.label }} 存成新的一版。</span>
+    </div>
+  </form>
 </div>

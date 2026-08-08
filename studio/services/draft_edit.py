@@ -115,36 +115,41 @@ def _sections(text: str) -> list[tuple[str, str, str]]:
 # 都會感**` on screen is four characters of noise plus a formatting instruction
 # nobody asked to read.
 #
-# One combined pattern, tried longest-delimiter-first, rather than three
-# separate passes: two adjacent runs — `*italic*` immediately followed by
-# `**bold**`, with no space between them — leave a `***` seam that a
-# bold-then-italic sequence of passes would misparse (the bold pass would
-# consume 2 of those 3 stars as its own delimiter, folding an italic marker
-# into the middle of the bold text; a later italic pass would then hunt for
-# the next literal `*` and could close on one sitting inside the `<strong>`
-# tag the bold pass just emitted, producing broken markup). A single scan
-# tries `***…***` first at each position, so it claims a real triple-star run
-# whole, and otherwise still resolves the seam correctly by construction: at
-# the boundary itself neither the 2- nor 3-star alternative can match (there
-# are only 1 or 2 stars available going forward), so the engine falls back to
-# `*…*`, taking one star off the run for italic's own close and leaving the
-# rest for bold to match on the next scan position.
-EMPHASIS = re.compile(r"\*\*\*(?P<bi>.+?)\*\*\*|\*\*(?P<b>.+?)\*\*|\*(?P<i>.+?)\*", re.S)
-
-
-def _emphasis_html(m: re.Match) -> str:
-    if m["bi"] is not None:
-        return f"<strong><em>{m['bi']}</em></strong>"
-    if m["b"] is not None:
-        return f"<strong>{m['b']}</strong>"
-    return f"<em>{m['i']}</em>"
+# Parsed by the *same* engine the article view uses, rather than by a regex of
+# our own. They used to be separate, and separate meant divergent: given
+# `test**123*abc****456*` the article showed literal asterisks around an italic
+# `abc`, while the edit box showed a bold `123*abc` — one stored line, two
+# different readings, and the writer edits the one that is not published.
+#
+# Only `<strong>`, `<em>` and `<br>` may come back. Anything else — a link,
+# inline code, an image — means the line carries markdown this editor cannot
+# round-trip: `toMarkdown` in the browser knows b/strong/i/em/br and nothing
+# else, so rendering a link here would drop its syntax the moment the box was
+# saved. Those lines fall back to plain escaped text, which is what they have
+# always done.
+INLINE_TAGS_OK = {"strong", "em", "br"}
+TAG_NAME = re.compile(r"</?([a-zA-Z][a-zA-Z0-9]*)")
 
 
 def to_html(text: str):
-    """One block as editable rich text: escaped, with `*`/`**` turned into
-    italic/bold."""
-    return mark_safe(  # noqa: S308 - escaped first, only our own tags added
-        EMPHASIS.sub(_emphasis_html, escape(text)).replace("\n", "<br>"))
+    """One block as editable rich text: emphasis rendered, everything escaped.
+
+    `renderInline` escapes HTML itself, so the result is safe without a
+    separate `escape()` pass — verified for `<script>`, `&` and `<`.
+    """
+    from studio.templatetags.mdformat import _renderer
+
+    plain = escape(text).replace("\n", "<br>")
+    try:
+        html = _renderer().renderInline(text)
+    except Exception:  # noqa: BLE001 - a rendering failure must not lose the text
+        return mark_safe(plain)  # noqa: S308 - escaped
+
+    if not set(TAG_NAME.findall(html)) <= INLINE_TAGS_OK:
+        return mark_safe(plain)  # noqa: S308 - escaped
+    # `renderInline` emits `<br />\n`; the newline would show as a space on top
+    # of the break it already made.
+    return mark_safe(html.replace("<br />\n", "<br>").replace("\n", "<br>"))  # noqa: S308
 
 
 def _clean(value: str) -> str:

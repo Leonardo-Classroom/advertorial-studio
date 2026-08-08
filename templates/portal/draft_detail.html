@@ -222,14 +222,30 @@
         return;
       }
       const inner = toMarkdown(child);
-      const mark = tag === 'b' || tag === 'strong' ? '**'
-                 : tag === 'i' || tag === 'em' ? '*'
-                 : '';
-      if (mark) {
+      const bold = tag === 'b' || tag === 'strong';
+      const italic = tag === 'i' || tag === 'em';
+      if (bold || italic) {
         // Marks around spaces are not emphasis in markdown, so the padding
         // moves outside the marks instead of wrapping them.
         const trimmed = inner.trim();
-        out += trimmed ? inner.replace(trimmed, mark + trimmed + mark) : inner;
+        if (!trimmed) { out += inner; return; }
+
+        // Italic normally uses `*`, but `_` when a `*` would end up adjacent
+        // to another one. Overlapping bold and italic — bolding "123abc" and
+        // italicising "abc456" — leaves the browser with
+        // `<strong>123<em>abc</em></strong><em>456</em>`, and the all-asterisk
+        // spelling of that is `**123*abc****456*`: four in a row, which
+        // CommonMark cannot resolve. The two renderers then disagreed about
+        // what it meant. `**123*abc***_456_` is the same tree with no
+        // ambiguity, and markdown-it parses it back to exactly that DOM.
+        //
+        // `_` is only reached in that adjacent case: it does not work
+        // intraword (`a_b_c` is literal), whereas `*` does, so `*` stays the
+        // default for the ordinary standalone italic.
+        const abuts = italic && (out.endsWith('*') || trimmed.startsWith('*')
+                                 || trimmed.endsWith('*'));
+        const mark = bold ? '**' : (abuts ? '_' : '*');
+        out += inner.replace(trimmed, mark + trimmed + mark);
         return;
       }
       // Any other element the browser invented (div, p, span from a paste) is

@@ -106,6 +106,60 @@ def _extract_text(response) -> str:
     return "\n".join(chunks).strip() if chunks else str(response)
 
 
+class ModelTimeout(RuntimeError):
+    """A call that ran past its wall-clock deadline and was abandoned."""
+
+
+def _with_deadline(call, seconds: float):
+    """Run `call()` under a real wall clock, not the client's own timeout.
+
+    The HTTP client's `timeout` measures the gap *between bytes*, so a model
+    that keeps trickling tokens never trips it. That is not hypothetical: a
+    fact extraction with `timeout=240` ran past eight minutes here, generating
+    12,868 tokens and still going, because Qwen3.6's thinking mode was not
+    suppressed despite `reasoning={"effort": "none"}` — the request only ended
+    when Ollama was restarted by hand. Meanwhile `processing` stayed True and
+    the brief was stuck.
+
+    So the call also runs on its own daemon thread with a hard `join` deadline.
+    On expiry the call is *abandoned*, not cancelled — Python cannot kill a
+    blocked native call — but this returns immediately either way, which is the
+    part that matters: the caller fails cleanly, its `finally` clears the flags,
+    and the user can retry without restarting anything.
+
+    Deliberately a bare `threading.Thread(daemon=True)` rather than
+    `ThreadPoolExecutor`: the executor's workers are not daemon threads, so an
+    abandoned one is still tracked by `concurrent.futures`'s atexit machinery
+    and can hold up interpreter shutdown waiting for a call that may never
+    return. This mirrors `briefs.services.images.classify`, which has guarded
+    the vision path this way since before the text path needed it.
+    """
+    import threading
+
+    outcome: dict = {}
+
+    def _run():
+        try:
+            outcome["value"] = call()
+        except Exception as exc:  # noqa: BLE001 - re-raised on the calling side
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=_run, daemon=True, name="llm-call")
+    worker.start()
+    # A small grace beyond the client's own timeout: if that one is ever
+    # actually honoured, let it be the one to raise, so the error still
+    # reflects what really happened.
+    worker.join(timeout=seconds + 10)
+
+    if worker.is_alive():
+        raise ModelTimeout(
+            f"模型超過 {round(seconds)} 秒沒有回應完畢，已放棄這次呼叫。"
+            "本地模型偶爾會停不下來（見 report/本地線上API比較.md §4.2），"
+            "請再試一次；連續失敗時重啟 Ollama。")
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome["value"]
+
 def complete(
     instructions: str,
     user_input: str,
@@ -148,7 +202,10 @@ def complete(
         kwargs["temperature"] = settings.LLM_TEMPERATURE if temperature is None else temperature
     if max_output_tokens:
         kwargs["max_output_tokens"] = max_output_tokens
-    response = client.responses.create(**kwargs)
+
+    deadline = timeout if timeout is not None else (
+        settings.LOCAL_LLM_TIMEOUT if local else settings.LLM_TIMEOUT)
+    response = _with_deadline(lambda: client.responses.create(**kwargs), deadline)
     return _extract_text(response)
 
 
@@ -216,7 +273,13 @@ def complete_vision(
     }
     if local:
         kwargs["reasoning"] = {"effort": "none"}
-    response = client.responses.create(**kwargs)
+
+    # Same guard as `complete`. `images.classify` also wraps its call, so a
+    # picture is covered twice — harmless, the inner deadline simply fires
+    # first, and it means any *other* caller of this function is covered too.
+    deadline = timeout if timeout is not None else (
+        settings.LOCAL_LLM_VISION_TIMEOUT if local else settings.LLM_TIMEOUT)
+    response = _with_deadline(lambda: client.responses.create(**kwargs), deadline)
     return _extract_text(response)
 
 

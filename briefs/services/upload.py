@@ -15,22 +15,31 @@ from briefs.models import Brief, BriefSourceFile
 from briefs.services import ingest_runner, source_extract
 
 
-def create_brief(owner, title: str, files, parse_images: bool) -> Brief:
+def create_brief(owner, title: str, files) -> Brief:
     """Validate the batch, create the Brief and its source rows, queue processing.
 
     Format is checked up front, before anything is created: the file picker's
     `accept=".pptx"` already keeps this off the normal path, so a rejection
     here means someone bypassed it, and the whole batch is rejected rather
     than silently dropping the file they explicitly chose.
+
+    A missing title is treated the opposite way — filled in from the first
+    filename rather than rejected. The field is `required` on both upload
+    forms, so an empty one arriving here also means the form was bypassed, but
+    the two cases do not deserve the same answer: an unsupported format is
+    something the system genuinely cannot process, whereas a nameless brief is
+    merely awkward to find in a list, and a name is editable afterwards. A
+    brief that reached the server with its files intact should not be thrown
+    away over a label.
     """
     if not files:
         raise ValueError("請選擇至少一個檔案。")
 
     formats = [source_extract.format_for(f.name) for f in files]
-    title = (title or "").strip() or files[0].name.rsplit(".", 1)[0]
+    title = (title or "").strip()[:200] or files[0].name.rsplit(".", 1)[0][:200]
 
     with transaction.atomic():
-        brief = Brief.objects.create(owner=owner, title=title, parse_images=parse_images)
+        brief = Brief.objects.create(owner=owner, title=title)
         for i, (upload_file, fmt) in enumerate(zip(files, formats)):
             BriefSourceFile.objects.create(
                 brief=brief, file=upload_file, format=fmt, order=i)

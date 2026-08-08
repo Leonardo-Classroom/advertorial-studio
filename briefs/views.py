@@ -33,7 +33,6 @@ def brief_upload(request):
                 owner=request.user,
                 title=request.POST.get("title") or "",
                 files=files,
-                parse_images=request.POST.get("parse_images") == "1",
             )
         except ValueError as exc:  # noqa: BLE001 - the operator needs the reason
             messages.error(request, str(exc))
@@ -70,11 +69,12 @@ def brief_upload_status(request, pk):
 
 
 def _ingest_images(request, brief) -> None:
-    """Parse the deck's pictures and report what survived the filter."""
+    """Extract and filter the deck's pictures. Never classifies — see
+    `ingest_runner` for why that moved to the pictures the operator picks."""
     from briefs.services import images as image_service
 
     try:
-        summary = image_service.ingest(brief)
+        summary = image_service.ingest(brief, run_classify=False)
     except Exception as exc:  # noqa: BLE001 - the text path already succeeded
         messages.warning(request, f"圖片解析失敗：{exc}（文字內容不受影響）")
         return
@@ -90,7 +90,7 @@ def _ingest_images(request, brief) -> None:
         f"（重複 {summary['duplicate']}、近似重複 {summary['near_duplicate']}、"
         f"向量圖 {summary['vector']}、過小 {summary['too_small']}、"
         f"動態圖 {summary['animated']}），"
-        f"送辨識 {summary['stored']} 張，判定可用 {summary['usable']} 張。請逐張核對。")
+        f"可核對 {summary['stored']} 張。勾選要用的圖之後，按「解析勾選的圖片」補上圖說。")
 
 
 @staff_required
@@ -101,11 +101,6 @@ def brief_images(request, pk):
         return redirect("briefs:detail", pk=pk)
 
     if request.POST.get("action") == "parse":
-        if not brief.facts:
-            messages.error(request, "請先抽取事實再解析圖片——分類需要知道品牌是誰，才擋得掉競品照。")
-            return redirect("briefs:detail", pk=pk)
-        brief.parse_images = True
-        brief.save(update_fields=["parse_images", "updated_at"])
         _ingest_images(request, brief)
         return redirect("briefs:detail", pk=pk)
 

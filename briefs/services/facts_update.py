@@ -143,3 +143,74 @@ def propose(facts: dict, user_input: str, versions=None, timeout: int = 240) -> 
     if not isinstance(merged, dict) or not merged:
         raise ValueError("模型沒有回傳可用的內容。")
     return merged
+
+
+# A different job from `propose`, and deliberately a different prompt. That one
+# is built to refuse: its whole burden is "change only what the user named, and
+# invent nothing". Folding in a source file that failed on upload and has now
+# been re-parsed needs the opposite permission — the document legitimately
+# carries facts the current version has never seen.
+#
+# What must not change is the other half of that promise. Values already in the
+# facts may have been corrected by hand, and a document is not evidence that a
+# human decision was wrong. So the rule inverts per field: fill what is empty,
+# add to lists, and where the document contradicts something already recorded,
+# say so in `uncertain` rather than picking a side.
+MERGE_INSTRUCTIONS = """你負責維護一份「簡報事實」的 JSON。
+
+這次的情況是：同一個專案有一份來源文件先前解析失敗，現在補上了。
+你的工作是把這份文件裡的資訊補進現有 JSON，然後輸出**完整的**更新後 JSON。
+
+鐵則，違反任何一條都是嚴重錯誤：
+
+1. **只補、不覆蓋。** 現有欄位若已經有值，一律原樣保留——包含標點、大小寫、
+   空白與陣列順序。那些值可能是人工修正過的，一份文件不構成推翻人的理由。
+   欄位是空字串或空陣列時，才用文件裡的內容填入。
+2. **陣列是新增，不是取代。** 文件提到現有陣列沒有的項目就追加在後面，
+   既有項目不動、不重排、不去重改寫。
+3. **矛盾要講出來，不要自己選一邊。** 文件的說法和現有值不一致時，
+   保留現有值，並在 `uncertain` 陣列加一句說明兩者的差異，讓人來判斷。
+4. **不要發明。** 只寫文件裡真的有的資訊。文件沒提到的欄位一字不動。
+5. **保持原本的 JSON 結構與欄位名稱**，不要新增或刪除欄位。
+   欄位原本是陣列就維持陣列，是字串就維持字串。
+
+只輸出 JSON，不要有任何其他文字或 ``` 標記。"""
+
+MERGE_TASK = """目前的簡報事實（第 {version} 版）：
+
+{facts}
+
+以下是補上的來源文件《{filename}》的完整文字內容：
+
+--- 文件開始 ---
+{document}
+--- 文件結束 ---
+
+請依鐵則把這份文件的資訊補進上面的 JSON，輸出完整的更新後 JSON。"""
+
+# The document goes in whole rather than summarised first: the extractor that
+# produced these facts read whole files too, and a summarising pass would be a
+# second place for a product code to get quietly rewritten.
+MERGE_DOCUMENT_CHARS = 60000
+
+
+def merge_document(facts: dict, document: str, filename: str = "",
+                   version: int = 1, timeout: int = 300) -> dict:
+    """Fold a newly-parsed source file into the facts. Raises on failure."""
+    text = (document or "").strip()
+    if not text:
+        raise ValueError("這個檔案沒有解析出任何文字。")
+
+    merged = llm.complete_json(
+        instructions=MERGE_INSTRUCTIONS,
+        user_input=MERGE_TASK.format(
+            version=version,
+            facts=json.dumps(facts or {}, ensure_ascii=False, indent=2),
+            filename=filename or "（未命名）",
+            document=text[:MERGE_DOCUMENT_CHARS],
+        ),
+        timeout=timeout,
+    )
+    if not isinstance(merged, dict) or not merged:
+        raise ValueError("模型沒有回傳可用的內容。")
+    return merged

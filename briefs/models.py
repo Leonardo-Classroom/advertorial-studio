@@ -99,6 +99,12 @@ class Brief(models.Model):
     # surviving image, which most drafts do not need. Stored rather than acted
     # on immediately because classification needs the brand, and the brand only
     # exists once the facts have been extracted.
+    # Vestigial. It used to be the upload page's "上傳時就辨識圖片用途" box,
+    # deciding whether the background ingest classified every extracted
+    # picture. Nothing reads or writes it any more: a deck yields the full
+    # 40-picture cap and the operator ticks a handful, so classification moved
+    # to the pictures they actually chose (`images.classify_checked`). Kept
+    # only so the recorded answer on existing briefs is not thrown away.
     parse_images = models.BooleanField("解析簡報圖片", default=False)
     status = models.CharField(max_length=16, choices=STATUS, default="uploaded")
     # True for the whole span of a background upload/retry job — file parsing
@@ -297,6 +303,9 @@ class BriefFacts(models.Model):
         # was asked for. A hand edit has no sentence to show, and reusing
         # `user_update` would render "依你這句話更新的：「」".
         ("user_edit", "使用者手動編輯"),
+        # A source file that failed on upload, re-parsed later and folded in.
+        # `user_input` carries the filename, so the detail page can say which.
+        ("file_merge", "補上失敗的來源檔案"),
         ("revert", "還原自舊版本"),
         ("staff_edit", "管理者手動編輯"),
     ]
@@ -318,11 +327,14 @@ class BriefFacts(models.Model):
         unique_together = [("brief", "version")]
 
     def __str__(self):
-        return f"{self.brief.title} v{self.version}"
+        return f"{self.brief.title} v{self.version:02d}"
 
     @property
     def label(self) -> str:
-        return f"v{self.version}"
+        """`v01`, `v02`… — zero-padded so a column of them lines up, and so
+        text ordering matches numeric ordering (v9 sorts after v10; v09 does
+        not). `p` is the matching label for a draft version."""
+        return f"v{self.version:02d}"
 
     @property
     def branched(self) -> bool:

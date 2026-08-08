@@ -74,13 +74,14 @@ def _extract_facts_and_images(brief) -> None:
     # facts are already saved and a draft can be written without illustrations.
     # Letting this raise would report a fully usable brief as 批次處理失敗.
     #
-    # Extraction/filtering is local and cheap, so it always runs — the operator
-    # should see what pictures the deck has regardless of whether they asked
-    # for AI judgement on them. `parse_images` now only decides whether the
-    # (slow, costs a vision call per picture) classification pass runs right
-    # away; skipped here, it stays available later via image_service.classify_checked.
+    # Extraction and filtering only. Classification is never done here any
+    # more: it costs a vision call per picture and a deck yields the full
+    # 40-picture cap, which on the local backend is a quarter of an hour spent
+    # judging pictures the operator will mostly never tick. It now happens on
+    # demand instead, over the pictures they actually chose — see
+    # `image_service.classify_checked` and the 解析勾選的圖片 button.
     try:
-        image_service.ingest(brief, run_classify=brief.parse_images)
+        image_service.ingest(brief, run_classify=False)
     except Exception as exc:  # noqa: BLE001 - see above
         type(brief).objects.filter(pk=brief.pk).update(
             note=f"圖片解析失敗：{type(exc).__name__}: {exc}（文字內容不受影響，稿子仍可正常產出）")
@@ -192,3 +193,83 @@ def reap_stale_brief(brief) -> None:
     brief.processing = False
     brief.note = brief.note or "處理逾時中斷（可能是伺服器重新啟動）。請重新整理後再試一次。"
     brief.save(update_fields=["processing", "note", "updated_at"])
+
+
+def _retry_source_file(brief_id: int, source_file_id: int) -> None:
+    from briefs.models import Brief, BriefSourceFile
+    from briefs.services import facts_update
+
+    try:
+        source_file = BriefSourceFile.objects.filter(pk=source_file_id).first()
+        brief = Brief.objects.filter(pk=brief_id).first()
+        if source_file is None or brief is None:
+            return                                  # deleted while queued
+
+        _process_one(source_file)
+        source_file.refresh_from_db()
+        # `raw_text` is rebuilt either way: on success the stub marker has to be
+        # replaced by the real content, and on failure the marker has to stay.
+        brief.recompute_from_source_files()
+        if source_file.status != "done":
+            Brief.objects.filter(pk=brief_id).update(
+                note=f"重新解析仍然失敗：{source_file.error}")
+            return
+
+        current = brief.fact_versions.first()
+        if current is None:
+            # Nothing to merge into — the brief never got as far as extracting
+            # facts, so this is the ordinary first extraction, not a merge.
+            _extract_facts_and_images(brief)
+            return
+
+        merged = facts_update.merge_document(
+            current.data or {}, source_file.raw_text,
+            filename=source_file.original_filename, version=current.version)
+        if merged == (current.data or {}):
+            Brief.objects.filter(pk=brief_id).update(
+                note=f"《{source_file.original_filename}》已重新解析，"
+                     "但沒有帶來新的內容，因此沒有新增版本。")
+            return
+
+        brief.add_facts_version(merged, source="file_merge",
+                                user_input=source_file.original_filename,
+                                parent=current)
+        # Pictures come from every parsed file, so a file that has just started
+        # parsing adds its own — extraction and filtering only, same as upload.
+        try:
+            from briefs.services import images as image_service
+
+            image_service.ingest(brief, run_classify=False)
+        except Exception as exc:  # noqa: BLE001 - the facts are already saved
+            Brief.objects.filter(pk=brief_id).update(
+                note=f"內容已更新，但圖片重新抽取失敗：{type(exc).__name__}: {exc}")
+    except Exception as exc:  # noqa: BLE001 - see `_work`
+        from briefs.models import Brief as BriefModel
+
+        BriefModel.objects.filter(pk=brief_id).update(
+            note=f"重新處理失敗：{type(exc).__name__}: {exc}")
+    finally:
+        from briefs.models import Brief as BriefModel
+
+        BriefModel.objects.filter(pk=brief_id).update(processing=False)
+        connections.close_all()
+
+
+def retry_source_file(brief, source_file) -> None:
+    """Re-parse one file that failed, and fold what it says into the facts.
+
+    Distinct from `retry_facts`, which explicitly does *not* re-parse files —
+    that one is for a brief whose files were all fine and whose `extract_facts`
+    call failed. This is the opposite case, and until now it had no path at
+    all: a file that failed left a stub marker in `raw_text` for good, and the
+    only way to recover its content was to upload the whole brief again and
+    throw away every other file's work.
+
+    The result becomes a new facts version rather than editing the current one,
+    for the same reason every other change here does: the old version is what
+    existing drafts were written from and has to stay readable.
+    """
+    _mark_started(brief)
+    threading.Thread(target=_retry_source_file, args=(brief.pk, source_file.pk),
+                     daemon=True,
+                     name=f"retry-file-{source_file.pk}").start()

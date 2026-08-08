@@ -53,7 +53,25 @@
         </p>
         <div class="draft-diff md">
           {% for line in marked %}
-            {% if line.mark == 'edit' %}
+            {% if line.image %}
+              {% comment %}
+                 A picture is shown as the picture, marked like any other line.
+                 `caption_html` is only set when the caption itself changed —
+                 that is the whole reason images appear here at all.
+
+                 `{% comment %}`, not the hash-brace form: that one is
+                 single-line only and a multi-line version ships to the page as
+                 literal text, which is exactly what happened here.
+              {% endcomment %}
+              <div class="d-{{ line.mark }} d-figure">
+                <img src="{{ line.image.file.url }}" alt="{{ line.caption }}" loading="lazy">
+                {% if line.caption_html %}
+                  <span class="d-figcap">{{ line.caption_html }}</span>
+                {% elif line.caption %}
+                  <span class="d-figcap">{{ line.caption }}</span>
+                {% endif %}
+              </div>
+            {% elif line.mark == 'edit' %}
               <div class="d-edit">{% if line.heading %}<h2>{{ line.html }}</h2>{% else %}<p>{{ line.html }}</p>{% endif %}</div>
             {% else %}
               <div class="d-{{ line.mark }}">{{ line.text|markdown }}</div>
@@ -89,9 +107,23 @@
         {% endif %}
         {% for block in section.blocks %}
           {% if block.image %}
+            {% comment %}
+               A plain input, not an `.edit-rich` box: the caption is a
+               CharField that `_figure` escapes on the way out, so bold or a
+               link typed here would reach the page as literal characters.
+               Plain input in, plain text out.
+
+               The caption is written back into the `[[img:N|…]]` token, so it
+               is part of the draft text and versions with it: editing one
+               saves a new version and every older version keeps the caption it
+               was saved with. It does not touch `BriefImage.caption`, which
+               stays the brief-wide suggestion the picture review page edits.
+            {% endcomment %}
             <div class="edit-image">
-              <img src="{{ block.image.file.url }}" alt="{{ block.image.display_caption }}">
-              <span class="small muted">{{ block.image.display_caption|default:"簡報圖片" }}（圖片位置不可改）</span>
+              <img src="{{ block.image.file.url }}" alt="{{ block.caption }}">
+              <input type="text" class="edit-cap" name="{{ block.name }}"
+                     value="{{ block.caption }}" maxlength="200"
+                     placeholder="圖說" aria-label="這張圖的圖說">
             </div>
           {% elif block.items %}
             <ul class="edit-list">

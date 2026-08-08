@@ -118,6 +118,16 @@ label{display:block;font-size:13px;color:var(--muted);margin:14px 0 5px}
 .draft-diff .d-same::before{content:none}
 /* An edited paragraph is shown once, with only the changed runs marked. */
 .draft-diff .d-edit::before{content:none}
+/* Pictures in the comparison. Small on purpose — this view is for reading what
+   changed, and the picture is here to identify which one the caption belongs
+   to, not to be looked at. `line-through` on a deleted block would otherwise
+   strike the caption, so it is turned off for the image row and left to the
+   text inside it. */
+.draft-diff .d-figure{display:flex;align-items:center;gap:10px}
+.draft-diff .d-figure img{width:84px;height:56px;object-fit:contain;
+  background:#f4f4f6;border-radius:4px;flex:none}
+.draft-diff .d-figcap{font-size:12.5px;line-height:1.6;min-width:0}
+.draft-diff .d-del.d-figure img{opacity:.55}
 .draft-diff ins{text-decoration:none;border-radius:3px;padding:0 2px;
   background:color-mix(in srgb,var(--good) 22%,transparent)}
 .draft-diff del{border-radius:3px;padding:0 2px;color:var(--muted);
@@ -301,6 +311,11 @@ li.d-add,li.d-del{display:list-item;padding:1px 6px}
 .edit-image{display:flex;align-items:center;gap:10px;margin-bottom:10px;
   padding:8px;border:1px dashed var(--line);border-radius:8px}
 .edit-image img{width:96px;height:64px;object-fit:contain;background:#f4f4f6;border-radius:4px}
+/* Fills the row beside the thumbnail. Kept visually quiet — it is a caption,
+   not a heading — but it is a real input, so it kept its border: the version
+   that looked like plain text read as uneditable, which is the whole thing
+   this box was added to stop. */
+.edit-image .edit-cap{flex:1;min-width:0;margin:0;font-size:12.5px;padding:5px 8px}
 .post-figure{margin:22px 0;text-align:center}
 .post-figure img{max-width:100%;height:auto;border-radius:6px}
 .post-figure figcaption{margin-top:7px;font-size:12.5px;color:var(--muted);line-height:1.6}

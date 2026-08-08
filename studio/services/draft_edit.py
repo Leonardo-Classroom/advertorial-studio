@@ -42,8 +42,13 @@ HEADING = re.compile(r"^(#{1,3})[ \t]+(.+?)\s*$", re.M)
 # the article view lays them out that the fields line up with what is on screen.
 BLOCK_SPLIT = re.compile(r"\n\s*\n")
 
-# A block that is nothing but a picture reference.
-ONLY_IMAGE = re.compile(r"^\s*\[\[img:(\d+)\]\]\s*$", re.I)
+# A block that is nothing but picture references — one or several. The model
+# routinely writes two on consecutive lines, and markdown only starts a new
+# block at a blank line, so those arrive here as one block. This used to be
+# anchored to a single token, which meant such a block matched nothing, fell
+# through to the prose branch, and put a literal "[[img:2]]<br>[[img:12]]" in
+# the editor instead of two pictures.
+ONLY_IMAGE = re.compile(r"^\s*(?:\[\[img:\d+(?:\|.*?)?\]\]\s*)+$", re.I)
 
 # One bullet or numbered item: indent, marker, text.
 LIST_LINE = re.compile(r"^(\s*)([-*+]|\d+[.)])[ \t]+(.*)$")
@@ -57,6 +62,19 @@ LABELS = {
     "fb": "FB 貼文文案",
     "todo": "待確認",
 }
+
+
+def _img_token(number, caption: str | None) -> str:
+    """Rebuild a token, with its caption if it has one.
+
+    `]]` and newlines are stripped rather than escaped: the token has no escape
+    syntax, and a caption containing either would end it early and leave debris
+    in the draft. Neither belongs in a one-line caption anyway.
+    """
+    if caption is None:
+        return f"[[img:{number}]]"
+    caption = " ".join(str(caption).split()).replace("]]", "")[:200]
+    return f"[[img:{number}|{caption}]]"
 
 
 def _kind(heading: str) -> str:
@@ -160,13 +178,46 @@ def to_fields(text: str, brief=None) -> list[dict]:
             block = raw.strip()
             if not block:
                 continue
-            match = ONLY_IMAGE.match(block)
-            listed = None if match else _as_list(block)
+            if ONLY_IMAGE.match(block):
+                # One display block per token, so two pictures written on
+                # consecutive lines show as two pictures. These carry no input
+                # of their own — the template renders `image` and nothing
+                # editable — so the names are inert and only need to be
+                # distinct. `from_fields` still walks the *original* blocks and
+                # copies this one through verbatim, so expanding here cannot
+                # drift the `s{index}b{j}` numbering the editable boxes use.
+                # `finditer`, not `findall`: with an optional group `findall`
+                # reports both "[[img:3]]" and "[[img:3|]]" as an empty string,
+                # and those mean different things — no caption of its own
+                # versus a caption deliberately emptied.
+                for n, match in enumerate(IMG_TOKEN.finditer(block)):
+                    image = images.get(int(match.group(1)))
+                    if image is None:
+                        # Same rule as the article view: a token with no
+                        # approved picture behind it is dropped rather than
+                        # shown. It stays in the source text either way.
+                        continue
+                    carried = match.group(2)
+                    blocks.append({
+                        "name": f"s{index}b{j}m{n}",
+                        "value": match.group(0),
+                        "html": "",
+                        "image": image,
+                        # What to put in the caption box: this version's own
+                        # caption once it has one, otherwise the brief's
+                        # current suggestion — which is what a freshly
+                        # generated draft shows.
+                        "caption": carried if carried is not None else image.display_caption(),
+                        "items": None,
+                    })
+                continue
+
+            listed = _as_list(block)
             blocks.append({
                 "name": f"s{index}b{j}",
                 "value": block,
                 "html": to_html(block),
-                "image": images.get(int(match.group(1))) if match else None,
+                "image": None,
                 # A bullet per box, with the dash left behind in the markup.
                 "items": [{"name": f"s{index}b{j}i{k}", "value": text, "html": to_html(text)}
                           for k, (_, _, text) in enumerate(listed)] if listed else None,
@@ -188,13 +239,25 @@ def to_fields(text: str, brief=None) -> list[dict]:
     return sections
 
 
-def from_fields(text: str, posted) -> str:
+def from_fields(text: str, posted, brief=None) -> str:
     """Rebuild the draft from what came back, keeping everything else as it was.
 
     Driven by the original text rather than by the POST data: a field that is
     missing keeps its old content instead of vanishing, so a truncated or
     tampered-with submission cannot quietly delete half a draft.
+
+    `brief` is what keeps an untouched save from looking like an edit. Every
+    caption box posts its value whether or not anyone typed in it, and those
+    boxes are pre-filled with the brief's current suggestion — so without
+    knowing that suggestion this would bake it into all twelve tokens on the
+    first save and report a change nobody made. With it, a caption still equal
+    to the suggestion leaves the token bare.
     """
+    suggestions = {}
+    if brief is not None:
+        suggestions = {i: image.display_caption()
+                       for i, image in enumerate(brief.usable_images(), 1)}
+
     out: list[str] = []
     for index, (marker, heading, body) in enumerate(_sections(str(text or ""))):
         blocks: list[str] = []
@@ -203,7 +266,27 @@ def from_fields(text: str, posted) -> str:
             if not block:
                 continue
             if ONLY_IMAGE.match(block):
-                blocks.append(block)          # not editable
+                # The picture's position is still not editable, but its caption
+                # is — and it is rebuilt into the token so it belongs to *this*
+                # version. `n` counts every token in the block, including any
+                # `to_fields` chose not to display, so the two stay aligned.
+                rebuilt = []
+                for n, match in enumerate(IMG_TOKEN.finditer(block)):
+                    edited = posted.get(f"s{index}b{j}m{n}")
+                    if edited is None:
+                        rebuilt.append(match.group(0))
+                        continue
+                    edited = " ".join(str(edited).split())
+                    # Unchanged from the brief's suggestion, and the token
+                    # never carried one: leave it bare. Writing it in would
+                    # turn "use the brief's caption" into "this exact text",
+                    # which is a decision the operator did not make.
+                    if (match.group(2) is None
+                            and edited == suggestions.get(int(match.group(1)))):
+                        rebuilt.append(match.group(0))
+                        continue
+                    rebuilt.append(_img_token(match.group(1), edited))
+                blocks.append("\n".join(rebuilt))
                 continue
 
             listed = _as_list(block)

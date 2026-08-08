@@ -186,29 +186,76 @@ def _edited_block(old: str, new: str) -> dict:
             "html": segments_html(segments), "text": new}
 
 
-def mark_paragraphs(old: str, new: str) -> list[dict]:
+IMG_UNIT = re.compile(r"^\s*\[\[img:(\d+)(?:\|(.*?))?\]\]\s*$", re.I)
+# A unit made only of picture tokens. The model writes two on consecutive
+# lines and markdown keeps them in one block, so without splitting these the
+# pair stays a single unit, matches nothing, and renders as raw `[[img:2]]`
+# text — the exact thing dropping tokens used to prevent.
+IMG_ONLY_BLOCK = re.compile(r"^\s*(?:\[\[img:\d+(?:\|.*?)?\]\]\s*)+$", re.I)
+
+
+def _as_image_entry(text: str, images: dict) -> dict | None:
+    """A diff unit that is exactly one picture token, resolved, or None."""
+    match = IMG_UNIT.match(text or "")
+    if not match:
+        return None
+    image = images.get(int(match.group(1)))
+    if image is None:
+        return None
+    carried = match.group(2)
+    return {"image": image,
+            "caption": carried if carried is not None else image.display_caption()}
+
+
+def mark_paragraphs(old: str, new: str, brief=None) -> list[dict]:
     """Paragraph-level marks — `same`, `add`, `del` — for the comparison view.
 
-    Picture tokens are dropped here rather than rendered. The comparison is
-    about what the copy says; `[[img:2]]` is a position marker, and showing it
-    raw in a screen meant for reading is the sort of thing that makes people
-    think the draft is broken.
+    Picture tokens used to be stripped here, on the grounds that the comparison
+    is about what the copy says and a raw `[[img:2]]` on a reading screen looks
+    like breakage. That stopped being right once captions moved *into* the
+    token: a caption edit is a copy edit, and stripping the token hid the one
+    change the reader most needs to check. Tokens are now kept as units of
+    their own and handed to the template as the picture plus its caption, so a
+    changed caption shows up marked like any other edited line.
+
+    Without a `brief` there is nothing to resolve a number against, so the old
+    behaviour stands and tokens are dropped rather than shown raw.
     """
     from studio.templatetags.mdformat import IMG_TOKEN
 
+    images = {}
+    if brief is not None:
+        images = {i: image for i, image in enumerate(brief.usable_images(), 1)}
+
     def blocks(text: str) -> list[str]:
-        text = IMG_TOKEN.sub("", text or "")
+        text = text or ""
+        if not images:
+            text = IMG_TOKEN.sub("", text)
         out: list[str] = []
         for chunk in BLOCK_SPLIT.split(text.strip()):
-            out.extend(_units(chunk))
+            for unit in _units(chunk):
+                if images and IMG_ONLY_BLOCK.match(unit):
+                    # One token per unit, so each picture is diffed on its own
+                    # and a caption change on the second of two does not mark
+                    # both as edited.
+                    out.extend(m.group(0) for m in IMG_TOKEN.finditer(unit))
+                else:
+                    out.append(unit)
         return out
+
+    def entry(text: str, mark: str) -> dict:
+        """One unit, as a picture if it is one and as prose otherwise."""
+        picture = _as_image_entry(text, images)
+        if picture:
+            return {"text": text, "mark": mark, **picture}
+        return {"text": text, "mark": mark}
 
     before, after = blocks(old), blocks(new)
     matcher = SequenceMatcher(a=before, b=after, autojunk=False)
     out: list[dict] = []
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
-            out.extend({"text": t, "mark": "same"} for t in before[i1:i2])
+            out.extend(entry(t, "same") for t in before[i1:i2])
             continue
 
         gone, added = before[i1:i2], after[j1:j2]
@@ -216,11 +263,22 @@ def mark_paragraphs(old: str, new: str) -> list[dict]:
         # once, with the edit inside it; one that was replaced outright is shown
         # as the two paragraphs it really is.
         for left, right in zip(gone, added):
+            # Same picture, different caption: one entry showing the picture
+            # once with the caption's own diff inside it. Falling through to
+            # the prose path would diff the token syntax and print
+            # "[[img:1|…]]" with half of it in red.
+            was, now = _as_image_entry(left, images), _as_image_entry(right, images)
+            if was and now and was["image"].pk == now["image"].pk:
+                segments = _inline(was["caption"], now["caption"])
+                out.append({"text": right, "mark": "edit", "image": now["image"],
+                            "caption": now["caption"], "was_caption": was["caption"],
+                            "caption_html": segments_html(segments)})
+                continue
             if SequenceMatcher(a=left, b=right, autojunk=False).ratio() >= SIMILAR_ENOUGH:
                 out.append(_edited_block(left, right))
             else:
-                out.append({"text": left, "mark": "del"})
-                out.append({"text": right, "mark": "add"})
-        out.extend({"text": t, "mark": "del"} for t in gone[len(added):])
-        out.extend({"text": t, "mark": "add"} for t in added[len(gone):])
+                out.append(entry(left, "del"))
+                out.append(entry(right, "add"))
+        out.extend(entry(t, "del") for t in gone[len(added):])
+        out.extend(entry(t, "add") for t in added[len(gone):])
     return out

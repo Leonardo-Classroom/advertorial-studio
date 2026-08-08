@@ -596,7 +596,7 @@ def draft_edit(request, pk):
     # Captions ride inside the `[[img:N|…]]` tokens, so a caption edit changes
     # the text like any other edit and needs no special case here — it saves a
     # new version and leaves older ones with the captions they were saved with.
-    after = draft_edit_service.from_fields(base.text, request.POST)
+    after = draft_edit_service.from_fields(base.text, request.POST, run.brief)
     if after.strip() == base.text.strip():
         messages.info(request, "內容沒有變動，未儲存。")
         return redirect("portal:draft_detail", pk=pk)

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
+from html import unescape
 
 from django import template
 from django.utils.html import escape
@@ -54,11 +55,22 @@ SINGLE_SLOTS = frozenset({"title", "fb", "tags", "todo"})
 # markdown image syntax: `![](…)` would let model output name an arbitrary URL,
 # and the whole point is that only approved, locally-stored deck images can
 # appear. A number indexes the approved roster and nothing else can.
-IMG_TOKEN = re.compile(r"\[\[img:(\d+)\]\]", re.I)
+#
+# An optional `|caption` rides along: `[[img:3|白色運動鞋側面]]`. That is what
+# makes captions versioned. They used to be read from `BriefImage` at render
+# time, which meant editing one silently rewrote the caption in every draft
+# version ever produced from that brief — the text was versioned, the caption
+# was not. Carrying it in the token puts it inside the thing that *is*
+# versioned, so an old version keeps the caption it was saved with.
+#
+# The model is never asked to write the caption part (see prompts.py); a bare
+# `[[img:3]]` still means "use whatever the brief currently suggests", which is
+# what a freshly generated draft contains.
+IMG_TOKEN = re.compile(r"\[\[img:(\d+)(?:\|(.*?))?\]\]", re.I)
 # The same token after rendering, when it ended up alone in its own paragraph —
 # the normal case, since the spec asks for it on its own line. Matched so the
 # <figure> replaces the <p> instead of nesting inside it.
-IMG_PARAGRAPH = re.compile(r"<p>\s*\[\[img:(\d+)\]\]\s*</p>", re.I)
+IMG_PARAGRAPH = re.compile(r"<p>\s*\[\[img:(\d+)(?:\|(.*?))?\]\]\s*</p>", re.I)
 
 
 @lru_cache(maxsize=1)
@@ -119,8 +131,15 @@ def _classify(heading: str) -> str:
     return "body" if not heading else "other"
 
 
-def _figure(image) -> str:
-    caption = image.display_caption()
+def _figure(image, caption: str | None = None) -> str:
+    """`caption=None` means the token carried none — fall back to the brief's.
+
+    An empty string is a different answer from `None`: it is a caption the
+    operator deliberately cleared, and must not silently resurrect the AI's
+    suggestion.
+    """
+    if caption is None:
+        caption = image.display_caption()
     cap_html = f'<figcaption>{escape(caption)}</figcaption>' if caption else ""
     return (f'<figure class="post-figure">'
             f'<img src="{escape(image.file.url)}" alt="{escape(caption)}" loading="lazy">'
@@ -150,7 +169,14 @@ def _place_images(html: str, brief) -> str:
 
     def swap(match):
         image = by_number.get(int(match.group(1)))
-        return _figure(image) if image else ""
+        if not image:
+            return ""
+        # `unescape` because this runs on rendered HTML: the markdown pass has
+        # already turned a caption's & < > into entities, and `_figure`
+        # escapes again on the way out. Without this a caption containing "&"
+        # would ship as "&amp;amp;".
+        caption = match.group(2)
+        return _figure(image, unescape(caption) if caption is not None else None)
 
     return IMG_TOKEN.sub(swap, IMG_PARAGRAPH.sub(swap, html))
 

@@ -1,62 +1,81 @@
 {% extends "portal/base_portal.html" %}
 {% block content %}
 <div class="row tight" style="margin-bottom:6px">
-  <h1 style="flex:1;margin:0">我的稿件</h1>
-  <a class="btn" href="{% url 'portal:upload' %}">上傳簡報</a>
+  <h1 style="flex:1;margin:0">我的專案</h1>
+  <a class="btn" href="{% url 'portal:upload' %}">新建專案</a>
 </div>
-<p class="sub">流程：上傳簡報 → 核對抽出的內容 → 選擇要模仿的媒體風格 → 產出稿件。</p>
+<p class="sub">流程：新建專案 → 核對抽出的內容 → 選擇要模仿的媒體風格 → 產出稿件。</p>
 
-<div class="grid g3">
-  <div class="stat"><div class="n">{{ brief_count }}</div><div class="l">我的簡報</div></div>
-  <div class="stat"><div class="n">{{ run_count }}</div><div class="l">產出的稿件</div></div>
-</div>
-
+{% comment %}
+  Same plain-GET filter bar as the draft list, minus the two fields that mean
+  nothing here: a project has no article headline, and no single outlet.
+{% endcomment %}
 <div class="card" style="margin-top:16px">
+  <form method="get" class="row">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ dir }}">
+    <div style="flex:2">
+      <label for="f_q">專案名稱</label>
+      <input type="text" id="f_q" name="q" value="{{ sel_name }}"
+             placeholder="輸入部分名稱即可">
+    </div>
+    <div>
+      <label for="f_status">狀態</label>
+      <select id="f_status" name="status">
+        <option value="">全部</option>
+        {% for value, label in statuses %}
+          <option value="{{ value }}" {% if sel_status == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="flex:0;min-width:auto">
+      <label for="f_per">每頁</label>
+      <select id="f_per" name="per" style="width:auto">
+        {% for n in page_sizes %}
+          <option value="{{ n }}" {% if per == n %}selected{% endif %}>{{ n }} 筆</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="flex:0;min-width:auto"><label>&nbsp;</label><button class="btn">篩選</button></div>
+  </form>
+</div>
+
+<div class="card">
   <h2 style="margin-top:0">專案</h2>
-  {% if briefs %}
+  {% if page.object_list %}
+    <div class="small muted list-count">共 {{ page.paginator.count }} 個專案</div>
     <table class="fixed">
       <colgroup>
         <col style="width:52%"><col style="width:16%"><col style="width:16%"><col style="width:16%">
       </colgroup>
-      <tr><th>名稱</th><th>頁數</th><th>內容版本</th><th>上傳時間</th></tr>
-      {% for b in briefs %}
+      {% include "_sort_head.html" %}
+      {% for b in page %}
       <tr>
-        <td><a href="{% url 'portal:brief_detail' b.pk %}" title="{{ b.title }}" class="ellipsis">{{ b.title }}</a></td>
-        <td>{{ b.slide_count }}</td>
-        <td>{% if b.latest_facts %}<span class="pill">{{ b.latest_facts.label }}</span>
+        {% comment %}
+          `newest_facts` (the annotation the sort already needed), not
+          `latest_facts` — that one is a property that runs a query every time
+          it is touched, and it was touched three times per row.
+        {% endcomment %}
+        <td><a href="{% url 'portal:brief_detail' b.pk %}"
+               title="{{ b.title }}{% if b.newest_facts %}（v{{ b.newest_facts|stringformat:"02d" }}）{% endif %}"
+               class="ellipsis">{{ b.title }}{% if b.newest_facts %}<span class="muted">（v{{ b.newest_facts|stringformat:"02d" }}）</span>{% endif %}</a></td>
+        <td>{% if b.newest_facts %}<span class="pill">v{{ b.newest_facts|stringformat:"02d" }}</span>
           {% elif b.processing %}<span class="pill running">處理中</span>
           {% else %}<span class="pill bad">未完成</span>{% endif %}</td>
-        <td class="muted small">{{ b.created_at|date:"Y-m-d H:i" }}</td>
+        <td class="muted small cell-time">{{ b.created_at|date:"Y-m-d" }}<br>{{ b.created_at|date:"H:i" }}</td>
+        {% comment %}
+          Blank until the facts have been extracted — a project whose
+          upload is still being parsed has never been edited.
+        {% endcomment %}
+        <td class="muted small cell-time">{% if b.newest_facts_at %}{{ b.newest_facts_at|date:"Y-m-d" }}<br>{{ b.newest_facts_at|date:"H:i" }}{% else %}—{% endif %}</td>
       </tr>
       {% endfor %}
     </table>
+    {% include "_pager.html" with unit="個專案" %}
   {% else %}
-    <div class="empty">還沒有簡報。<br><br>
+    <div class="empty">還沒有專案。<br><br>
       <a class="btn" href="{% url 'portal:upload' %}">上傳第一份</a></div>
   {% endif %}
 </div>
 
-<div class="card">
-  <h2 style="margin-top:0">產出的稿件</h2>
-  {% if runs %}
-    <table class="fixed">
-      <colgroup>
-        <col style="width:46%"><col style="width:26%"><col style="width:14%"><col style="width:14%">
-      </colgroup>
-      <tr><th>名稱</th><th>模仿風格</th><th>狀態</th><th>時間</th></tr>
-      {% for r in runs %}
-      <tr>
-        <td><a href="{% url 'portal:draft_detail' r.pk %}" title="{{ r.brief.title }}" class="ellipsis">{{ r.brief.title }}</a></td>
-        <td class="small">{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</td>
-        <td>{% if r.status == 'done' %}<span class="pill good">完成</span>
-          {% elif r.status == 'failed' %}<span class="pill" style="color:var(--bad)">失敗</span>
-          {% else %}<span class="pill">處理中</span>{% endif %}</td>
-        <td class="muted small">{{ r.created_at|date:"m-d H:i" }}</td>
-      </tr>
-      {% endfor %}
-    </table>
-  {% else %}
-    <div class="empty">還沒有稿件。先上傳一份簡報。</div>
-  {% endif %}
-</div>
 {% endblock %}

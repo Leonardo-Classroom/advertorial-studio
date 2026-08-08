@@ -23,6 +23,7 @@ from django.contrib import messages
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
+from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -32,7 +33,7 @@ from briefs.models import Brief
 from briefs.services import facts_edit, facts_text, facts_update
 from briefs.services import ingest_runner
 from briefs.services import upload as upload_service
-from corpus.models import StyleGuide
+from corpus.models import Outlet, StyleGuide
 from studio.models import GenerationRun, SiteSettings
 from studio.services import draft_edit as draft_edit_service
 from studio.services import generate as generate_service
@@ -70,7 +71,7 @@ def _ingest_images(request, brief) -> None:
     from briefs.services import images as image_service
 
     try:
-        summary = image_service.ingest(brief)
+        summary = image_service.ingest(brief, run_classify=False)
     except Exception as exc:  # noqa: BLE001 - text extraction already succeeded
         messages.warning(request, f"圖片解析失敗：{exc}。文字內容不受影響，稿子仍可正常產出。")
         return
@@ -79,8 +80,8 @@ def _ingest_images(request, brief) -> None:
         messages.info(request, "簡報裡沒有找到適合放進稿子的圖片（多半是表格、logo 或裝飾圖）。")
         return
 
-    note = (f"圖片解析完成：{summary['found']} 張中篩出 {summary['stored']} 張候選，"
-            f"其中 {summary['usable']} 張判定可用。請在下方核對後再產稿。")
+    note = (f"圖片解析完成：{summary['found']} 張中篩出 {summary['stored']} 張候選。"
+            f"勾選要用的圖之後，按「解析勾選的圖片」補上圖說再產稿。")
     if summary["truncated"]:
         note += f"（另有 {summary['truncated']} 張較小的圖未送辨識）"
     messages.success(request, note)
@@ -90,14 +91,286 @@ def _my_runs(request):
     return GenerationRun.objects.filter(owner=request.user)
 
 
+# Offered page sizes. Whitelisted rather than taken as given: `?per=1000000`
+# would otherwise be a way for any logged-in user to ask the server to render
+# every row they own in one response.
+PAGE_SIZES = (10, 30, 50, 100)
+DEFAULT_PAGE_SIZE = 10
+
+
+def _page_size(request) -> int:
+    """The page size to use, remembering the last one the user picked.
+
+    Kept in the session rather than in every link: the choice is a preference
+    about how they like to read these lists, so it should survive following a
+    link out and coming back, which a URL-only value does not.
+    """
+    wanted = request.GET.get("per")
+    if wanted:
+        try:
+            chosen = int(wanted)
+        except ValueError:
+            chosen = None
+        if chosen in PAGE_SIZES:
+            request.session["page_size"] = chosen
+            return chosen
+
+    remembered = request.session.get("page_size")
+    return remembered if remembered in PAGE_SIZES else DEFAULT_PAGE_SIZE
+
+
+def _qs_extra(**params) -> str:
+    """The filter/page-size part of the query string, for links that must keep
+    it — the sort headers and the pager, which otherwise reset the view the
+    moment you use them."""
+    from urllib.parse import urlencode
+
+    kept = {k: v for k, v in params.items() if v}
+    return ("&" + urlencode(kept)) if kept else ""
+
+
+BRIEF_SORTS = {
+    "name": "title",
+    "facts": "newest_facts",
+    "time": "created_at",
+    # Same reasoning as the draft list: a facts version is what an edit
+    # produces here, so its timestamp is the edit. `Brief.updated_at` also
+    # moves when a background job flips `processing`.
+    "edited": "newest_facts_at",
+}
+
+# Which column header sorts by what. `None` means it cannot be done in SQL —
+# see the note in `drafts()`. Keys are what appears in the URL, so they stay
+# short and stable even if a heading is reworded.
+DRAFT_SORTS = {
+    "title": None,
+    "version": "newest_version",
+    "brief": "brief__title",
+    "facts": "facts_version__version",
+    "outlet": "outlet__name",
+    "time": "created_at",
+    # When the copy itself last changed — a new draft version is what an edit
+    # or a rewrite produces, so its timestamp is the honest answer. `run.
+    # updated_at` is not: `auto_now` moves it on any save at all, including the
+    # background status flips nobody would call an edit.
+    "edited": "newest_draft_at",
+}
+
+
+def _listed_runs(request):
+    """Runs worth showing as drafts — everything except the ones that failed.
+
+    A failed run produced no copy, so it has no headline, no version and
+    nothing to open; listing it only asks the user to notice a row they can do
+    nothing with. Kept in the database either way: the staff run list under
+    /manage/ is where failures are meant to be looked at.
+    """
+    return _my_runs(request).exclude(status="failed")
+
+
+def _style_guides():
+    """The style guides on offer, English-named outlets first.
+
+    `is_active` is the only thing that decides what appears — the same switch
+    the guide list under /manage/ shows as 啟用 / 停用. This once also filtered
+    out per-author guides, which made that badge a lie: eleven guides were
+    marked 啟用 and did not appear here, and the generate endpoint accepted
+    them anyway because it only ever checked `is_active`. Two rules for "may
+    this be used" is one too many; the author-level guides are simply
+    deactivated instead.
+
+    Sorted in Python rather than by the database: ordering "GQ" before
+    "工商時報" is a question about scripts, and collation for that is a
+    per-database, per-locale setting this project does not pin.
+    """
+    guides = StyleGuide.objects.filter(is_active=True).select_related("outlet", "author")
+    return sorted(guides, key=lambda g: (not g.outlet.name.isascii(), g.outlet.name))
+
 @login_required
 def home(request):
+    """The user's projects, paginated.
+
+    It used to be a bare `[:10]` — fine while this was a summary card above the
+    drafts, useless once it became the whole page: the eleventh project was
+    unreachable except by typing its URL, with nothing on screen admitting the
+    list had been cut.
+    """
+    from django.db.models import OuterRef, Subquery
+
+    from briefs.models import BriefFacts
+
+    # The version shown in the 內容版本 column is a property (`latest_facts`),
+    # which SQL cannot order by — so the number comes along as an annotation
+    # purely so that column can be sorted.
+    newest = BriefFacts.objects.filter(brief=OuterRef("pk")).order_by("-version")
+    briefs = _listed_briefs(request).annotate(
+        newest_facts=Subquery(newest.values("version")[:1]),
+        newest_facts_at=Subquery(newest.values("created_at")[:1]))
+
+    # Filters. Only the two that mean something for a project: it has no
+    # article headline to search, and no single outlet — a project can have
+    # drafts in several styles, so "模仿風格" belongs to the draft list.
+    #
+    # The status values mirror what the 內容版本 column already shows, so
+    # filtering by one is filtering by what is on screen. Expressed against the
+    # `newest_facts` subquery rather than by joining `fact_versions`, which
+    # would multiply rows and need another `distinct()`.
+    sel_name = (request.GET.get("q") or "").strip()
+    sel_status = request.GET.get("status") or ""
+    if sel_name:
+        briefs = briefs.filter(title__icontains=sel_name)
+    if sel_status == "done":
+        briefs = briefs.filter(newest_facts__isnull=False)
+    elif sel_status == "processing":
+        briefs = briefs.filter(newest_facts__isnull=True, processing=True)
+    elif sel_status == "none":
+        briefs = briefs.filter(newest_facts__isnull=True, processing=False)
+    else:
+        # 未完成 is hidden by default: nothing was extracted, so there is
+        # nothing to write from and the row is only in the way.
+        #
+        # Hidden, not dropped — picking 未完成 above brings them back. That
+        # matters more than it looks: `_listed_briefs` deliberately stopped
+        # filtering these out because the detail page is the only thing that
+        # says *why* an upload failed, and one whose source file failed to
+        # parse cannot even be retried. Excluding them outright would make a
+        # failed upload silently vanish with no way to find out what happened.
+        briefs = briefs.exclude(newest_facts__isnull=True, processing=False)
+
+    key = request.GET.get("sort") or "time"
+    if key not in BRIEF_SORTS:
+        key = "time"
+    descending = (request.GET.get("dir") or ("desc" if key == "time" else "asc")) == "desc"
+    field = BRIEF_SORTS[key]
+    order = f"-{field}" if descending else field
+
+    per = _page_size(request)
+    page = Paginator(briefs.order_by(order, "-created_at"), per).get_page(request.GET.get("page"))
     return render(request, "portal/home.html", {
         "nav": "home",
-        "briefs": _listed_briefs(request)[:10],
-        "runs": _my_runs(request).select_related("brief", "outlet")[:10],
-        "brief_count": _listed_briefs(request).count(),
-        "run_count": _my_runs(request).count(),
+        "page": page,
+        # Built here because `get_elided_page_range` takes an argument, which a
+        # template cannot pass.
+        "page_range": page.paginator.get_elided_page_range(page.number),
+        "pager_qs": _qs_extra(sort=key, dir="desc" if descending else "asc",
+                              q=sel_name, status=sel_status, per=per),
+        "sort": key,
+        "dir": "desc" if descending else "asc",
+        "flip": "asc" if descending else "desc",
+        "sortable": [("name", "名稱"), ("facts", "內容版本"),
+                     ("time", "建立時間"), ("edited", "最後編輯時間")],
+        "sel_name": sel_name,
+        "sel_status": sel_status,
+        "statuses": [("done", "已抽取內容"), ("processing", "處理中"), ("none", "未完成")],
+        "per": per,
+        "page_sizes": PAGE_SIZES,
+        "qs_extra": _qs_extra(q=sel_name, status=sel_status, per=per),
+    })
+
+
+@login_required
+def drafts(request):
+    """Every draft this user has produced, on a page of its own.
+
+    Each row leads with the article's own headline, so the list can be read as
+    "which piece is this" — the project name repeats across every draft made
+    from the same deck, and a column of ten identical names identifies nothing.
+
+    The headline lives inside the newest version's text, so it arrives by
+    subquery rather than by touching `draft_versions` per row: the latter is a
+    query per draft, and this page exists precisely to show a lot of them.
+
+    Named `newest_draft`, not `latest_text` — `GenerationRun` already has a
+    `latest_text` property, and annotating over it fails outright ("property
+    has no setter") rather than silently shadowing it.
+    """
+    from django.db.models import OuterRef, Subquery
+
+    from studio.models import DraftVersion
+
+    newest = DraftVersion.objects.filter(run=OuterRef("pk")).order_by("-version")
+    qs = (_listed_runs(request)
+          .select_related("brief", "outlet", "author", "facts_version")
+          .annotate(newest_draft=Subquery(newest.values("text")[:1]),
+                    newest_version=Subquery(newest.values("version")[:1]),
+                    newest_draft_at=Subquery(newest.values("created_at")[:1])))
+
+    # Filters. The project is typed rather than picked from a list: the list
+    # was every project the user has ever made, most of them named after the
+    # same deck, and picking "0410_NB 2025…" out of four identical labels is
+    # not something a dropdown helps with. The outlet stays a dropdown — there
+    # are a handful of them and the names are distinct.
+    sel_title = (request.GET.get("q") or "").strip()
+    sel_brief = (request.GET.get("brief") or "").strip()
+    sel_outlet = request.GET.get("outlet") or ""
+    outlet_options = Outlet.objects.filter(pk__in=qs.values("outlet_id")).order_by("name")
+    if sel_brief:
+        qs = qs.filter(brief__title__icontains=sel_brief)
+    if sel_outlet.isdigit():
+        qs = qs.filter(outlet_id=sel_outlet)
+
+    per = _page_size(request)
+
+    key = request.GET.get("sort") or "time"
+    if key not in DRAFT_SORTS:
+        key = "time"
+    # Time reads newest-first; a name or a number reads A→Z. Both still flip.
+    descending = (request.GET.get("dir") or ("desc" if key == "time" else "asc")) == "desc"
+
+    field = DRAFT_SORTS[key]
+    if field is not None:
+        # `-created_at` breaks ties so equal keys (two drafts of one project,
+        # same outlet) keep a stable, meaningful order instead of an arbitrary
+        # one that shuffles between page loads.
+        qs = qs.order_by(f"-{field}" if descending else field, "-created_at")
+
+    # Both searching and sorting by headline have to happen in Python: the
+    # headline lives inside the draft text, and the text does not start with it
+    # — `## FB貼文文案` comes first — so neither an `icontains` on the column nor
+    # an `order_by` on it would be about the headline at all. That means loading
+    # the user's runs, which `_listed_runs` already scopes this to; if that ever
+    # stops being a page-sized number, the fix is to store the headline on
+    # `DraftVersion`, not to make SQL guess at it.
+    if field is None or sel_title:
+        rows = list(qs)
+        for run in rows:
+            run.headline = draft_service.headline(run.newest_draft)
+        if sel_title:
+            needle = sel_title.lower()
+            rows = [r for r in rows if needle in (r.headline or "").lower()]
+        if field is None:
+            rows.sort(key=lambda r: r.headline or "", reverse=descending)
+        page = Paginator(rows, per).get_page(request.GET.get("page"))
+    else:
+        page = Paginator(qs, per).get_page(request.GET.get("page"))
+        for run in page.object_list:
+            run.headline = draft_service.headline(run.newest_draft)
+
+    return render(request, "portal/drafts.html", {
+        "nav": "drafts",
+        "page": page,
+        "page_range": page.paginator.get_elided_page_range(page.number),
+        # The pager carries the sort as well as the filters; `qs_extra` must
+        # not, or the sort headers would emit two `sort=` parameters.
+        "pager_qs": _qs_extra(sort=key, dir="desc" if descending else "asc",
+                              q=sel_title, brief=sel_brief, outlet=sel_outlet, per=per),
+        "sort": key,
+        "dir": "desc" if descending else "asc",
+        # Paired with the labels here rather than repeated in the template, so
+        # a new sortable column is one entry in `DRAFT_SORTS` plus one here.
+        "sortable": [("title", "標題"), ("version", "版本"), ("brief", "專案名稱"),
+                     ("facts", "專案版本"), ("outlet", "模仿風格"),
+                     ("time", "生成時間"), ("edited", "最後編輯時間")],
+        "outlet_options": outlet_options,
+        "sel_title": sel_title,
+        "sel_brief": sel_brief,
+        "sel_outlet": sel_outlet,
+        "per": per,
+        "page_sizes": PAGE_SIZES,
+        "qs_extra": _qs_extra(q=sel_title, brief=sel_brief, outlet=sel_outlet, per=per),
+        # What each header should link to: clicking the active column flips it,
+        # clicking another starts that one at its own natural direction.
+        "flip": "asc" if descending else "desc",
     })
 
 
@@ -119,7 +392,6 @@ def upload(request):
                 owner=request.user,
                 title=request.POST.get("title") or "",
                 files=files,
-                parse_images=request.POST.get("parse_images") == "1",
             )
         except ValueError as exc:  # noqa: BLE001 - the user needs the reason
             messages.error(request, str(exc))
@@ -152,6 +424,23 @@ def upload_retry(request, pk):
     ingest_runner.retry_facts(brief)
     return redirect("portal:brief_detail", pk=brief.pk)
 
+
+@login_required
+def source_file_retry(request, pk, file_pk):
+    """Re-parse one failed source file and fold its content into the facts."""
+    brief = get_object_or_404(_my_briefs(request), pk=pk)
+    if request.method != "POST":
+        return redirect("portal:brief_detail", pk=pk)
+
+    source_file = get_object_or_404(brief.source_files, pk=file_pk)
+    if source_file.status != "failed":
+        messages.info(request, "這個檔案沒有處理失敗，不需要重新處理。")
+        return redirect("portal:brief_detail", pk=pk)
+
+    ingest_runner.retry_source_file(brief, source_file)
+    messages.info(request, f"已在背景重新處理《{source_file.original_filename}》，"
+                           "成功的話會把它的內容併進抽出的內容，存成新的一版。")
+    return redirect("portal:brief_detail", pk=pk)
 
 @login_required
 def upload_status(request, pk):
@@ -191,8 +480,22 @@ def brief_detail(request, pk):
                 or next((v for v in others if v.version == 1), None)
                 or others[-1])
 
-    runs = list(brief.runs.filter(owner=request.user).select_related("outlet", "author",
-                                                                     "facts_version"))
+    # The card lists the article's own headline, so each row needs its newest
+    # draft version — its text to read the headline out of, and its number for
+    # the `p` label. By subquery rather than by touching `draft_versions` per
+    # row: same reasoning as the draft list (`portal.views.drafts`).
+    from django.db.models import OuterRef, Subquery
+
+    from studio.models import DraftVersion
+
+    newest = DraftVersion.objects.filter(run=OuterRef("pk")).order_by("-version")
+    runs = list(brief.runs.filter(owner=request.user)
+                .select_related("outlet", "author", "facts_version")
+                .annotate(newest_draft=Subquery(newest.values("text")[:1]),
+                          newest_version=Subquery(newest.values("version")[:1]),
+                          newest_draft_at=Subquery(newest.values("created_at")[:1])))
+    for run in runs:
+        run.headline = draft_service.headline(run.newest_draft)
     runner.reap_stale(runs)
 
     source_files = list(brief.source_files.order_by("order", "pk"))
@@ -229,7 +532,7 @@ def brief_detail(request, pk):
         # `facts`/`viewing` — those can be an older version under inspection.
         "latest_primary_kol": (latest.data.get("primary_kol") if latest else "") or "",
         "kol_candidates": ((latest.data.get("kol") if latest else None) or []),
-        "guides": StyleGuide.objects.filter(is_active=True).select_related("outlet", "author"),
+        "guides": _style_guides(),
         "confirm_updates": SiteSettings.load().confirm_fact_updates,
         "llm_backend": SiteSettings.load().llm_backend,
         "runs": runs,
@@ -257,8 +560,6 @@ def brief_images(request, pk):
         return redirect("portal:brief_detail", pk=pk)
 
     if request.POST.get("action") == "parse":
-        brief.parse_images = True
-        brief.save(update_fields=["parse_images", "updated_at"])
         _ingest_images(request, brief)
         return redirect("portal:brief_detail", pk=pk)
 
@@ -319,6 +620,38 @@ def brief_images_progress(request, pk):
     get_object_or_404(_my_briefs(request), pk=pk)
     return JsonResponse(image_service.read_classify_progress(pk))
 
+
+@login_required
+def brief_rename(request, pk):
+    """Rename a project, from wherever its name is shown.
+
+    Saves itself and answers with the stored name, so the caller can put back
+    whatever the server actually kept — the value is trimmed and capped at the
+    column width here, and a box left showing untrimmed text would disagree
+    with every other screen.
+
+    Worth being clear about the scope: this is the *project* name, so it
+    changes the project list and every draft made from it. Nothing else is
+    touched — a draft's own headline lives in its text.
+    """
+    brief = get_object_or_404(_my_briefs(request), pk=pk)
+    if request.method != "POST":
+        return redirect("portal:brief_detail", pk=pk)
+
+    title = " ".join((request.POST.get("title") or "").split())[:200]
+    if not title:
+        if request.headers.get("X-Requested-With") == "fetch":
+            return JsonResponse({"error": "專案名稱不能是空的。"}, status=400)
+        messages.error(request, "專案名稱不能是空的。")
+        return redirect("portal:brief_detail", pk=pk)
+
+    if title != brief.title:
+        brief.title = title
+        brief.save(update_fields=["title", "updated_at"])
+
+    if request.headers.get("X-Requested-With") == "fetch":
+        return JsonResponse({"title": brief.title})
+    return redirect("portal:brief_detail", pk=pk)
 
 def _chosen_facts_version(brief, wanted):
     """The fact version a form named, else the newest.

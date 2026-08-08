@@ -66,6 +66,28 @@ def latest(run):
     return run.draft_versions.first()
 
 
+def headline(text: str) -> str:
+    """The article's own title — what the reading view sets as `.post-title`.
+
+    Built from the same split-and-classify the renderer uses, and stripped the
+    same way, so a list that shows headlines beside links cannot disagree with
+    the page those links open. Empty when the draft has no title section, which
+    a failed run legitimately does not.
+    """
+    from studio.templatetags.mdformat import _classify, _split_sections
+
+    for heading, body in _split_sections(str(text or "")):
+        if _classify(heading) != "title":
+            continue
+        body = body.strip()
+        if not body:
+            continue
+        # A title written as a list item or carrying stray marks still reads as
+        # one line of prose — same cleanup as the renderer's.
+        return re.sub(r"^[\s*\-–—#>]+", "", body.splitlines()[0]).strip()
+    return ""
+
+
 def add_version(run, text: str, source: str = "manual", user_input: str = "",
                 parent=None):
     """Record a new version. A save that changes nothing is not a version."""

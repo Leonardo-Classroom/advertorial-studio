@@ -17,6 +17,9 @@ urlpatterns = [
     path("upload/<int:pk>/retry/", views.upload_retry, name="upload_retry"),
     path("upload/<int:pk>/status/", views.upload_status, name="upload_status"),
     path("briefs/<int:pk>/", views.brief_detail, name="brief_detail"),
+    path("briefs/<int:pk>/rename/", views.brief_rename, name="brief_rename"),
+    path("briefs/<int:pk>/files/<int:file_pk>/retry/", views.source_file_retry,
+         name="source_file_retry"),
     path("briefs/<int:pk>/facts/update/", views.brief_facts_update, name="brief_facts_update"),
     path("briefs/<int:pk>/facts/edit/", views.brief_facts_edit, name="brief_facts_edit"),
     path("briefs/<int:pk>/facts/confirm/", views.brief_facts_confirm, name="brief_facts_confirm"),
@@ -26,6 +29,7 @@ urlpatterns = [
          name="brief_images_progress"),
     path("briefs/<int:pk>/generate/", views.generate, name="generate"),
 
+    path("drafts/", views.drafts, name="drafts"),
     path("drafts/<int:pk>/", views.draft_detail, name="draft_detail"),
     path("drafts/<int:pk>/status/", views.draft_status, name="draft_status"),
     path("drafts/<int:pk>/edit/", views.draft_edit, name="draft_edit"),

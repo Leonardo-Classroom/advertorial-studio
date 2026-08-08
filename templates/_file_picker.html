@@ -1,0 +1,149 @@
+{% comment %}
+  The source-file picker, shared by the portal and staff upload pages.
+
+  The native control is kept — it is what actually carries the files to the
+  server — but moved off screen and driven by a button, because its rendering
+  is the browser's and cannot be styled, and because it gives no way to drop
+  one file from a selection: picking again replaces the whole `FileList`.
+
+  Removing a file works by rebuilding a `DataTransfer` and assigning its
+  `.files` back to the input. That is the only writable path to a `FileList`;
+  it is what makes the ✕ on each row possible at all.
+
+  `required` is deliberately absent. On a control that is `display:none`,
+  Chrome refuses to submit *and* cannot focus the field to explain why — the
+  form simply appears dead. The check lives in the script below instead, and
+  the server rejects an empty batch regardless (`upload.create_brief`).
+{% endcomment %}
+<label>來源檔案（.pptx／.docx／.pdf，可選多個）</label>
+<div class="picker">
+  <input type="file" name="source_files" accept=".pptx,.docx,.pdf" multiple
+         class="picker-input" aria-hidden="true" tabindex="-1">
+  <button type="button" class="btn ghost picker-open">選擇檔案…</button>
+  <span class="small muted picker-empty">尚未選擇任何檔案</span>
+  <ul class="picker-list" hidden></ul>
+</div>
+
+<style>
+/* The real control still carries the files; it is only moved out of sight.
+   `display:none` would work in most browsers but takes the element out of the
+   accessibility tree entirely, and some older ones then skip it on submit. */
+.picker-input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.picker{margin-bottom:4px}
+.picker-open{margin-right:10px}
+.picker-list{list-style:none;margin:12px 0 0;padding:0;display:flex;
+  flex-direction:column;gap:6px}
+.picker-row{display:flex;align-items:center;gap:10px;padding:7px 10px;
+  border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+/* Quiet until hovered — a column of red ✕ down the side of a list reads as a
+   list of errors rather than a list of files. */
+.picker-del{flex:none;order:-2;border:none;background:transparent;cursor:pointer;
+  color:var(--muted);font:inherit;font-size:13px;line-height:1;padding:4px 6px;
+  border-radius:6px}
+.picker-del:hover{color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent)}
+.picker-icon{order:-1}
+.picker-name{flex:1;min-width:0;overflow:hidden;white-space:nowrap;
+  text-overflow:ellipsis;font-size:13.5px}
+.picker-size{flex:none;color:var(--muted);font-size:12px;white-space:nowrap}
+</style>
+
+<script>
+(function () {
+  const box = document.currentScript.parentElement.querySelector('.picker');
+  if (!box) return;
+  const input = box.querySelector('.picker-input');
+  const list = box.querySelector('.picker-list');
+  const empty = box.querySelector('.picker-empty');
+  const form = box.closest('form');
+
+  // A `FileList` is read-only, so the chosen set is kept here and written back
+  // through a `DataTransfer` — the one assignable path to `input.files`.
+  // Without it, removing a single file would mean re-picking the whole batch.
+  let chosen = [];
+
+  function icon(name) {
+    // Guarded on the dot: `'noext'.split('.').pop()` is the whole name, which
+    // would label a file with no extension "NOE".
+    const ext = name.includes('.') ? (name.split('.').pop() || '').toLowerCase() : '';
+    const known = {pptx: 'PPT', ppt: 'PPT', docx: 'DOC', doc: 'DOC', pdf: 'PDF'};
+    const label = known[ext] || (ext ? ext.slice(0, 3).toUpperCase() : '?');
+    const cls = {pptx: 't-pptx', ppt: 't-pptx', docx: 't-docx', doc: 't-docx',
+                 pdf: 't-pdf'}[ext] || 't-other';
+    return '<span class="picker-icon ' + cls + '" aria-hidden="true">' +
+      '<svg width="21" height="25" viewBox="0 0 24 28">' +
+      '<path d="M3 1h12l6 6v19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2z" ' +
+      'fill="currentColor" opacity=".15"/>' +
+      '<path d="M15 1l6 6h-6z" fill="currentColor" opacity=".38"/>' +
+      '<text x="11.5" y="22" text-anchor="middle" font-size="8" font-weight="700" ' +
+      'fill="currentColor" font-family="sans-serif">' + label + '</text>' +
+      '</svg></span>';
+  }
+
+  function size(bytes) {
+    if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + ' MB';
+    if (bytes >= 1024) return Math.round(bytes / 1024) + ' KB';
+    return bytes + ' B';
+  }
+
+  function sync() {
+    const data = new DataTransfer();
+    chosen.forEach(function (f) { data.items.add(f); });
+    input.files = data.files;
+
+    list.innerHTML = '';
+    chosen.forEach(function (f, i) {
+      const li = document.createElement('li');
+      li.className = 'picker-row';
+      li.innerHTML =
+        '<button type="button" class="picker-del" data-i="' + i + '" ' +
+        'title="從清單移除" aria-label="移除 ' + f.name.replace(/"/g, '') + '">✕</button>' +
+        icon(f.name) +
+        '<span class="picker-name"></span>' +
+        '<span class="picker-size">' + size(f.size) + '</span>';
+      // Assigned rather than interpolated: a filename is user input and could
+      // otherwise close the attribute and inject markup.
+      li.querySelector('.picker-name').textContent = f.name;
+      li.querySelector('.picker-name').title = f.name;
+      list.appendChild(li);
+    });
+    list.hidden = chosen.length === 0;
+    empty.hidden = chosen.length > 0;
+  }
+
+  box.querySelector('.picker-open').addEventListener('click', function () {
+    input.click();
+  });
+
+  input.addEventListener('change', function () {
+    // Added to what is already there, not replacing it: picking twice is how
+    // someone collects files from two different folders. Same name and size
+    // twice is taken as the same file.
+    Array.prototype.forEach.call(input.files, function (f) {
+      const dupe = chosen.some(function (c) {
+        return c.name === f.name && c.size === f.size;
+      });
+      if (!dupe) chosen.push(f);
+    });
+    sync();
+  });
+
+  list.addEventListener('click', function (event) {
+    const btn = event.target.closest('.picker-del');
+    if (!btn) return;
+    chosen.splice(Number(btn.dataset.i), 1);
+    sync();
+  });
+
+  if (form) {
+    form.addEventListener('submit', function (event) {
+      if (chosen.length) return;
+      // Stops `_loading.html` from raising its overlay over a form that was
+      // never sent.
+      event.preventDefault();
+      event.stopPropagation();
+      empty.textContent = '請先選擇至少一個檔案。';
+      empty.classList.add('pill', 'bad');
+    }, true);
+  }
+})();
+</script>

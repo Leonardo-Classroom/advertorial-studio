@@ -1,10 +1,47 @@
 {% extends "portal/base_portal.html" %}
 {% load mdformat %}
 {% block content %}
-<p class="small"><a href="{% url 'portal:brief_detail' run.brief.pk %}" title="{{ run.brief.title }}">← 回 {{ run.brief.title|truncatechars:30 }}</a></p>
-<h1>{{ run.brief.title }}</h1>
-<p class="sub">模仿 {{ run.outlet.name }}{% if run.author %} / {{ run.author.name }}{% endif %}
-  · {{ run.created_at|date:"Y-m-d H:i" }}</p>
+{% comment %}
+  The CSRF token has to exist even on a run that failed or is still working:
+  those pages render none of the forms below, and the rename posts with fetch.
+{% endcomment %}
+<form hidden>{% csrf_token %}</form>
+{% comment %}
+  The facts version follows the crumb: the link goes back to the project, and
+  this says which version of it the piece was written from. It sits *outside*
+  the anchor on purpose — the rename script rewrites the link's `textContent`,
+  which would wipe anything nested inside it. Which draft you are reading is on
+  the line below, next to the other facts about this run.
+{% endcomment %}
+<p class="small"><a class="back-link" href="{% url 'portal:brief_detail' run.brief.pk %}"
+   title="{{ run.brief.title }}">← 回 {{ run.brief.title|truncatechars:30 }}</a>{% if run.facts_version %}
+  <a class="pill" title="以這一版的內容產出"
+     href="{% url 'portal:brief_detail' run.brief.pk %}?v={{ run.facts_version.version }}">{{ run.facts_version.label }}</a>{% endif %}</p>
+{% comment %}
+  The heading is the *project* name, so editing it here renames the project and
+  every draft made from it — hence the wording on the pencil. A draft's own
+  headline is part of its text and is edited in 人工編輯.
+{% endcomment %}
+<div class="row tight" id="rename" data-url="{% url 'portal:brief_rename' run.brief.pk %}"
+     style="margin-bottom:6px">
+  <h1 class="rename-view" style="margin:0">{{ run.brief.title }}</h1>
+  <button type="button" class="rename-edit" title="改專案名稱（清單與這個專案的所有稿件都會跟著改）"
+          aria-label="改專案名稱">&#9998;</button>
+  <input type="text" class="rename-input" value="{{ run.brief.title }}" maxlength="200" hidden
+         aria-label="專案名稱" title="按 Enter 或點到別處即儲存，Esc 取消">
+  <span class="rename-status small muted" role="status" aria-live="polite"></span>
+</div>
+{% comment %}
+  Two timestamps, and both are labelled — side by side and unlabelled they read
+  as a range. 最後編輯 comes from the newest draft version rather than
+  `run.updated_at`: `auto_now` moves that on any save, including the background
+  status flips nobody would call an edit. It is the newest version even while
+  an older one is on screen, matching the column of the same name in the list.
+{% endcomment %}
+<p class="sub">{% if viewing %}<span class="pill">{{ viewing.label }}</span>
+  · {% endif %}模仿 {{ run.outlet.name }}{% if run.author %} / {{ run.author.name }}{% endif %}
+  · 建立於 {{ run.created_at|date:"Y-m-d H:i" }}{% if latest %}
+  · 最後編輯 {{ latest.created_at|date:"Y-m-d H:i" }}{% endif %}</p>
 
 {% if run.status == 'failed' %}
   <div class="msg error"><strong>產稿失敗：</strong>{{ run.error }}</div>
@@ -302,6 +339,77 @@
   // on whichever ancestor container actually scrolled.
   window.addEventListener('scroll', hideToolbar, true);
   window.addEventListener('resize', hideToolbar);
+})();
+</script>
+
+<script>
+// Rename in place. No save button: the field commits when it loses focus or
+// on Enter, and Escape backs out. A button would be a second thing to aim at
+// for a change that is one word long.
+(function () {
+  const box = document.getElementById('rename');
+  if (!box || !window.fetch) return;
+  const view = box.querySelector('.rename-view');
+  const input = box.querySelector('.rename-input');
+  const status = box.querySelector('.rename-status');
+  const pencil = box.querySelector('.rename-edit');
+  const back = document.querySelector('.back-link');
+  const csrf = document.querySelector('[name=csrfmiddlewaretoken]');
+
+  // Escape has to leave a mark: it blurs the field, and the blur handler would
+  // otherwise read that as "done, save it".
+  let abandoned = false;
+
+  function editing(on) {
+    view.hidden = on; pencil.hidden = on; input.hidden = !on;
+    if (on) { input.focus(); input.select(); }
+  }
+
+  pencil.addEventListener('click', function () {
+    input.value = view.textContent.trim();
+    status.textContent = '';
+    abandoned = false;
+    editing(true);
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { e.preventDefault(); abandoned = true; input.blur(); }
+  });
+
+  input.addEventListener('blur', function () {
+    if (abandoned) { editing(false); return; }
+
+    const wanted = input.value.trim();
+    if (!wanted) {
+      status.textContent = '名稱不能是空的，已保留原本的名稱';
+      editing(false);
+      return;
+    }
+    // Nothing to send when the text is unchanged — opening the field and
+    // clicking away should not write a row or claim to have saved.
+    if (wanted === view.textContent.trim()) { editing(false); return; }
+
+    editing(false);
+    status.textContent = '儲存中…';
+    const body = new FormData();
+    body.append('title', wanted);
+    if (csrf) body.append('csrfmiddlewaretoken', csrf.value);
+
+    fetch(box.dataset.url, {
+      method: 'POST', body: body, credentials: 'same-origin',
+      headers: {'X-Requested-With': 'fetch'},
+    })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+      .then(function (data) {
+        view.textContent = data.title;
+        // The breadcrumb shows the same name; leaving it stale would have the
+        // page disagreeing with itself until a reload.
+        if (back) back.textContent = '← 回 ' + data.title;
+        status.textContent = '已儲存';
+      })
+      .catch(function () { status.textContent = '儲存失敗，請重新整理後再試一次'; });
+  });
 })();
 </script>
 {% endblock %}

@@ -12,7 +12,7 @@
 {% endcomment %}
 <div class="card">
   <div class="row tight" style="margin-bottom:10px">
-    <h2 style="margin:0">簡報圖片</h2>
+    <h2 style="margin:0">檔案中的圖片</h2>
     <span class="img-status small muted" role="status" aria-live="polite" style="flex:1"></span>
     {% if brief_images %}
     <form method="post" action="{{ action_url }}" style="flex:0">
@@ -32,7 +32,7 @@
     <form method="post" action="{{ action_url }}" style="flex:0">
       {% csrf_token %}
       <input type="hidden" name="action" value="parse">
-      <button class="btn sm ghost" data-loading="images">解析簡報圖片</button>
+      <button class="btn sm ghost" data-loading="images">解析檔案中的圖片</button>
     </form>
     {% endif %}
   </div>
@@ -48,7 +48,7 @@
   {% if brief_images %}
     <p class="small muted">
       勾選的圖片才會被放進稿子。AI 只負責分類與建議圖說，<strong>不會自動幫你勾選</strong>——
-      每一張都要你自己確認過才算數，特別是簡報前段做市場分析用的<strong>競品照片</strong>，
+      每一張都要你自己確認過才算數，特別是提案文件裡做市場分析用的<strong>競品照片</strong>，
       畫面上就是一雙好看的鞋，要靠你確認那是不是這次要推的品牌。圖說留空就用 AI 建議的版本；
       看縮圖就可以先勾選——按上面的「解析勾選的圖片」會幫勾選的圖補上 AI 判斷與建議圖說，
       已經有圖說的不會重跑。
@@ -115,7 +115,7 @@
     </form>
   {% else %}
     <p class="small muted">
-      尚未解析圖片。按上面的按鈕會從簡報抽出圖片，濾掉重複、logo 與過小的裝飾圖，
+      尚未解析圖片。按上面的按鈕會從這個專案的所有來源檔案抽出圖片，濾掉重複、logo 與過小的裝飾圖，
       再用影像辨識判斷每張圖適不適合放進稿子。<br>
       {% if not brief.facts %}<strong>請先抽取事實</strong>——分類需要知道品牌是誰，才擋得掉競品照。{% endif %}
     </p>

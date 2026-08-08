@@ -1,0 +1,17 @@
+{% comment %}
+  A file-type glyph. Takes `fmt` — a `BriefSourceFile.format` value, so the
+  label comes from what the file was actually parsed as rather than from
+  guessing at its name again.
+
+  Colours live in the base stylesheets (`.t-pptx` / `.t-docx` / `.t-pdf`)
+  because the upload picker draws the same glyph from JavaScript; keeping the
+  two in step matters more than keeping them close together.
+{% endcomment %}
+<span class="picker-icon {% if fmt == 'pptx' %}t-pptx{% elif fmt == 'docx' %}t-docx{% elif fmt == 'pdf' %}t-pdf{% else %}t-other{% endif %}"
+      aria-hidden="true"><svg width="21" height="25" viewBox="0 0 24 28">
+  <path d="M3 1h12l6 6v19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2z"
+        fill="currentColor" opacity=".15"/>
+  <path d="M15 1l6 6h-6z" fill="currentColor" opacity=".38"/>
+  <text x="11.5" y="22" text-anchor="middle" font-size="8" font-weight="700"
+        fill="currentColor" font-family="sans-serif">{% if fmt == 'pptx' %}PPT{% elif fmt == 'docx' %}DOC{% elif fmt == 'pdf' %}PDF{% else %}?{% endif %}</text>
+</svg></span>

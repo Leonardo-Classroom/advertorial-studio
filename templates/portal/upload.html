@@ -1,10 +1,10 @@
 {% extends "portal/base_portal.html" %}
 {% block content %}
-<h1>上傳簡報</h1>
+<h1>新建專案</h1>
 <p class="sub">支援 .pptx、.docx 與 .pdf，可一次選多個檔案，算同一個專案。系統會讀取所有文字，包含表格與備忘稿——提案的重點常常藏在那裡。（PDF 需要是可選取文字的版本，掃描檔不支援。）</p>
 
 <div class="steps">
-  <div class="step on"><div class="n">步驟 1</div>上傳簡報</div>
+  <div class="step on"><div class="n">步驟 1</div>新建專案</div>
   <div class="step"><div class="n">步驟 2</div>核對抽出的內容</div>
   <div class="step"><div class="n">步驟 3</div>選風格、產稿</div>
 </div>
@@ -26,21 +26,11 @@
 <div class="card" style="max-width:600px">
   <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
-    <label>來源檔案（.pptx／.docx／.pdf，可選多個）</label>
-    <input type="file" name="source_files" accept=".pptx,.docx,.pdf" multiple required>
-    <label>名稱（留空就用第一個檔名）</label>
-    <input type="text" name="title" placeholder="例如：NB 2026 Grey Days Campaign">
+    {% include "_file_picker.html" %}
+    <label for="brief_title">專案名稱</label>
+    <input type="text" id="brief_title" name="title" required maxlength="200"
+           placeholder="例如：NB 2026 Grey Days Campaign">
 
-    <label style="display:flex;align-items:flex-start;gap:8px;margin-top:18px;font-weight:normal;cursor:pointer">
-      <input type="checkbox" name="parse_images" value="1" style="width:auto;margin-top:3px">
-      <span>上傳時就辨識圖片用途
-        <span class="small muted" style="display:block;margin-top:2px">
-          圖片一律會抽出來，這個開關只決定要不要現在就判斷每張圖適不適合放進稿子。
-          會多花一些時間；不勾選圖片一樣看得到，只是還沒有圖說，可以之後在簡報頁
-          勾選要用的圖再按「解析勾選的圖片」判斷。
-        </span>
-      </span>
-    </label>
 
     <button class="btn" style="margin-top:20px">上傳並讀取</button>
   </form>

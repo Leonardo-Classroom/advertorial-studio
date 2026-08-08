@@ -1,0 +1,107 @@
+{% extends "portal/base_portal.html" %}
+{% block title %}廣編稿{% endblock %}
+{% block content %}
+<div class="row tight" style="margin-bottom:6px">
+  <h1 style="flex:1;margin:0">廣編稿</h1>
+  <a class="btn" href="{% url 'portal:upload' %}">新建專案</a>
+</div>
+<p class="sub">這裡是已經產出的稿件。要產新的一篇，先開啟對應的專案。</p>
+
+{% comment %}
+  Filters and page size, as a plain GET form: no JS, and the resulting URL is
+  the whole state — so a filtered, sorted view can be bookmarked or sent to
+  someone. `sort`/`dir` ride along as hidden fields, or filtering would throw
+  away the ordering the user just chose.
+{% endcomment %}
+<div class="card">
+  <form method="get" class="row">
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ dir }}">
+    <div style="flex:2">
+      <label for="f_q">搜索標題</label>
+      <input type="text" id="f_q" name="q" value="{{ sel_title }}"
+             placeholder="例如：灰潮型動、Grey Days">
+    </div>
+    <div style="flex:1.5">
+      <label for="f_brief">專案名稱</label>
+      <input type="text" id="f_brief" name="brief" value="{{ sel_brief }}"
+             placeholder="輸入部分名稱即可">
+    </div>
+    <div>
+      <label for="f_outlet">模仿風格</label>
+      <select id="f_outlet" name="outlet">
+        <option value="">全部</option>
+        {% for o in outlet_options %}
+          <option value="{{ o.pk }}" {% if sel_outlet == o.pk|stringformat:"s" %}selected{% endif %}>{{ o.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="flex:0;min-width:auto">
+      <label for="f_per">每頁</label>
+      <select id="f_per" name="per" style="width:auto">
+        {% for n in page_sizes %}
+          <option value="{{ n }}" {% if per == n %}selected{% endif %}>{{ n }} 筆</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="flex:0;min-width:auto"><label>&nbsp;</label><button class="btn">篩選</button></div>
+  </form>
+</div>
+
+<div class="card">
+  {% if page.object_list %}
+    <div class="small muted list-count">共 {{ page.paginator.count }} 篇</div>
+    <table class="fixed">
+      <colgroup>
+        <col style="width:31%"><col style="width:7%"><col style="width:19%">
+        <col style="width:9%"><col style="width:14%">
+        <col style="width:10%"><col style="width:10%">
+      </colgroup>
+      {% include "_sort_head.html" %}
+      {% for r in page %}
+      <tr>
+        {% comment %}
+          Failed runs are filtered out in the view, so the only rows without a
+          headline are ones still being written. Those say so here rather than
+          showing a blank: the 狀態 column that used to explain them is gone,
+          and an unexplained empty row reads as something broken.
+        {% endcomment %}
+        {% comment %}
+          The suffix carries both numbers: which facts version the piece was
+          written from, then which draft of it this is — "（v3p1）". They are
+          different things and used to be spelled the same, so a row could show
+          "v3" and "v1" in adjacent columns with nothing saying which was which.
+          A run made before facts were versioned has no `v` part to show.
+        {% endcomment %}
+        <td><a href="{% url 'portal:draft_detail' r.pk %}"
+               title="{{ r.headline|default:r.brief.title }}{% if r.newest_version %}（{% if r.facts_version %}v{{ r.facts_version.version|stringformat:"02d" }}{% endif %}p{{ r.newest_version|stringformat:"02d" }}）{% endif %}"
+               class="ellipsis">{% if r.headline %}{{ r.headline }}{% if r.newest_version %}<span class="muted">（{% if r.facts_version %}v{{ r.facts_version.version|stringformat:"02d" }}{% endif %}p{{ r.newest_version|stringformat:"02d" }}）</span>{% endif %}
+          {% else %}<span class="muted">{{ r.get_status_display }}…</span>{% endif %}</a></td>
+        <td class="small">{% if r.newest_version %}<span class="pill">p{{ r.newest_version|stringformat:"02d" }}</span>
+          {% else %}<span class="pill running"><span class="spin"></span>產出中</span>{% endif %}</td>
+        <td class="small"><a href="{% url 'portal:brief_detail' r.brief.pk %}"
+                             title="{{ r.brief.title }}" class="ellipsis">{{ r.brief.title }}</a></td>
+        {% comment %}
+          Which version of the extracted facts this draft was written from —
+          null on runs made before facts were versioned, which read the brief's
+          current facts instead and so cannot name a version.
+        {% endcomment %}
+        <td class="small">{% if r.facts_version %}<a class="pill" href="{% url 'portal:brief_detail' r.brief.pk %}?v={{ r.facts_version.version }}"
+             title="以這一版的內容產出">{{ r.facts_version.label }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="small">{{ r.outlet.name }}{% if r.author %} / {{ r.author.name }}{% endif %}</td>
+        {% comment %}
+          Date over time, not "08-09 02:38" on one line: the year matters once
+          a list spans more than one, and a full stamp on a single line is wide
+          enough to squeeze the title column it sits beside.
+        {% endcomment %}
+        <td class="muted small cell-time">{{ r.created_at|date:"Y-m-d" }}<br>{{ r.created_at|date:"H:i" }}</td>
+        <td class="muted small cell-time">{% if r.newest_draft_at %}{{ r.newest_draft_at|date:"Y-m-d" }}<br>{{ r.newest_draft_at|date:"H:i" }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% include "_pager.html" with unit="篇" %}
+  {% else %}
+    <div class="empty">還沒有稿件。先新建專案，再從專案頁產稿。</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -66,11 +66,10 @@
   // answers.
   const SCRIPTS = {
     upload:     [[0, '讀取簡報文字'], [8, 'AI 抽取簡報內容']],
-    uploadimg:  [[0, '讀取簡報文字'], [8, 'AI 抽取簡報內容'],
-                 [24, '抽取並過濾簡報圖片'], [30, '辨識圖片用途']],
     extract:    [[0, 'AI 抽取簡報內容']],
+    fileretry:  [[0, '重新讀取檔案'], [10, '把內容併進抽出的內容']],
     factsupdate:[[0, '把你的更正整理進內容']],
-    images:     [[0, '抽取並過濾簡報圖片'], [8, '辨識圖片用途']],
+    images:     [[0, '抽取並過濾檔案中的圖片'], [8, '辨識圖片用途']],
     classifyimg:[[0, '辨識圖片用途']],
     outline:    [[0, '依大綱寫出正文'], [22, '依評審意見潤稿']],
     evaluate:   [[0, '評估稿件']],
@@ -79,9 +78,9 @@
                  [61, '寫出正文'], [83, '依評審意見潤稿']],
   };
   const TITLES = {
-    upload: '讀取簡報中', uploadimg: '讀取簡報中', extract: '讀取簡報中',
+    upload: '讀取簡報中', extract: '讀取簡報中', fileretry: '重新處理檔案中',
     factsupdate: '更新內容中',
-    images: '解析簡報圖片中', classifyimg: '辨識圖片用途中', outline: '產出稿件中', generate: '產出稿件中',
+    images: '解析圖片中', classifyimg: '辨識圖片用途中', outline: '產出稿件中', generate: '產出稿件中',
     evaluate: '評估稿件中', revise: '重寫稿件中',
   };
 
@@ -109,18 +108,13 @@
     return n;
   }
 
-  // Generation now runs the same five stages every time — the controls that
-  // used to cut it short (pausing at the outline, a rewrite budget of 0) are
-  // gone from both forms, so there is nothing left to branch on. Only the
-  // upload still changes shape, depending on whether pictures were ticked.
+  // Every flow now runs a fixed set of stages, so nothing here branches. The
+  // upload was the last one that did — it grew two picture stages when the
+  // "辨識圖片用途" box was ticked — and that box is gone: uploads extract
+  // pictures but never classify them, which happens later over the ones the
+  // operator actually picked.
   function scriptFor(form, name) {
-    let steps = SCRIPTS[name];
-    if (!steps) return null;
-    if (name === 'upload' && form) {
-      const pics = form.querySelector('[name=parse_images]');
-      if (pics && pics.checked) steps = SCRIPTS.uploadimg;
-    }
-    return steps;
+    return SCRIPTS[name] || null;
   }
 
   const box = document.getElementById('loading');

@@ -68,6 +68,40 @@ th{color:var(--muted);font-weight:600;font-size:12.5px}
 tr:last-child td{border-bottom:none}
 table.fixed{table-layout:fixed}
 .ellipsis{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+/* Sortable column headings. They stay heading-coloured rather than link-blue —
+   a row of six blue words reads as navigation, not as a table header.
+
+   The cell's padding moves onto the link so the whole header is the target,
+   not just the few characters of the label: a 10px miss above or beside the
+   word did nothing, which reads as a broken control rather than a near miss.
+   The hover tint is what makes that enlarged area visible. */
+th.th-sortable{padding:0}
+.th-sort{color:inherit;display:flex;align-items:center;gap:3px;white-space:nowrap;
+  padding:10px;border-radius:6px}
+.th-sort:hover{color:var(--ink);text-decoration:none;background:var(--bg)}
+.th-sort.on{color:var(--ink);font-weight:700}
+/* The arrow was a 10px grey-blue caret that vanished next to the label. It is
+   the only thing on screen saying which column is in force, so it now carries
+   the accent as a filled chip. */
+.th-arrow{font-size:9px;line-height:1;color:#fff;background:var(--accent);
+  border-radius:4px;padding:3px 4px;margin-left:2px}
+/* Numbered pager. Every page is one click, rather than 上一頁/下一頁 walking.
+   Centred under the table with the total above it — the count is a caption for
+   the whole list, not a label for the buttons, so it reads as a line of its
+   own rather than as something sitting beside them. */
+.pager-wrap{margin-top:16px}
+/* Above the table, left with the rows it counts. */
+.list-count{margin:0 0 8px}
+.pager{display:flex;flex-wrap:wrap;gap:4px;justify-content:center}
+.pager .pg{min-width:30px;padding:5px 8px;border:1px solid var(--line);border-radius:7px;
+  font-size:13px;text-align:center;color:var(--muted);background:transparent}
+.pager a.pg:hover{color:var(--ink);border-color:var(--muted);text-decoration:none}
+.pager .pg.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:650}
+/* The ellipsis is a gap in the sequence, not a control — no box around it. */
+.pager .pg.gap{border-color:transparent;min-width:auto;padding:5px 2px}
+/* The arrow at either end of the range: kept in place so the row does not
+   re-flow as you page, but visibly not a target. */
+.pager .pg.off{opacity:.35}
 .btn{display:inline-block;background:var(--accent);color:#fff;border:none;border-radius:7px;
   padding:9px 16px;font-size:14px;cursor:pointer;font-family:inherit;text-align:center;white-space:nowrap}
 .btn:hover{filter:brightness(1.08);text-decoration:none;color:#fff}
@@ -408,6 +442,48 @@ li.d-add,li.d-del{display:list-item;padding:1px 6px}
 .step.on{border-color:var(--accent);background:var(--accent-soft)}
 .step.done{opacity:.65}
 .errlist{color:var(--bad);font-size:13px;margin:6px 0 0;padding-left:18px}
+/* File-type glyphs, shared by the upload picker and the source-file lists.
+   The colours are the conventions people already read, so they are fixed
+   rather than themed — but drawn with `currentColor` at low opacity, which
+   keeps them legible on either background. */
+.picker-icon{flex:none;display:inline-flex;align-items:center;vertical-align:middle}
+.t-pptx{color:#d2683a}
+.t-docx{color:#2b6cb0}
+.t-pdf{color:#c0362c}
+.t-other{color:var(--muted)}
+/* One source file per line: the names are long, and run together on one line
+   they read as a single unbroken string of punctuation. */
+.src-files{display:flex;flex-direction:column;gap:5px;margin:6px 0 10px}
+.src-file{display:flex;align-items:center;gap:8px;min-width:0}
+.src-file a{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+/* Retry on a failed source file. Icon-only: it sits inline in a filename row,
+   where a worded button would be wider than the name it belongs to. */
+.src-retry{border:1px solid var(--line);background:transparent;color:var(--muted);
+  border-radius:6px;font:inherit;font-size:13px;line-height:1;padding:3px 7px;
+  cursor:pointer}
+.src-retry:hover{color:var(--accent);border-color:var(--accent)}
+/* Inline rename: a pencil that turns the heading into a field. Quiet next to
+   an h1 — it is an affordance, not an action anyone came here to take. */
+/* `.row>*` gives every child `flex:1;min-width:150px` — right for the form
+   rows it was written for, wrong here: it stretched the h1 across the row and
+   pushed the pencil to the far edge, which read as a gap rather than as a
+   control belonging to the heading. The exemption list on `.row>.btn` covers
+   `h2` but not `h1`, so these say it themselves rather than widening a global
+   rule other rows depend on. */
+/* `.row`'s own 12px is spacing between separate controls; the pencil belongs
+   to the heading, so it sits closer than that. */
+#rename{gap:6px}
+.rename-view{flex:0 1 auto;min-width:0}
+.rename-status{flex:0 0 auto;min-width:auto}
+.rename-edit{flex:0 0 auto;border:none;background:transparent;color:var(--muted);
+  cursor:pointer;font:inherit;font-size:17px;line-height:1;padding:4px 7px;
+  border-radius:6px}
+.rename-edit:hover{color:var(--accent);background:var(--bg)}
+.rename-input{flex:1;min-width:0;font-size:20px;font-weight:700;padding:5px 9px}
+/* A two-line timestamp: date over time. The global 10px row padding would
+   make such a cell twice as tall as the text beside it, so it is trimmed
+   here rather than for every cell in the table. */
+.cell-time{padding-top:2px;padding-bottom:2px;line-height:1.45;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -418,8 +494,9 @@ li.d-add,li.d-del{display:list-item;padding:1px 6px}
           aria-label="開關選單">☰</button>
   <div class="navpanel" id="mainnav">
   <nav class="main">
-    <a href="{% url 'portal:home' %}" class="{% if nav == 'home' %}on{% endif %}">我的稿件</a>
-    <a href="{% url 'portal:upload' %}" class="{% if nav == 'upload' %}on{% endif %}">上傳簡報</a>
+    <a href="{% url 'portal:home' %}" class="{% if nav == 'home' %}on{% endif %}">我的專案</a>
+    <a href="{% url 'portal:drafts' %}" class="{% if nav == 'drafts' %}on{% endif %}">廣編稿</a>
+    <a href="{% url 'portal:upload' %}" class="{% if nav == 'upload' %}on{% endif %}">新建專案</a>
   </nav>
   <div class="who">
     {% if user.is_staff %}<a href="{% url 'studio:home' %}">管理後台</a>{% endif %}

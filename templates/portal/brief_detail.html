@@ -2,12 +2,23 @@
 {% block content %}
 <p class="small"><a href="{% url 'portal:home' %}">← 回我的稿件</a></p>
 <h1>{{ brief.title }}</h1>
-<p class="sub" style="margin:4px 0">
+<div class="src-files">
   {% for sf in source_files %}
-    {% if sf.file %}<a href="{{ sf.file.url }}" download>{{ sf.original_filename }}</a>{% else %}{{ sf.original_filename|default:"（無檔案）" }}{% endif %}
-    {% if sf.status == 'failed' %}<span class="pill bad">處理失敗</span>{% endif %}{% if not forloop.last %} · {% endif %}
+  <div class="src-file">
+    {% include "_file_icon.html" with fmt=sf.format %}
+    {% if sf.file %}<a href="{{ sf.file.url }}" download title="{{ sf.original_filename }}">{{ sf.original_filename }}</a>
+    {% else %}<span class="muted">{{ sf.original_filename|default:"（無檔案）" }}</span>{% endif %}
+    {% if sf.status == 'failed' %}<span class="pill bad">處理失敗</span>
+    <form method="post" action="{% url 'portal:source_file_retry' brief.pk sf.pk %}"
+          style="display:inline" data-loading="fileretry">
+      {% csrf_token %}
+      <button class="src-retry" title="重新處理這個檔案，成功的話會把內容併進「抽出的內容」"
+              aria-label="重新處理 {{ sf.original_filename }}">&#x21bb;</button>
+    </form>{% endif %}
+  </div>
   {% endfor %}
-  {% if source_files %} · {% endif %}共 {{ brief.slide_count }} 頁 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}</p>
+</div>
+<p class="sub" style="margin:0">共 {{ brief.slide_count }} 頁 · 上傳於 {{ brief.created_at|date:"Y-m-d H:i" }}</p>
 
 {% if files_in_progress %}
   {% url 'portal:upload_status' brief.pk as status_url %}

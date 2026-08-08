@@ -7,22 +7,11 @@
 <div class="card" style="max-width:620px">
   <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
-    <label>名稱（留空則用第一個檔名）</label>
-    <input type="text" name="title" placeholder="例如：NB 2026 Grey Days Campaign">
-    <label>來源檔案（.pptx／.docx／.pdf，可選多個）</label>
-    <input type="file" name="source_files" accept=".pptx,.docx,.pdf" multiple required>
+    <label for="brief_title">專案名稱</label>
+    <input type="text" id="brief_title" name="title" required maxlength="200"
+           placeholder="例如：NB 2026 Grey Days Campaign">
+    {% include "_file_picker.html" %}
 
-    <label style="display:flex;align-items:flex-start;gap:8px;margin-top:18px;font-weight:normal;cursor:pointer">
-      <input type="checkbox" name="parse_images" value="1" style="width:auto;margin-top:3px">
-      <span>上傳時就辨識圖片用途
-        <span class="small muted" style="display:block;margin-top:2px">
-          圖片一律會抽出來，這個開關只決定要不要現在就用影像辨識判斷用途
-          （產品照／表格排版／裝飾，競品照會自動排除）。分類需要知道品牌是誰，
-          所以在文字抽取＋事實抽取都完成後才跑；不勾選就先只看圖，之後在
-          簡報頁勾選要用的圖後按「解析勾選的圖片」再判斷。
-        </span>
-      </span>
-    </label>
 
     <div style="margin-top:16px"><button class="btn">上傳並解析</button></div>
   </form>

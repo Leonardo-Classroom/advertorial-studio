@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 from functools import lru_cache
 
 from django.conf import settings
@@ -157,7 +159,96 @@ class ModelTimeout(RuntimeError):
     """A call that ran past its wall-clock deadline and was abandoned."""
 
 
-def _with_deadline(call, seconds: float):
+class ModelBusy(RuntimeError):
+    """Gave up waiting for a free slot on the local model."""
+
+
+# One gate for *every* local model call — writing, vision, fact extraction.
+#
+# 任務三 measured what its absence costs: five users uploading at once put five
+# fact extractions into Ollama at the same time, Ollama runs one at a time, and
+# the fifth sat in Ollama's own queue until its 240s client timeout expired.
+# 96% of extractions failed that way, and the system never reached generation.
+#
+# Generation already had a gate (`SiteSettings.max_parallel_runs`) and behaved:
+# 10 concurrent submissions held at 2, queue depth 1, and after warm-up nearly
+# all succeeded. The lesson is not that generation is special — it is that the
+# queue in front of Ollama has to be *ours*, where waiting is free, rather than
+# Ollama's, where waiting is charged against a request timeout.
+#
+# So the gate belongs here, at the one place every model call passes through,
+# and not one gate per kind of work: three gates of two would still be six
+# requests at a server that runs one, which is the original failure with extra
+# steps. `OLLAMA_NUM_PARALLEL` is unset here, and Ollama sizes itself from VRAM
+# — a 27B on a 24GB card means one — so the default is 1.
+#
+# Online calls are not gated: a hosted endpoint has its own capacity and its
+# own queue, and serialising against it would only make batches slower.
+_gate = threading.Condition()
+_gate_active = 0
+_gate_limit_cache: tuple[float, int] = (0.0, 1)
+_GATE_LIMIT_TTL = 5.0
+
+# A hang guard, not a policy: below `ingest_runner`'s 20-minute staleness sweep
+# so a wait that has gone wrong reports itself instead of being swept up as a
+# mystery. Real waits are far shorter — even a five-deep queue of 85s fact
+# extractions clears in about seven minutes.
+GATE_MAX_WAIT = 900.0
+
+
+def _concurrency() -> int:
+    """How many local model calls may run at once, from 高級設定.
+
+    Cached for a few seconds because this is read inside the gate's wait loop,
+    once per wakeup: reading `SiteSettings` there would put a database query
+    inside a threading lock, which is the exact mistake 任務一 發現 4 found in
+    the old generation gate.
+    """
+    global _gate_limit_cache
+
+    now = time.monotonic()
+    expires, value = _gate_limit_cache
+    if now < expires:
+        return value
+    try:
+        from studio.models import SiteSettings
+
+        value = max(1, int(SiteSettings.load().local_model_concurrency))
+    except Exception:  # noqa: BLE001 - a broken settings row must not block work
+        value = 1
+    _gate_limit_cache = (now + _GATE_LIMIT_TTL, value)
+    return value
+
+
+def _gate_acquire() -> None:
+    global _gate_active
+
+    deadline = time.monotonic() + GATE_MAX_WAIT
+    with _gate:
+        while _gate_active >= _concurrency():
+            if not _gate.wait(timeout=max(0.0, deadline - time.monotonic())):
+                if _gate_active >= _concurrency():
+                    raise ModelBusy(
+                        f"等了 {round(GATE_MAX_WAIT)} 秒仍排不到本地模型，已放棄這次呼叫。"
+                        "請稍後再試，或在高級設定調高「本地模型同時呼叫上限」。")
+        _gate_active += 1
+
+
+def _gate_release() -> None:
+    global _gate_active
+
+    with _gate:
+        _gate_active -= 1
+        _gate.notify()
+
+
+def gate_state() -> tuple[int, int]:
+    """(running, limit) — for the 隊列 page and for tests."""
+    with _gate:
+        return _gate_active, _concurrency()
+
+
+def _with_deadline(call, seconds: float, gated: bool = False):
     """Run `call()` under a real wall clock, not the client's own timeout.
 
     The HTTP client's `timeout` measures the gap *between bytes*, so a model
@@ -180,16 +271,33 @@ def _with_deadline(call, seconds: float):
     and can hold up interpreter shutdown waiting for a call that may never
     return. This mirrors `briefs.services.images.classify`, which has guarded
     the vision path this way since before the text path needed it.
-    """
-    import threading
 
+    `gated=True` puts the call through the local-model gate. Two details of
+    where the gate sits are load-bearing:
+
+    * The slot is taken **before** the deadline starts, so time spent waiting
+      for a free slot is not charged against the time allowed to answer.
+      Waiting inside the deadline would move the 任務三 failure rather than fix
+      it — the request would still expire in a queue, just ours instead of
+      Ollama's.
+    * The slot is released **on the worker thread**, when the call really
+      finishes — not when this function returns. An abandoned call is still
+      running inside Ollama and still occupying it; releasing on abandonment
+      would hand the next caller a slot the server does not actually have.
+    """
     outcome: dict = {}
+
+    if gated:
+        _gate_acquire()
 
     def _run():
         try:
             outcome["value"] = call()
         except Exception as exc:  # noqa: BLE001 - re-raised on the calling side
             outcome["error"] = exc
+        finally:
+            if gated:
+                _gate_release()
 
     worker = threading.Thread(target=_run, daemon=True, name="llm-call")
     worker.start()
@@ -252,7 +360,8 @@ def complete(
 
     deadline = timeout if timeout is not None else (
         settings.LOCAL_LLM_TIMEOUT if local else settings.LLM_TIMEOUT)
-    response = _with_deadline(lambda: client.responses.create(**kwargs), deadline)
+    response = _with_deadline(lambda: client.responses.create(**kwargs), deadline,
+                              gated=local)
     if local:
         _touch_keep_alive(kwargs["model"])
     return _extract_text(response)
@@ -328,7 +437,8 @@ def complete_vision(
     # first, and it means any *other* caller of this function is covered too.
     deadline = timeout if timeout is not None else (
         settings.LOCAL_LLM_VISION_TIMEOUT if local else settings.LLM_TIMEOUT)
-    response = _with_deadline(lambda: client.responses.create(**kwargs), deadline)
+    response = _with_deadline(lambda: client.responses.create(**kwargs), deadline,
+                              gated=local)
     if local:
         _touch_keep_alive(kwargs["model"])
     return _extract_text(response)

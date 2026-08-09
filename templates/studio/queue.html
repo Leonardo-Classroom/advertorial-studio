@@ -14,7 +14,19 @@
     <div><span class="muted small">檔案處理中</span>
       <strong style="font-size:19px">{{ ingesting|length }}</strong>
       <span class="muted small">（不佔產稿名額，但共用同一張顯卡）</span></div>
+    {% if model_local %}
+    <div><span class="muted small">本地模型呼叫</span>
+      <strong style="font-size:19px">{{ model_active }}</strong>
+      <span class="muted small">／上限 {{ model_limit }}（產稿＋圖片＋抽取共用）</span></div>
+    {% endif %}
   </div>
+  {% if model_local %}
+  <p class="small muted" style="margin:10px 2px 0">
+    最後這個數字是所有工作共用的：Ollama 一次只跑一個推論，所以產稿、圖片辨識、
+    抽取內容都在同一個閘門後排隊。看到很多「排隊中」而這裡是滿的，就是正常的塞車，
+    不是卡住。
+  </p>
+  {% endif %}
 </div>
 
 <h2>產稿中</h2>

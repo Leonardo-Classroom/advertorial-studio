@@ -127,6 +127,20 @@ class SiteSettings(models.Model):
         help_text="產稿改成背景執行後，使用者可以連按好幾次。超過這個數字的會排隊，"
                   "不會同時打出去。調高會加快多篇產出，也會同時放大 API 用量與"
                   "SQLite 的寫入競爭。")
+    # Gate size for *every* local model call, not just generation — see the
+    # long note in `core.llm`. `max_parallel_runs` above counts drafts in
+    # flight; this counts requests at Ollama, which is also where fact
+    # extraction and picture recognition land. 任務三 measured 96% of fact
+    # extractions timing out for want of it. 1 matches what Ollama actually
+    # runs for a 27B on this card; raising it only helps if the server can
+    # genuinely serve more at once.
+    local_model_concurrency = models.IntegerField(
+        "本地模型同時呼叫上限", default=1,
+        help_text="同時可以打給本地模型的請求數——產稿、圖片辨識、抽取內容全部算在內。"
+                  "Ollama 一次只跑一個推論，排不上的請求會在它那邊等到逾時，"
+                  "所以這個閘門的用處是把等待留在我們這邊（等待免費），"
+                  "而不是留在 Ollama 那邊（等待會吃掉請求的逾時額度）。"
+                  "只在後端為本地模型時生效；線上 API 不受限制。")
     confirm_fact_updates = models.BooleanField(
         "更正事實前先確認差異", default=False,
         help_text="開啟後，使用者送出更正會先看到前後對照，確認才存成新版本。"

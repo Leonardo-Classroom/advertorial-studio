@@ -88,10 +88,23 @@
         <label>同時產稿上限</label>
         <input type="number" name="max_parallel_runs" value="{{ settings.max_parallel_runs }}" min="1" max="8">
       </div>
+      <div>
+        <label>本地模型同時呼叫上限</label>
+        <input type="number" name="local_model_concurrency"
+               value="{{ settings.local_model_concurrency }}" min="1" max="8">
+      </div>
     </div>
     <p class="small muted" style="margin:4px 0 0">
       產稿在背景執行緒跑，使用者可以連按好幾次。超過上限的會排隊，不會同時打出去——
       調高會加快多篇產出，也會同時放大 API 用量與 SQLite 的寫入競爭。
+    </p>
+    <p class="small muted" style="margin:4px 0 0">
+      右邊那個管的是<strong>不同</strong>的事：同時可以打給本地模型的請求數，
+      <strong>產稿、圖片辨識、抽取內容全部算在內</strong>。Ollama 一次只跑一個推論
+      （27B 在這張卡上就是 1），排不上的請求會在它那邊等到逾時——壓力測試實測
+      5 人同時上傳時，<strong>96% 的內容抽取因此逾時失敗</strong>。這個閘門把等待
+      留在我們這邊（等待免費），而不是留在 Ollama 那邊（等待會吃掉請求的逾時額度）。
+      只在後端為本地模型時生效。
     </p>
     <p class="small muted" style="margin:4px 0 0">
       0 = 只寫初稿（約 90 秒）；1（預設）= 寫完後依評審意見自動潤一次（約 150 秒）。

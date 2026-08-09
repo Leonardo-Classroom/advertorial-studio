@@ -103,6 +103,13 @@ def queue(request):
     ingesting = list(Brief.objects.filter(processing=True)
                      .select_related("owner").order_by("updated_at"))
 
+    # Requests at the model right now, across every kind of work. This is the
+    # number that explains a page full of 排隊中 while nothing looks busy:
+    # generation, picture recognition and fact extraction all queue here.
+    from core import llm
+
+    model_active, model_limit = llm.gate_state()
+
     return render(request, "studio/queue.html", {
         "section": "queue",
         "rows": rows,
@@ -111,6 +118,9 @@ def queue(request):
         "ingesting": ingesting,
         "parallel": SiteSettings.load().max_parallel_runs,
         "queue_max": runner.QUEUE_MAX,
+        "model_active": model_active,
+        "model_limit": model_limit,
+        "model_local": llm.is_local_backend(),
     })
 
 
@@ -152,6 +162,8 @@ def advanced(request):
             settings_row.max_rewrites = max(0, min(int(request.POST.get("max_rewrites") or 1), 3))
             settings_row.max_parallel_runs = max(
                 1, min(int(request.POST.get("max_parallel_runs") or 2), 8))
+            settings_row.local_model_concurrency = max(
+                1, min(int(request.POST.get("local_model_concurrency") or 1), 8))
             settings_row.ollama_idle_unload_minutes = max(
                 0, min(int(request.POST.get("ollama_idle_unload_minutes") or 3), 120))
             # Floors of 1, not 0: a zero here would read as "no limit" in

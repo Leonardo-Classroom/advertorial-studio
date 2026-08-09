@@ -7,19 +7,31 @@ verified across several rounds of local testing (report/本地線上API比較.md
 what Ollama's OpenAI-compatible layer exposes too, text and vision both.
 
 Two clients, not one: `SiteSettings.llm_backend` (a staff-facing toggle,
-`/manage/advanced/`) picks online vs. local per call. The judge is the one
-caller that is *never* affected by that toggle — every judge call passes an
-explicit `model=`, and that is what routes it to `_online_client()`
-regardless of the writer backend. This split exists because of a real
-mistake: an early benchmark script tried to keep the judge online via
-`monkeypatch`, and `complete_json()`'s internal call to `complete(...)` — a
-bare name, resolved at call time through the module's current globals —
-silently picked up the patched local version anyway, so the "online judge"
-was quietly grading the local model's output against itself. Here there is
-only one `complete()`/`complete_vision()`, so `complete_json()` calling it
-does not have that failure mode — but it is exactly the kind of thing that
-is easy to break again while touching this file, so re-verify the judge
-path stays online after any change here (see report §四 for how).
+`/manage/advanced/`) picks online vs. local, and **everything follows it,
+including the judge**. `model=` names a model; it does not choose a backend.
+
+The judge used to be pinned online no matter what the toggle said, on the
+grounds that a model should not grade its own output. That isolation is gone
+because the online subscription expired: every evaluation in 任務四 came back
+`401`, so the six 1-5 dimensions were simply never obtained and the A/B
+comparison had no quality data at all. A judge that shares the writer's model
+is a compromised judge; a judge that returns 401 is no judge.
+
+What that costs, stated plainly so it is not forgotten when reading scores:
+with the toggle on local, `qwen3.6:27b` grades text `qwen3.6:27b` wrote.
+Absolute scores from that arrangement mean little. *Relative* comparisons —
+A vs B, both judged by the same model, with the pairwise prompt also run in
+both orderings — remain usable, which is what the A/B work needs. Every
+`Evaluation` records `judge_model`, so no score is ever read without knowing
+what produced it.
+
+The historical warning that lived here is still worth keeping: an early
+benchmark script tried to keep the judge online via `monkeypatch`, and
+`complete_json()`'s internal call to `complete(...)` — a bare name, resolved
+at call time through the module's current globals — silently picked up the
+patched local version, so the "online judge" was quietly grading the local
+model against itself *without saying so*. The lesson was never "judges must
+be online"; it was that the judge's identity must be explicit and recorded.
 """
 from __future__ import annotations
 
@@ -135,10 +147,16 @@ def current_model() -> str:
 
 
 def judge_model() -> str:
-    """The model used for evaluation, held apart from the writing model.
+    """The model used for evaluation, on whichever backend is selected.
 
-    Always online, regardless of `llm_backend` — see module docstring.
+    Online has a model held apart from the writer (`LLM_JUDGE_MODEL`); local
+    does not — there is one local model that fits this card, so it both writes
+    and grades. See the module docstring for what that means when reading
+    scores, and `Evaluation.judge_model`, which records this value with every
+    result so the answer is never inferred.
     """
+    if _backend() == "local":
+        return settings.LOCAL_LLM_MODEL
     return getattr(settings, "LLM_JUDGE_MODEL", None) or settings.LLM_MODEL
 
 
@@ -328,15 +346,15 @@ def complete(
     `instructions` is system-level guidance (style guide / role).
     `user_input`   is the task payload (brief facts, exemplars, format spec).
 
-    An explicit `model=` means this is a judge call (the only caller that
-    passes one is `evaluate.py`, via `judge_model()`) — that always goes to
-    the online client, never the local backend, no matter what
-    `SiteSettings.llm_backend` is set to.
+    `model=` overrides which model is asked; it does **not** choose a backend.
+    Routing follows `SiteSettings.llm_backend` for every call, judge included
+    — see the module docstring for why that isolation was dropped, and what it
+    costs. The only caller that passes a model is `evaluate.py`, via
+    `judge_model()`, which already returns the right name for the backend.
     """
-    is_judge_call = model is not None
-    local = not is_judge_call and _backend() == "local"
+    local = _backend() == "local"
 
-    client = _online_client() if is_judge_call else get_client()
+    client = get_client()
     if timeout is not None:
         client = client.with_options(timeout=timeout)
     elif local:
@@ -398,8 +416,8 @@ def complete_vision(
     a size this GPU can hold (本地API效能評估.md §一), so the writer and the
     classifier are two separate local models, unlike the online setup.
 
-    Same judge-isolation rule as `complete`: an explicit `model=` always
-    routes online.
+    Same routing rule as `complete`: `model=` names a model, the backend
+    toggle picks the client.
     """
     import base64
 
@@ -408,10 +426,9 @@ def complete_vision(
     if mime is None:
         raise ValueError(f"不支援的圖片格式：{image_ext}")
 
-    is_judge_call = model is not None
-    local = not is_judge_call and _backend() == "local"
+    local = _backend() == "local"
 
-    client = _online_client() if is_judge_call else get_client()
+    client = get_client()
     if timeout is not None:
         client = client.with_options(timeout=timeout)
     elif local:

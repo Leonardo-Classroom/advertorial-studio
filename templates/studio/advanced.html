@@ -29,7 +29,14 @@
       實測本地文字生成約 20% 機率耗時拉長到正常值的 5～50 倍（曾經一次卡了近
       30 分鐘才回應）；本地圖片辨識約 30% 機率失敗或給出空白結果。這不是
       「偶爾比較慢」，是有明確機率的風險，開啟前請有心理準備。
-      評審永遠走線上，不受這個設定影響。
+    </p>
+    <p class="small muted" style="margin:4px 0 16px">
+      <strong>評審也跟著這個設定切換。</strong>選線上時評審是另一個模型
+      （<code class="mono">LLM_JUDGE_MODEL</code>）；選本地時，這張卡上只有一個文字模型，
+      所以<strong>寫稿的和評分的是同一個模型</strong>。這種情況下的絕對分數意義不大
+      ——模型評自己寫的東西——但 A/B 這類<strong>相對比較</strong>仍然可用，因為兩邊
+      由同一個評審、且成對比較會左右對調各評一次。每筆評分都會記下當時的評分模型，
+      看分數時不必猜是誰評的。
     </p>
 
     <label>本地嵌入模型執行裝置</label>
@@ -229,7 +236,7 @@
   <p class="small muted" style="margin:0">
     <strong>模型與金鑰設在 <code class="mono">.env</code></strong>（<code class="mono">LLM_MODEL</code>、
     <code class="mono">LLM_JUDGE_MODEL</code> 等），不放進網頁。評審模型尤其不能隨手換——
-    換了之後整批評分就不可比。<br>
+    換了之後整批評分就不可比；每筆評分都記著當時用的模型，比較前先確認是同一個。<br>
     <strong>要掃不同參數組合請用</strong> <code class="mono">python manage.py run_experiment</code>，
     它可以逐一變動策略與重寫次數，不受這裡的預設值限制。<br>
     這裡的設定只在<strong>建立生成紀錄的當下</strong>被複製進該筆紀錄，改了不會影響任何既有稿件。

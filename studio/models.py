@@ -523,6 +523,12 @@ class Evaluation(models.Model):
     fact_coverage = models.JSONField("事實覆蓋檢查", default=dict, blank=True)
     judge_scores = models.JSONField("LLM 評審分數", default=dict, blank=True)
     judge_comment = models.TextField("LLM 評審意見", blank=True)
+    # Which model produced `judge_scores`. Recorded rather than inferred: the
+    # judge follows the backend toggle now (see `core.llm`), so a score sheet
+    # read months later cannot otherwise say whether an independent model or
+    # the writer itself graded the text — and on local those are the same
+    # model, which is exactly the case a reader must be warned about.
+    judge_model = models.CharField("評分模型", max_length=64, blank=True)
     human_score = models.IntegerField("人工評分 1-5", null=True, blank=True)
     human_comment = models.TextField("人工意見", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

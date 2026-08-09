@@ -21,7 +21,7 @@ import numpy as np
 
 from corpus.models import Article
 from corpus.services import index, stats
-from core import llm
+from core import llm, timeouts
 from studio.models import Evaluation, GenerationRun, Revision
 
 SHINGLE = 12  # characters; long enough that a match means copying, not coincidence
@@ -107,14 +107,14 @@ def pairwise_judge(run_a, run_b, guide_text: str, max_chars: int = 7000,
         instructions=PAIRWISE_INSTRUCTIONS,
         user_input=PAIRWISE_TASK.format(guide=guide, a=text_a, b=text_b),
         model=llm.judge_model(),
-        timeout=300,
+        timeout=timeouts.generate(),
     )
     # Swapped run: what the judge called "A" is now run_b.
     second_raw = llm.complete_json(
         instructions=PAIRWISE_INSTRUCTIONS,
         user_input=PAIRWISE_TASK.format(guide=guide, a=text_b, b=text_a),
         model=llm.judge_model(),
-        timeout=300,
+        timeout=timeouts.generate(),
     )
     second = {k: (_FLIP.get(v, v) if isinstance(v, str) and v in _FLIP else v)
               for k, v in second_raw.items()}
@@ -301,19 +301,26 @@ def evaluate(run: GenerationRun, revision: Revision | None = None,
         ev.judge_comment = f"（風格向量計算失敗：{exc}）\n"
 
     if run_judge and run.style_guide:
+        judge = llm.judge_model()
         try:
             scores = llm.complete_json(
                 instructions=JUDGE_INSTRUCTIONS,
                 user_input=JUDGE_TASK.format(
                     guide=run.style_guide.content[:6000], draft=draft[:8000]
                 ),
-                model=llm.judge_model(),
-                timeout=300,
+                model=judge,
+                timeout=timeouts.generate(),
             )
             ev.judge_scores = scores
+            ev.judge_model = judge
             ev.judge_comment += str(scores.get("comment", ""))
         except Exception as exc:  # noqa: BLE001
-            ev.judge_comment += f"（LLM 評審失敗：{exc}）"
+            # Left blank on failure on purpose: `judge_model` names what
+            # produced the scores, and a failed call produced none. A reader
+            # checking "who graded this?" must not find an answer where there
+            # are no scores — 任務四 shipped eight drafts whose only judge
+            # output was a 401, and the report read as if grading had happened.
+            ev.judge_comment += f"（LLM 評審失敗［{judge}］：{exc}）"
 
     if run.style_guide:
         ev.judge_scores = {**(ev.judge_scores or {}),

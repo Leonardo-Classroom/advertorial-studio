@@ -122,6 +122,21 @@ STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else 
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# Upload limits (任務二 §六). Django's own `DATA_UPLOAD_MAX_MEMORY_SIZE` covers
+# only non-file form fields — uploaded files stream to disk with no ceiling at
+# all, so without these a logged-in user can fill the disk one deck at a time.
+# The largest real deck seen so far is 124MB, so the per-file cap is set with
+# room above that rather than at it.
+UPLOAD_MAX_FILE_BYTES = env_int("UPLOAD_MAX_FILE_BYTES", 200 * 1024 * 1024)
+UPLOAD_MAX_BATCH_BYTES = env_int("UPLOAD_MAX_BATCH_BYTES", 600 * 1024 * 1024)
+# pptx and docx are zip containers, and picture extraction unpacks every
+# embedded media part. These bound what a single upload may expand to. The
+# ratio catches the classic shape of a bomb — a few KB that claim to be
+# gigabytes — while leaving ordinary decks (images are already-compressed
+# JPEG/PNG, so they barely compress again) far below it.
+UPLOAD_MAX_UNPACKED_BYTES = env_int("UPLOAD_MAX_UNPACKED_BYTES", 2 * 1024 * 1024 * 1024)
+UPLOAD_MAX_COMPRESSION_RATIO = env_int("UPLOAD_MAX_COMPRESSION_RATIO", 200)
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Two audiences: the portal at / for people who just want a draft, and the

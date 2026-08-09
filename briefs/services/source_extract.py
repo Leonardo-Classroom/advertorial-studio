@@ -15,6 +15,70 @@ EXTENSION_FORMATS = {
     ".pdf": "pdf",
 }
 
+# Formats that are zip containers underneath, and so can be decompression
+# bombs. A pdf is not one of these: it has its own compressed streams, but
+# nothing here unpacks them wholesale the way picture extraction unpacks a
+# deck's media parts.
+ARCHIVE_FORMATS = {"pptx", "docx"}
+
+
+def _human(size: int) -> str:
+    return f"{size / 1024 / 1024:.0f}MB" if size < 1024 ** 3 else f"{size / 1024 ** 3:.1f}GB"
+
+
+def check_upload(upload_file, fmt: str) -> None:
+    """Reject a file that is too large, or that would unpack to too much.
+
+    Raises `ValueError` with a message meant for the person uploading; callers
+    turn that into a form error (see `briefs.services.upload.create_brief`).
+
+    The archive check reads only the zip's central directory — the sizes each
+    member *declares* — so it costs no decompression. That is enough to stop
+    the ordinary bomb, whose whole trick is declaring gigabytes; it is not a
+    proof, because those numbers are written by whoever made the file. The
+    per-file byte cap above is the backstop that does not depend on them.
+    """
+    from django.conf import settings
+
+    limit = getattr(settings, "UPLOAD_MAX_FILE_BYTES", 200 * 1024 * 1024)
+    size = getattr(upload_file, "size", None) or 0
+    if size > limit:
+        raise ValueError(
+            f"「{upload_file.name}」有 {_human(size)}，超過單檔上限 {_human(limit)}。")
+
+    if fmt not in ARCHIVE_FORMATS:
+        return
+
+    import zipfile
+
+    max_unpacked = getattr(settings, "UPLOAD_MAX_UNPACKED_BYTES", 2 * 1024 ** 3)
+    max_ratio = getattr(settings, "UPLOAD_MAX_COMPRESSION_RATIO", 200)
+    try:
+        upload_file.seek(0)
+        with zipfile.ZipFile(upload_file) as archive:
+            entries = archive.infolist()
+    except (zipfile.BadZipFile, OSError, ValueError):
+        # Not a readable zip. Not this function's problem to report: the
+        # parser already fails safely on a renamed text file (任務二 §六),
+        # and saying so here would turn one clear error into two.
+        return
+    finally:
+        try:
+            upload_file.seek(0)
+        except (OSError, ValueError):
+            pass
+
+    unpacked = sum(e.file_size for e in entries)
+    packed = sum(e.compress_size for e in entries) or 1
+    if unpacked > max_unpacked:
+        raise ValueError(
+            f"「{upload_file.name}」解開後有 {_human(unpacked)}，超過上限 "
+            f"{_human(max_unpacked)}，可能是壓縮炸彈。")
+    if unpacked / packed > max_ratio:
+        raise ValueError(
+            f"「{upload_file.name}」的壓縮比為 {unpacked / packed:.0f}:1，"
+            f"高於上限 {max_ratio}:1，可能是壓縮炸彈。")
+
 
 def format_for(filename: str) -> str:
     """Guess a `BriefSourceFile.format` value from a filename's extension.

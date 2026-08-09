@@ -9,6 +9,7 @@ redirect afterwards.
 """
 from __future__ import annotations
 
+from django.conf import settings
 from django.db import transaction
 
 from briefs.models import Brief, BriefSourceFile
@@ -36,6 +37,18 @@ def create_brief(owner, title: str, files) -> Brief:
         raise ValueError("請選擇至少一個檔案。")
 
     formats = [source_extract.format_for(f.name) for f in files]
+    # Size and archive-bomb checks belong with the format check, before
+    # anything is written: uploaded files stream to disk with no ceiling of
+    # their own, so an unbounded batch is a way to fill the disk (任務二 §六).
+    for upload_file, fmt in zip(files, formats):
+        source_extract.check_upload(upload_file, fmt)
+    total = sum(getattr(f, "size", None) or 0 for f in files)
+    batch_limit = getattr(settings, "UPLOAD_MAX_BATCH_BYTES", 600 * 1024 * 1024)
+    if total > batch_limit:
+        raise ValueError(
+            f"這批檔案合計 {total / 1024 / 1024:.0f}MB，超過單次上傳上限 "
+            f"{batch_limit / 1024 / 1024:.0f}MB。請分批上傳。")
+
     title = (title or "").strip()[:200] or files[0].name.rsplit(".", 1)[0][:200]
 
     with transaction.atomic():

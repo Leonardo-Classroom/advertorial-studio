@@ -1,0 +1,100 @@
+{% comment %}
+  The project name as an editable heading. Shown wherever a project's name is
+  the page's title — the project page and every draft page — because a name you
+  can read is a name you expect to be able to fix, and having only one of those
+  screens carry the pencil makes the other look broken.
+
+  Expects `brief` in context; include it with `with brief=run.brief` where the
+  page calls it something else.
+
+  Editing here renames the *project*, so the list and every draft made from it
+  follow — hence the wording on the pencil. A draft's own headline is part of
+  its text and is edited in 人工編輯.
+
+  The token has to be right here rather than borrowed from a form further down:
+  a project with no fact version yet, or a run that failed, renders none of
+  those forms, and the rename posts with fetch.
+{% endcomment %}
+<div class="row tight" id="rename" data-url="{% url 'portal:brief_rename' brief.pk %}"
+     style="margin-bottom:6px">
+  <form hidden>{% csrf_token %}</form>
+  <h1 class="rename-view" style="margin:0">{{ brief.title }}</h1>
+  <button type="button" class="rename-edit" title="改專案名稱（清單與這個專案的所有稿件都會跟著改）"
+          aria-label="改專案名稱">&#9998;</button>
+  <input type="text" class="rename-input" value="{{ brief.title }}" maxlength="200" hidden
+         aria-label="專案名稱" title="按 Enter 或點到別處即儲存，Esc 取消">
+  <span class="rename-status small muted" role="status" aria-live="polite"></span>
+</div>
+
+<script>
+// Rename in place. No save button: the field commits when it loses focus or
+// on Enter, and Escape backs out. A button would be a second thing to aim at
+// for a change that is one word long.
+(function () {
+  const box = document.getElementById('rename');
+  if (!box || !window.fetch) return;
+  const view = box.querySelector('.rename-view');
+  const input = box.querySelector('.rename-input');
+  const status = box.querySelector('.rename-status');
+  const pencil = box.querySelector('.rename-edit');
+  // Only the draft page carries a crumb naming the project; the project page's
+  // own crumb points at the list, so there is nothing to keep in step there.
+  const back = document.querySelector('.back-link');
+  const csrf = box.querySelector('[name=csrfmiddlewaretoken]');
+
+  // Escape has to leave a mark: it blurs the field, and the blur handler would
+  // otherwise read that as "done, save it".
+  let abandoned = false;
+
+  function editing(on) {
+    view.hidden = on; pencil.hidden = on; input.hidden = !on;
+    if (on) { input.focus(); input.select(); }
+  }
+
+  pencil.addEventListener('click', function () {
+    input.value = view.textContent.trim();
+    status.textContent = '';
+    abandoned = false;
+    editing(true);
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { e.preventDefault(); abandoned = true; input.blur(); }
+  });
+
+  input.addEventListener('blur', function () {
+    if (abandoned) { editing(false); return; }
+
+    const wanted = input.value.trim();
+    if (!wanted) {
+      status.textContent = '名稱不能是空的，已保留原本的名稱';
+      editing(false);
+      return;
+    }
+    // Nothing to send when the text is unchanged — opening the field and
+    // clicking away should not write a row or claim to have saved.
+    if (wanted === view.textContent.trim()) { editing(false); return; }
+
+    editing(false);
+    status.textContent = '儲存中…';
+    const body = new FormData();
+    body.append('title', wanted);
+    if (csrf) body.append('csrfmiddlewaretoken', csrf.value);
+
+    fetch(box.dataset.url, {
+      method: 'POST', body: body, credentials: 'same-origin',
+      headers: {'X-Requested-With': 'fetch'},
+    })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r); })
+      .then(function (data) {
+        view.textContent = data.title;
+        // The breadcrumb shows the same name; leaving it stale would have the
+        // page disagreeing with itself until a reload.
+        if (back) { back.textContent = '← 回 ' + data.title; back.title = data.title; }
+        status.textContent = '已儲存';
+      })
+      .catch(function () { status.textContent = '儲存失敗，請重新整理後再試一次'; });
+  });
+})();
+</script>

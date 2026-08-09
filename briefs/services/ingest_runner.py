@@ -22,10 +22,15 @@ from datetime import timedelta
 from django.db import connections
 from django.utils import timezone
 
-# A file parse plus one facts call — much cheaper than a generation run, so a
-# much shorter budget than `runner.py`'s 45 minutes before something is
-# declared stuck rather than merely slow.
-STALE_AFTER = timedelta(minutes=20)
+def _stale_after() -> timedelta:
+    """How long a batch may look alive. Derived from the extraction timeout —
+    see `core.timeouts.ingest_stale`, which also explains why the model gate's
+    maximum wait has to be part of the sum: a batch can now spend that wait
+    queued for the model *after* being stamped as started, and the old fixed
+    20 minutes sat only one minute above the worst legitimate case."""
+    from core import timeouts
+
+    return timeouts.ingest_stale()
 
 
 def _mark_started(brief) -> None:
@@ -164,7 +169,7 @@ def reap_stale(source_files) -> None:
     other heartbeat: a thread killed by a server restart never gets to update
     its own row.
     """
-    cutoff = timezone.now() - STALE_AFTER
+    cutoff = timezone.now() - _stale_after()
     for source_file in source_files:
         if not source_file.in_progress:
             continue
@@ -190,7 +195,7 @@ def reap_stale_brief(brief) -> None:
         return
     if any(f.in_progress for f in brief.source_files.all()):
         return  # a file is still genuinely working; not stuck yet
-    if brief.updated_at >= timezone.now() - STALE_AFTER:
+    if brief.updated_at >= timezone.now() - _stale_after():
         return
     brief.processing = False
     brief.note = brief.note or "處理逾時中斷（可能是伺服器重新啟動）。請重新整理後再試一次。"

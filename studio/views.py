@@ -164,6 +164,16 @@ def advanced(request):
                 1, min(int(request.POST.get("max_parallel_runs") or 2), 8))
             settings_row.local_model_concurrency = max(
                 1, min(int(request.POST.get("local_model_concurrency") or 1), 8))
+            # Floors of 30/10/30 seconds: below those the model cannot finish
+            # even when everything goes right, so the setting would only
+            # manufacture failures. The staleness thresholds follow these
+            # automatically (see core.timeouts), so no pairing to keep in sync.
+            settings_row.generate_timeout_seconds = max(
+                30, min(int(request.POST.get("generate_timeout_seconds") or 600), 3600))
+            settings_row.vision_timeout_seconds = max(
+                10, min(int(request.POST.get("vision_timeout_seconds") or 120), 1800))
+            settings_row.extract_timeout_seconds = max(
+                30, min(int(request.POST.get("extract_timeout_seconds") or 240), 3600))
             settings_row.ollama_idle_unload_minutes = max(
                 0, min(int(request.POST.get("ollama_idle_unload_minutes") or 3), 120))
             # Floors of 1, not 0: a zero here would read as "no limit" in

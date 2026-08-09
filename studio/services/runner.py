@@ -36,10 +36,16 @@ from datetime import timedelta
 from django.db import connections
 from django.utils import timezone
 
-# A run cannot legitimately take this long: the slowest observed staged run with
-# a rewrite was around 32 minutes on a cold local embedding model, and the model
-# calls themselves time out well before it.
-STALE_AFTER = timedelta(minutes=45)
+# How long a run may look alive before it is presumed dead. Derived from the
+# generation timeout rather than fixed beside it (`core.timeouts`): the two
+# have to stay consistent, and the only way to guarantee that is to compute
+# one from the other. Defaults to the 45 minutes it has always been — the
+# slowest observed staged run with a rewrite took about 32 minutes — and grows
+# only if someone raises the timeout it depends on.
+def _stale_after() -> timedelta:
+    from core import timeouts
+
+    return timeouts.generation_stale()
 
 # How many submissions may wait. At the observed 30-120s per run this is already
 # hours of backlog, which is well past the point where the honest answer is
@@ -248,7 +254,7 @@ def reap_stale(runs) -> None:
     heartbeat: a thread killed by a restart never gets to update its own row,
     and a restart also empties the queue under anything still waiting in it.
     """
-    cutoff = timezone.now() - STALE_AFTER
+    cutoff = timezone.now() - _stale_after()
     for run in runs:
         if not run.in_progress:
             continue

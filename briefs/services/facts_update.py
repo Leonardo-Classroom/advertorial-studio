@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 
 from briefs.services import facts_text
-from core import llm
+from core import llm, timeouts
 
 INSTRUCTIONS = """你負責維護一份「簡報事實」的 JSON。使用者會用自然語言告訴你哪裡要更正，
 你的工作是把他說的內容套用進 JSON，然後輸出**完整的**更新後 JSON。
@@ -123,7 +123,7 @@ def build_history(versions) -> str:
     return "\n".join(lines)
 
 
-def propose(facts: dict, user_input: str, versions=None, timeout: int = 240) -> dict:
+def propose(facts: dict, user_input: str, versions=None, timeout: int | None = None) -> dict:
     """Return the merged facts. Raises on model or parse failure."""
     text = (user_input or "").strip()
     if not text:
@@ -138,7 +138,7 @@ def propose(facts: dict, user_input: str, versions=None, timeout: int = 240) -> 
             facts=json.dumps(facts or {}, ensure_ascii=False, indent=2),
             user_input=text,
         ),
-        timeout=timeout,
+        timeout=timeout if timeout is not None else timeouts.extract(),
     )
     if not isinstance(merged, dict) or not merged:
         raise ValueError("模型沒有回傳可用的內容。")
@@ -195,7 +195,7 @@ MERGE_DOCUMENT_CHARS = 60000
 
 
 def merge_document(facts: dict, document: str, filename: str = "",
-                   version: int = 1, timeout: int = 300) -> dict:
+                   version: int = 1, timeout: int | None = None) -> dict:
     """Fold a newly-parsed source file into the facts. Raises on failure."""
     text = (document or "").strip()
     if not text:
@@ -209,7 +209,7 @@ def merge_document(facts: dict, document: str, filename: str = "",
             filename=filename or "（未命名）",
             document=text[:MERGE_DOCUMENT_CHARS],
         ),
-        timeout=timeout,
+        timeout=timeout if timeout is not None else timeouts.extract(),
     )
     if not isinstance(merged, dict) or not merged:
         raise ValueError("模型沒有回傳可用的內容。")

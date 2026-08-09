@@ -23,7 +23,7 @@ from __future__ import annotations
 import time
 
 from briefs.services.ppt_extract import brief_query_text
-from core import llm
+from core import llm, timeouts
 from studio.models import GenerationRun
 from studio.services import prompts, retrieval
 
@@ -89,7 +89,7 @@ def run_stages(run: GenerationRun, stop_after_outline: bool = False) -> Generati
             instructions=prompts.SUMMARIZE_ROLE,
             user_input=prompts.SUMMARIZE_TASK.format(
                 facts=json.dumps(prompts.writable_facts(facts), ensure_ascii=False, indent=2)),
-            timeout=400,
+            timeout=timeouts.generate(),
         )
         run.notes = notes
         _record(run, "summarize", "由簡報事實整理", notes, time.time() - t)

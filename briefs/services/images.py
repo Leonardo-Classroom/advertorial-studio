@@ -215,10 +215,9 @@ def classify(image: dict, brand: str = "", timeout: float | None = None) -> dict
     up the rest of the batch, the request serving it, or the process itself.
     """
     if timeout is None:
-        from django.conf import settings
+        from core import timeouts as timeout_settings
 
-        timeout = (settings.LOCAL_LLM_VISION_TIMEOUT if llm.is_local_backend()
-                   else 120)
+        timeout = timeout_settings.vision()
 
     heading = f"（標題：{image['slide_heading']}）" if image.get("slide_heading") else ""
     nearby = image.get("nearby_text") or "（附近沒有文字）"

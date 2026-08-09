@@ -141,6 +141,21 @@ class SiteSettings(models.Model):
                   "所以這個閘門的用處是把等待留在我們這邊（等待免費），"
                   "而不是留在 Ollama 那邊（等待會吃掉請求的逾時額度）。"
                   "只在後端為本地模型時生效；線上 API 不受限制。")
+    # Three families of model timeout, previously five literals scattered
+    # across as many modules (600 / 400 / 240 / 300 / 120). See `core.timeouts`
+    # for what belongs to which family, and for why the staleness thresholds
+    # are derived from these rather than set beside them.
+    generate_timeout_seconds = models.IntegerField(
+        "產稿逾時（秒）", default=600,
+        help_text="寫一篇稿、重寫一篇稿，以及方案 B 每個階段的單次上限。"
+                  "超過就放棄那次呼叫並標記失敗。")
+    vision_timeout_seconds = models.IntegerField(
+        "圖片辨識逾時（秒）", default=120,
+        help_text="辨識單張圖片的上限。本地視覺模型實測單張 13–28 秒。")
+    extract_timeout_seconds = models.IntegerField(
+        "內容抽取逾時（秒）", default=240,
+        help_text="從簡報抽出內容、依自然語言更正、合併新檔案的上限。"
+                  "三檔案專案約 2 萬字，實測單次約 45 秒（模型暖機時）。")
     confirm_fact_updates = models.BooleanField(
         "更正事實前先確認差異", default=False,
         help_text="開啟後，使用者送出更正會先看到前後對照，確認才存成新版本。"

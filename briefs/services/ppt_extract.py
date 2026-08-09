@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core import llm
+from core import llm, timeouts
 
 INSTRUCTIONS = """你是行銷簡報的資料整理員。你的工作是從媒體簡報（Media Brief / Proposal）中，
 抽出後續撰寫廣編稿所需的「事實」。
@@ -211,7 +211,7 @@ def extract_facts(raw_text: str, max_chars: int = 40000) -> dict:
     return llm.complete_json(
         instructions=INSTRUCTIONS,
         user_input=TASK.format(text=text),
-        timeout=240,
+        timeout=timeouts.extract(),
     )
 
 

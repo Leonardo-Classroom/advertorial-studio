@@ -126,6 +126,38 @@
       </span>
     </label>
 
+    <h3 style="margin:22px 0 4px">模型逾時</h3>
+    <p class="small muted" style="margin:0 0 10px">
+      單次呼叫超過這個秒數就放棄並標記失敗。本地模型偶爾會停不下來，這是唯一
+      能讓它乾淨結束的機制。三個數字分別對應三種工作，同一種工作的所有呼叫共用
+      一個值。
+    </p>
+    <div class="row">
+      <div>
+        <label>產稿逾時（秒）</label>
+        <input type="number" name="generate_timeout_seconds"
+               value="{{ settings.generate_timeout_seconds }}" min="30" max="3600">
+      </div>
+      <div>
+        <label>圖片辨識逾時（秒）</label>
+        <input type="number" name="vision_timeout_seconds"
+               value="{{ settings.vision_timeout_seconds }}" min="10" max="1800">
+      </div>
+      <div>
+        <label>內容抽取逾時（秒）</label>
+        <input type="number" name="extract_timeout_seconds"
+               value="{{ settings.extract_timeout_seconds }}" min="30" max="3600">
+      </div>
+    </div>
+    <p class="small muted" style="margin:4px 0 16px">
+      參考實測值：產稿暖機後約 50 秒、冷啟動可達數百秒；單張圖片 13–28 秒；
+      三檔案專案（約 2 萬字）的內容抽取暖機後約 45 秒。<br>
+      調高不會讓模型變快，只是讓它有更多時間；真正要看的是失敗訊息說的是
+      「超過 N 秒沒有回應完畢」（該調高）還是「排不到本地模型」（該調的是上面的
+      同時呼叫上限）。<strong>「卡住多久算死掉」會自動跟著這些數字調整</strong>，
+      不必也不能另外設定——那兩個值若配得不一致，健康的工作會被當成死掉而誤殺。
+    </p>
+
     <h3 style="margin:22px 0 4px">上傳限制</h3>
     <p class="small muted" style="margin:0 0 10px">
       檔案上傳沒有內建上限——Django 只限制表單欄位，檔案是直接串流到磁碟。

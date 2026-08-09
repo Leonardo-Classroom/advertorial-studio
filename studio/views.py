@@ -3,6 +3,7 @@ import random
 from django.contrib import messages
 from django.db.models import Avg, Count
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from accounts.decorators import staff_required
@@ -38,6 +39,78 @@ def home(request):
         "brief_count": Brief.objects.count(),
         "runs": GenerationRun.objects.select_related("brief", "outlet")[:8],
         "run_count": GenerationRun.objects.count(),
+    })
+
+
+def _duration(seconds: int) -> str:
+    """Seconds as 秒/分/時. `timesince` rounds to whole minutes, which reads as
+    「0 分鐘」 for most of a run's queue wait and hides the difference between a
+    job that just landed and one that has been waiting fifty seconds."""
+    if seconds < 60:
+        return f"{seconds} 秒"
+    if seconds < 3600:
+        return f"{seconds // 60} 分 {seconds % 60} 秒"
+    return f"{seconds // 3600} 小時 {seconds % 3600 // 60} 分"
+
+
+@staff_required
+def queue(request):
+    """What the machine is working on right now, and who is waiting behind it.
+
+    The generation queue is in memory — a list of run ids inside the worker
+    pool, which no page can display and a restart erases. What survives is the
+    run rows themselves, and `status` plus `created_at` say the same thing: the
+    rows in flight, oldest first, *are* the queue in the order the workers will
+    take them (`studio.services.runner` is strictly FIFO). Numbering them here
+    from the database rather than reading the queue object keeps this page
+    honest across a restart, where the rows persist as `pending` but the
+    in-memory queue behind them does not.
+
+    Ingestion runs on its own threads with no queue at all, so it appears as a
+    separate list: those jobs are not waiting for a generation worker, but they
+    are competing for the same GPU, which is what someone looking at this page
+    actually wants to know.
+    """
+    from studio.services import runner
+
+    in_flight = list(
+        GenerationRun.objects
+        .filter(status__in=("pending", "running", "refining"))
+        .select_related("owner", "brief", "outlet", "author", "style_guide")
+        .order_by("created_at"))
+    # Same sweep the draft pages do: without it a run killed by a restart sits
+    # here as 排隊中 forever and makes the queue look longer than it is.
+    runner.reap_stale(in_flight)
+
+    now = timezone.now()
+    rows, place = [], 0
+    for run in in_flight:
+        if not run.in_progress:
+            continue                    # just reaped
+        waiting = run.status == "pending"
+        if waiting:
+            place += 1
+        since = run.created_at if waiting else (run.started_at or run.created_at)
+        stages = run.stage_labels if run.mode == "staged" else []
+        rows.append({
+            "run": run,
+            "waiting": waiting,
+            "place": place if waiting else None,
+            "elapsed": _duration(int((now - since).total_seconds())),
+            "stage": stages[-1] if stages else "",
+        })
+
+    ingesting = list(Brief.objects.filter(processing=True)
+                     .select_related("owner").order_by("updated_at"))
+
+    return render(request, "studio/queue.html", {
+        "section": "queue",
+        "rows": rows,
+        "running": [r for r in rows if not r["waiting"]],
+        "waiting": [r for r in rows if r["waiting"]],
+        "ingesting": ingesting,
+        "parallel": SiteSettings.load().max_parallel_runs,
+        "queue_max": runner.QUEUE_MAX,
     })
 
 

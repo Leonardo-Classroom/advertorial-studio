@@ -876,7 +876,13 @@ def generate(request, pk):
     # Handed to a worker rather than run here: this response opens in a new tab
     # and the user goes straight back to the brief, where they may well ask for
     # another one before this finishes.
-    runner.submit(run)
+    if not runner.submit(run):
+        # The queue is full. Drop the row rather than leave a draft that says
+        # 排隊中 with nothing scheduled behind it — it was created seconds ago
+        # and nothing refers to it yet.
+        run.delete()
+        messages.error(request, "目前排隊的稿件已達上限，請等前面的產完再試。")
+        return redirect("portal:brief_detail", pk=pk)
     return redirect("portal:draft_detail", pk=run.pk)
 
 
@@ -1009,7 +1015,9 @@ def draft_revise(request, pk):
 
     # Same queue as generation: it is the same size of model call, and the same
     # reason not to hold a request open for it.
-    runner.submit_rewrite(run, base, feedback)
+    if not runner.submit_rewrite(run, base, feedback):
+        messages.error(request, "目前排隊的稿件已達上限，請等前面的產完再試。")
+        return redirect("portal:draft_detail", pk=pk)
     messages.success(request, f"已排入重寫，依據 {base.label}。寫好會出現在這一頁。")
     return redirect("portal:draft_detail", pk=pk)
 

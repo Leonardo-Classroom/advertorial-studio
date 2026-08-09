@@ -2,10 +2,12 @@
 
 Structural twin of `studio/services/runner.py`, one level simpler: an upload
 batch is a handful of file parses plus one fact-extraction call, not a
-multi-stage generation pipeline, so there is no concurrency gate here — every
-batch just gets its own thread. If upload volume ever makes that matter, the
-gate in `runner.py` (`_acquire`/`_release`/`SiteSettings.max_parallel_runs`)
-is the pattern to copy in, not reinvent.
+multi-stage generation pipeline, so there is no queue or worker pool here —
+every batch just gets its own thread. That means thread count here still grows
+with concurrent uploads; it is bounded in practice by how fast people can pick
+files, not by anything in this module. If upload volume ever makes that matter,
+the bounded queue and worker pool in `runner.py` (`_enqueue`/`_worker_loop`/
+`SiteSettings.max_parallel_runs`) is the pattern to copy in, not reinvent.
 
 A batch is one Brief's worth of `BriefSourceFile` rows, processed in `order`.
 One file's failure is recorded on its own row and does not stop the rest — the

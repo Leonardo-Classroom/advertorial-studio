@@ -90,21 +90,41 @@ def headline(text: str) -> str:
 
 def add_version(run, text: str, source: str = "manual", user_input: str = "",
                 parent=None):
-    """Record a new version. A save that changes nothing is not a version."""
+    """Record a new version. A save that changes nothing is not a version.
+
+    Retried once on a unique clash. Two callers can reach here for the same run
+    at the same time — a worker finishing a run calls `ensure_first_version`
+    while the person watching the page loads it and calls the same thing — and
+    both would compute `version=1` and one would hit `unique_together`
+    (任務一 發現 3). The retry re-reads the latest version, which turns that
+    collision into the right answer either way: identical text returns the row
+    the winner just wrote, different text becomes the next number up.
+    """
+    from django.db import IntegrityError, transaction
+
     from studio.models import DraftVersion
 
     text = (text or "").strip()
-    last = run.draft_versions.first()
-    if last is not None and last.text.strip() == text:
-        return last
-    return DraftVersion.objects.create(
-        run=run,
-        version=(last.version + 1) if last else 1,
-        text=text,
-        source=source,
-        user_input=user_input,
-        parent=parent or last,
-    )
+    for attempt in (1, 2):
+        # Straight off the table, not `run.draft_versions`: that manager may be
+        # serving a prefetch cache from before the competing write, which is
+        # exactly the stale read the retry exists to escape.
+        last = DraftVersion.objects.filter(run=run).order_by("-version").first()
+        if last is not None and last.text.strip() == text:
+            return last
+        try:
+            with transaction.atomic():
+                return DraftVersion.objects.create(
+                    run=run,
+                    version=(last.version + 1) if last else 1,
+                    text=text,
+                    source=source,
+                    user_input=user_input,
+                    parent=parent or last,
+                )
+        except IntegrityError:
+            if attempt == 2:
+                raise
 
 
 def ensure_first_version(run):

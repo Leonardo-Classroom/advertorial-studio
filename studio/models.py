@@ -150,6 +150,31 @@ class SiteSettings(models.Model):
         "本地模型閒置卸載（分鐘）", default=3,
         help_text="本地模型在最後一次使用後，閒置這麼多分鐘就從 VRAM 卸載。"
                   "0 = 用完立即卸載（每次都要重新載入，會很慢）；預設 3。上限 120。")
+
+    # Upload ceilings (任務二 §六). Read by `briefs.services.source_extract`
+    # before a Brief is created; the matching `.env` values are the fallback
+    # for when this row cannot be reached. Stored in MB because that is the
+    # unit an operator thinks in — the service converts.
+    upload_max_file_mb = models.IntegerField(
+        "單檔上限（MB）", default=200,
+        help_text="單一來源檔的大小上限。目前見過最大的真實簡報是 124MB，"
+                  "所以預設 200 留有餘裕。檔案上傳沒有內建上限，不設就是無上限。")
+    upload_max_batch_mb = models.IntegerField(
+        "單次上傳合計上限（MB）", default=600,
+        help_text="一次上傳的所有檔案加總。擋的是「單檔都合格、但一次丟二十個」。")
+    # pptx/docx are zip containers and picture extraction unpacks their media,
+    # so these two bound what one upload may expand to rather than what it
+    # weighs. A real deck's media are already-compressed JPEG/PNG and barely
+    # compress again — the 119MB test deck measures 1.09:1 — so the ratio has
+    # a wide margin before it can touch anything legitimate.
+    upload_max_unpacked_mb = models.IntegerField(
+        "解開後總量上限（MB）", default=2048,
+        help_text="pptx/docx 是 zip，抽圖時要解開。這是解開後的總量上限。")
+    upload_max_compression_ratio = models.IntegerField(
+        "壓縮比上限", default=200,
+        help_text="解開後大小 ÷ 壓縮後大小。正常簡報約 1:1（圖片本來就壓過了），"
+                  "壓縮炸彈動輒上千比一。")
+
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

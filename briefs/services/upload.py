@@ -9,7 +9,6 @@ redirect afterwards.
 """
 from __future__ import annotations
 
-from django.conf import settings
 from django.db import transaction
 
 from briefs.models import Brief, BriefSourceFile
@@ -43,7 +42,7 @@ def create_brief(owner, title: str, files) -> Brief:
     for upload_file, fmt in zip(files, formats):
         source_extract.check_upload(upload_file, fmt)
     total = sum(getattr(f, "size", None) or 0 for f in files)
-    batch_limit = getattr(settings, "UPLOAD_MAX_BATCH_BYTES", 600 * 1024 * 1024)
+    batch_limit = source_extract.limits()["upload_max_batch_mb"]
     if total > batch_limit:
         raise ValueError(
             f"這批檔案合計 {total / 1024 / 1024:.0f}MB，超過單次上傳上限 "

@@ -113,6 +113,51 @@
       </span>
     </label>
 
+    <h3 style="margin:22px 0 4px">上傳限制</h3>
+    <p class="small muted" style="margin:0 0 10px">
+      檔案上傳沒有內建上限——Django 只限制表單欄位，檔案是直接串流到磁碟。
+      不設限的話，一個登入的使用者可以一份份簡報把磁碟塞滿。這幾個上限在建立
+      專案之前就檢查，被擋下的上傳不會留下任何東西。
+    </p>
+    <div class="row">
+      <div>
+        <label>單檔上限（MB）</label>
+        <input type="number" name="upload_max_file_mb"
+               value="{{ settings.upload_max_file_mb }}" min="1" max="10240">
+      </div>
+      <div>
+        <label>單次合計上限（MB）</label>
+        <input type="number" name="upload_max_batch_mb"
+               value="{{ settings.upload_max_batch_mb }}" min="1" max="20480">
+      </div>
+    </div>
+    <p class="small muted" style="margin:4px 0 14px">
+      目前見過最大的真實簡報是 <strong>124MB</strong>，所以單檔預設 200 留有餘裕。
+      合計上限擋的是「每個檔都合格、但一次丟二十個」。
+    </p>
+
+    <div class="row">
+      <div>
+        <label>解開後總量上限（MB）</label>
+        <input type="number" name="upload_max_unpacked_mb"
+               value="{{ settings.upload_max_unpacked_mb }}" min="1" max="51200">
+      </div>
+      <div>
+        <label>壓縮比上限</label>
+        <input type="number" name="upload_max_compression_ratio"
+               value="{{ settings.upload_max_compression_ratio }}" min="2" max="100000">
+      </div>
+    </div>
+    <p class="small muted" style="margin:4px 0 0">
+      <code class="mono">.pptx</code> 與 <code class="mono">.docx</code> 本身就是 zip
+      壓縮檔（Office 2007 起的格式，副檔名的 x 就是這個意思），抽圖時必須解開。
+      所以除了「檔案多大」，還要管「解開後會變多大」——<strong>壓縮炸彈</strong>可以
+      只有 1MB、解開後好幾 GB。正常簡報的壓縮比約 <strong>1:1</strong>（裡面的圖片
+      早就壓過了，實測 119MB 那份是 1.09:1），所以 200:1 對正常檔案有極大餘裕。
+      這項檢查只讀 zip 目錄裡宣稱的大小、不做解壓，成本為零；宣稱值是造檔者寫的，
+      所以真正不依賴它的後盾是上面的單檔上限。
+    </p>
+
     <h3 style="margin:22px 0 4px">後台導覽</h3>
     <p class="small muted" style="margin:0 0 10px">
       只是收起導覽連結，網址仍然進得去，也不影響任何權限。

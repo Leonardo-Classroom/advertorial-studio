@@ -154,6 +154,17 @@ def advanced(request):
                 1, min(int(request.POST.get("max_parallel_runs") or 2), 8))
             settings_row.ollama_idle_unload_minutes = max(
                 0, min(int(request.POST.get("ollama_idle_unload_minutes") or 3), 120))
+            # Floors of 1, not 0: a zero here would read as "no limit" in
+            # `source_extract.limits()` and silently fall back to the .env
+            # value, which is the opposite of what typing 0 looks like it does.
+            settings_row.upload_max_file_mb = max(
+                1, min(int(request.POST.get("upload_max_file_mb") or 200), 10240))
+            settings_row.upload_max_batch_mb = max(
+                1, min(int(request.POST.get("upload_max_batch_mb") or 600), 20480))
+            settings_row.upload_max_unpacked_mb = max(
+                1, min(int(request.POST.get("upload_max_unpacked_mb") or 2048), 51200))
+            settings_row.upload_max_compression_ratio = max(
+                2, min(int(request.POST.get("upload_max_compression_ratio") or 200), 100000))
         except ValueError:
             messages.error(request, "數值格式不正確，未儲存。")
             return redirect("studio:advanced")

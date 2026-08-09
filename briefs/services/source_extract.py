@@ -26,6 +26,44 @@ def _human(size: int) -> str:
     return f"{size / 1024 / 1024:.0f}MB" if size < 1024 ** 3 else f"{size / 1024 ** 3:.1f}GB"
 
 
+# `SiteSettings` field -> `.env` setting used when the row cannot be read.
+# Values are megabytes except the ratio, which is a plain multiple.
+_LIMIT_SOURCES = {
+    "upload_max_file_mb": ("UPLOAD_MAX_FILE_BYTES", 200 * 1024 * 1024),
+    "upload_max_batch_mb": ("UPLOAD_MAX_BATCH_BYTES", 600 * 1024 * 1024),
+    "upload_max_unpacked_mb": ("UPLOAD_MAX_UNPACKED_BYTES", 2 * 1024 ** 3),
+    "upload_max_compression_ratio": ("UPLOAD_MAX_COMPRESSION_RATIO", 200),
+}
+
+
+def limits() -> dict:
+    """Upload ceilings in bytes, from 高級設定 with `.env` as the fallback.
+
+    Staff can change these without a redeploy, which is the point — the right
+    ceiling depends on what people actually upload here, and that is not
+    knowable from the code. Lazy import so `briefs` carries no load-time
+    dependency on `studio`, the same shape `core.llm._backend()` uses.
+    """
+    row = None
+    try:
+        from studio.models import SiteSettings
+
+        row = SiteSettings.load()
+    except Exception:  # noqa: BLE001 - a missing row must not block uploads
+        pass
+
+    from django.conf import settings
+
+    out = {}
+    for field, (env_name, env_default) in _LIMIT_SOURCES.items():
+        value = getattr(row, field, None) if row is not None else None
+        if value and value > 0:
+            out[field] = value if field.endswith("ratio") else value * 1024 * 1024
+        else:
+            out[field] = getattr(settings, env_name, env_default)
+    return out
+
+
 def check_upload(upload_file, fmt: str) -> None:
     """Reject a file that is too large, or that would unpack to too much.
 
@@ -38,9 +76,9 @@ def check_upload(upload_file, fmt: str) -> None:
     proof, because those numbers are written by whoever made the file. The
     per-file byte cap above is the backstop that does not depend on them.
     """
-    from django.conf import settings
+    caps = limits()
 
-    limit = getattr(settings, "UPLOAD_MAX_FILE_BYTES", 200 * 1024 * 1024)
+    limit = caps["upload_max_file_mb"]
     size = getattr(upload_file, "size", None) or 0
     if size > limit:
         raise ValueError(
@@ -51,8 +89,8 @@ def check_upload(upload_file, fmt: str) -> None:
 
     import zipfile
 
-    max_unpacked = getattr(settings, "UPLOAD_MAX_UNPACKED_BYTES", 2 * 1024 ** 3)
-    max_ratio = getattr(settings, "UPLOAD_MAX_COMPRESSION_RATIO", 200)
+    max_unpacked = caps["upload_max_unpacked_mb"]
+    max_ratio = caps["upload_max_compression_ratio"]
     try:
         upload_file.seek(0)
         with zipfile.ZipFile(upload_file) as archive:

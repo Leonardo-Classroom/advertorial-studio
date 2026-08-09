@@ -48,6 +48,26 @@ LLM_BACKENDS = [
     ("local", "本地模型"),
 ]
 
+# Where the local embedding model (BGE-M3) runs. Unlike the writer/vision
+# models — which live in Ollama and are managed by its own VRAM scheduler —
+# the embedder is loaded by sentence-transformers *inside this process*, so its
+# ~2.3GB of VRAM is held for the process's whole life and Ollama's keep_alive
+# cannot reclaim it. On a single 24GB card that 2.3GB is the difference between
+# comfortable and marginal: the writer occupies 18.2GB once loaded and the
+# Windows host holds ~2.5GB of the same card, leaving 3.8GB — keeping the
+# embedder on the GPU too cuts that to 1.5GB, close to where Ollama starts
+# spilling layers to CPU. Moving it to CPU costs +44ms per query embed
+# (invisible next to a 30-120s generation) and ~11x slower *corpus* indexing,
+# which is an occasional batch job.
+#
+# It does *not* let the writer and vision models co-reside — measured, they
+# need 18.2 + 10.2 = 28.4GB and evict each other regardless of the embedder
+# (see report/VRAM配置調校.md).
+EMBED_DEVICES = [
+    ("cuda", "GPU（快，但佔 ~2.3GB VRAM）"),
+    ("cpu", "CPU（釋出 VRAM 給生成模型；查詢只慢 ~44ms）"),
+]
+
 
 class SiteSettings(models.Model):
     """Generation defaults, set once by staff instead of asked on every form.
@@ -111,6 +131,25 @@ class SiteSettings(models.Model):
         "更正事實前先確認差異", default=False,
         help_text="開啟後，使用者送出更正會先看到前後對照，確認才存成新版本。"
                   "關閉則直接存成新版本——舊版本都留著，產稿時可以指定用哪一版。")
+    # Only takes effect when the embedding backend is `local` (EMBED_BACKEND in
+    # .env). Changing it invalidates the cached SentenceTransformer so the next
+    # embed reloads on the new device — see `studio.views.advanced`.
+    embed_device = models.CharField(
+        "本地嵌入模型執行裝置", max_length=8, choices=EMBED_DEVICES, default="cuda",
+        help_text="嵌入模型（BGE-M3）跑在 GPU 還是 CPU。放 CPU 可騰出 ~2.3GB VRAM "
+                  "給生成模型多一點餘裕，查詢僅慢約 44 毫秒；只有重建整個語料索引會明顯變慢。")
+    # Applied as Ollama's `keep_alive` after every local generation call (via
+    # `core.llm._touch_keep_alive` — the OpenAI-compatible endpoint drops the
+    # field, so it takes a separate call to the native API): the model
+    # unloads this many minutes after the last request. 3 is a compromise —
+    # long enough to stay warm through a working session, short enough to free
+    # VRAM when idle. 0 unloads immediately (every call pays the cold-start
+    # penalty — up to 12x here); a large value keeps it resident. Ignored when
+    # the backend is online. Only affects Ollama models, not the embedder above.
+    ollama_idle_unload_minutes = models.IntegerField(
+        "本地模型閒置卸載（分鐘）", default=3,
+        help_text="本地模型在最後一次使用後，閒置這麼多分鐘就從 VRAM 卸載。"
+                  "0 = 用完立即卸載（每次都要重新載入，會很慢）；預設 3。上限 120。")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

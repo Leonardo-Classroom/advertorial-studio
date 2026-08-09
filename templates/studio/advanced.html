@@ -32,6 +32,37 @@
       評審永遠走線上，不受這個設定影響。
     </p>
 
+    <label>本地嵌入模型執行裝置</label>
+    <select name="embed_device">
+      {% for value, label in embed_devices %}
+        <option value="{{ value }}" {% if value == settings.embed_device %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <p class="small muted" style="margin:4px 0 16px">
+      嵌入模型（BGE-M3）跑在 GPU 還是 CPU。它由本程式直接載入、佔約
+      <strong>2.3GB VRAM</strong>，且不受下面「閒置卸載」控管。在單張 24GB 卡上，
+      文字模型載入後就佔 18.2GB、Windows 主機另外佔約 2.5GB，只剩 3.8GB；
+      嵌入模型若也放 GPU，餘裕只剩 1.5GB，逼近 Ollama 開始把層數丟回 CPU 的邊緣。
+      改用 <strong>CPU</strong> 可騰出這 2.3GB，代價是查詢時嵌入慢約 44 毫秒
+      （在數十秒的產稿旁看不出來），只有「重建整個語料索引」這種批次作業會明顯
+      變慢（實測約 11 倍）。<strong>注意</strong>：這不會讓文字與圖片模型同時常駐
+      ——兩者載入後共需 28.4GB，這張卡上必定互相踢出。
+      只有在上面選「本地模型」且 <code class="mono">.env</code> 的
+      <code class="mono">EMBED_BACKEND=local</code> 時才有作用。改動會立即重載模型。
+    </p>
+
+    <label>本地模型閒置卸載（分鐘）</label>
+    <input type="number" name="ollama_idle_unload_minutes"
+           value="{{ settings.ollama_idle_unload_minutes }}" min="0" max="120">
+    <p class="small muted" style="margin:4px 0 16px">
+      本地文字／圖片模型在最後一次使用後，閒置這麼多分鐘就從 VRAM 卸載
+      （透過 Ollama 的 <code class="mono">keep_alive</code>）。作業期間反覆使用會一直
+      重設計時、保持暖機；沒人用時才釋放 VRAM。<strong>預設 3</strong>。
+      設 0 = 用完立即卸載，之後每次都要重新載入（換一次模型實測約 6～9 秒，
+      壓測時的極端冷啟動可達 12 倍慢），不建議。
+      只影響本地模型，線上 API 不受影響。
+    </p>
+
     <label>檢索策略</label>
     <select name="retrieval_strategy">
       {% for value, label in strategies %}

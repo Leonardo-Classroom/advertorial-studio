@@ -61,6 +61,53 @@ def _backend() -> str:
     return SiteSettings.load().llm_backend
 
 
+def _ollama_keep_alive():
+    """Ollama's `keep_alive` for local calls: how long the model stays in VRAM
+    after a request, from the staff setting (default 3 minutes).
+
+    Returns None (leave Ollama's own 5-minute default alone) if the setting is
+    unreachable, so a missing DB row never breaks generation. Only Ollama
+    models honour this; the in-process embedder is unaffected (see
+    `studio.models.SiteSettings`)."""
+    try:
+        from studio.models import SiteSettings
+
+        minutes = int(SiteSettings.load().ollama_idle_unload_minutes)
+    except Exception:
+        return None
+    return f"{max(0, minutes)}m"
+
+
+def _touch_keep_alive(model: str) -> None:
+    """Reset `model`'s VRAM idle timer to the configured span.
+
+    Ollama honours `keep_alive` only on its **native** `/api/*` endpoints —
+    measured 2026-08-09, the OpenAI-compatible `/v1/responses` and
+    `/v1/chat/completions` paths silently drop it and leave the server default
+    of 5 minutes in place, so passing it in `extra_body` did nothing
+    (`report/VRAM配置調校.md`). A prompt-less POST to `/api/generate` sets the
+    timer alone: it returns `done_reason: "load"` in ~0.2s without generating
+    or reloading anything, which is noise beside a 30-120s completion.
+
+    Called after a successful local call, so the countdown restarts on each
+    use: warm through an active session, unloaded once idle that long. Best
+    effort — a failure here costs VRAM residency, never the caller's result.
+    """
+    keep_alive = _ollama_keep_alive()
+    if keep_alive is None:
+        return
+    import httpx
+
+    # settings.LOCAL_LLM_BASE_URL is the OpenAI-compatible ".../v1"; the native
+    # API sits beside it at the host root.
+    root = settings.LOCAL_LLM_BASE_URL.rstrip("/").removesuffix("/v1")
+    try:
+        httpx.post(f"{root}/api/generate", timeout=10.0,
+                   json={"model": model, "keep_alive": keep_alive})
+    except Exception:
+        pass
+
+
 def is_local_backend() -> bool:
     """Whether the writer/vision backend is currently local, per `SiteSettings`.
 
@@ -206,6 +253,8 @@ def complete(
     deadline = timeout if timeout is not None else (
         settings.LOCAL_LLM_TIMEOUT if local else settings.LLM_TIMEOUT)
     response = _with_deadline(lambda: client.responses.create(**kwargs), deadline)
+    if local:
+        _touch_keep_alive(kwargs["model"])
     return _extract_text(response)
 
 
@@ -280,6 +329,8 @@ def complete_vision(
     deadline = timeout if timeout is not None else (
         settings.LOCAL_LLM_VISION_TIMEOUT if local else settings.LLM_TIMEOUT)
     response = _with_deadline(lambda: client.responses.create(**kwargs), deadline)
+    if local:
+        _touch_keep_alive(kwargs["model"])
     return _extract_text(response)
 
 

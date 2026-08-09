@@ -35,6 +35,23 @@ _load_lock = threading.Lock()
 _encode_lock = threading.Lock()
 
 
+def _configured_device() -> str:
+    """cuda / cpu, from SiteSettings if reachable, else the .env default.
+
+    The staff toggle at /manage/advanced/ wins so the device can be changed
+    without a redeploy; the `.env` value (`EMBED_LOCAL_DEVICE`) is the fallback
+    for contexts where the DB row does not exist yet (fresh install, some
+    management commands). Lazy import keeps `core` free of a load-time
+    dependency on `studio`, exactly as `core.llm._backend()` does.
+    """
+    try:
+        from studio.models import SiteSettings
+
+        return SiteSettings.load().embed_device
+    except Exception:
+        return getattr(settings, "EMBED_LOCAL_DEVICE", "cuda")
+
+
 def get_model():
     global _model
     if _model is not None:
@@ -45,7 +62,7 @@ def get_model():
         from sentence_transformers import SentenceTransformer
 
         name = getattr(settings, "EMBED_LOCAL_MODEL", "BAAI/bge-m3")
-        device = getattr(settings, "EMBED_LOCAL_DEVICE", "cuda")
+        device = _configured_device()
         try:
             _model = SentenceTransformer(name, device=device)
         except Exception:
@@ -56,6 +73,26 @@ def get_model():
             else:
                 raise
     return _model
+
+
+def reset():
+    """Drop the cached model so the next `get_model()` reloads on the currently
+    configured device. Called when staff flip the device toggle — without this,
+    the already-loaded model would keep running on the old device until the
+    process restarts. Best-effort frees the GPU allocation on the way out."""
+    global _model
+    with _load_lock:
+        model, _model = _model, None
+    if model is None:
+        return
+    try:
+        import torch
+
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
 
 def dimensions() -> int:

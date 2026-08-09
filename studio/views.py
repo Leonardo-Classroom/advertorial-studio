@@ -10,8 +10,8 @@ from core.pagination import paginate
 from briefs.models import Brief
 from corpus.models import Article, Author, EmbeddingIndex, Outlet, StyleGuide
 from studio.models import (
-    GENERATION_MODES, LLM_BACKENDS, RETRIEVAL_STRATEGIES, SELECTABLE_STRATEGIES,
-    Evaluation, Experiment, GenerationRun, SiteSettings,
+    EMBED_DEVICES, GENERATION_MODES, LLM_BACKENDS, RETRIEVAL_STRATEGIES,
+    SELECTABLE_STRATEGIES, Evaluation, Experiment, GenerationRun, SiteSettings,
 )
 from studio.services import evaluate as evaluate_service
 from studio.services import generate as generate_service
@@ -79,9 +79,21 @@ def advanced(request):
             settings_row.max_rewrites = max(0, min(int(request.POST.get("max_rewrites") or 1), 3))
             settings_row.max_parallel_runs = max(
                 1, min(int(request.POST.get("max_parallel_runs") or 2), 8))
+            settings_row.ollama_idle_unload_minutes = max(
+                0, min(int(request.POST.get("ollama_idle_unload_minutes") or 3), 120))
         except ValueError:
             messages.error(request, "數值格式不正確，未儲存。")
             return redirect("studio:advanced")
+        # Reset the cached embedder only when the device actually changes, so a
+        # save that leaves it alone does not needlessly evict a warm model.
+        prev_device = settings_row.embed_device
+        device = request.POST.get("embed_device", prev_device)
+        if device in dict(EMBED_DEVICES):
+            settings_row.embed_device = device
+        if settings_row.embed_device != prev_device:
+            from core import local_embeddings
+
+            local_embeddings.reset()
         settings_row.confirm_fact_updates = request.POST.get("confirm_fact_updates") == "on"
         # Unchecked checkboxes are simply absent from a POST, so these read as
         # False when switched off — no separate hidden field needed.
@@ -97,6 +109,7 @@ def advanced(request):
         "strategies": SELECTABLE_STRATEGIES,
         "modes": GENERATION_MODES,
         "backends": backends,
+        "embed_devices": EMBED_DEVICES,
     })
 
 

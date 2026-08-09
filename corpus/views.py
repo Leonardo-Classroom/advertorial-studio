@@ -1,11 +1,37 @@
 from django.contrib import messages
 from django.db.models import Q
+from django.db.models.expressions import RawSQL
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from accounts.decorators import staff_required
 from core.pagination import paginate, query_string
 from corpus.models import Article, Author, EmbeddingIndex, Outlet, StyleGuide
+
+# Below this, the trigram index cannot answer and silently matches nothing, so
+# the query has to go down the slow path instead (see corpus/migrations/0004).
+FTS_MIN_CHARS = 3
+
+
+def _search(qs, q: str):
+    """Narrow `qs` to articles containing `q`, via the full-text index.
+
+    The index is queried by rowid rather than joined: `pk__in` with a subquery
+    lets SQLite do the whole thing in one statement, and keeps the surrounding
+    queryset — filters, ordering, `paginate`'s deferred `select_related` —
+    working exactly as it does without a search term.
+
+    `q` is wrapped as an FTS5 phrase so that a corpus search for `AND`, `-`, or
+    `*` looks for those characters instead of being read as query syntax. The
+    doubling is FTS5's own escape for a quote inside a phrase; the value still
+    travels as a bound parameter, so this is not a string-built query.
+    """
+    if len(q) < FTS_MIN_CHARS:
+        return qs.filter(Q(title__icontains=q) | Q(body__icontains=q))
+    phrase = '"{}"'.format(q.replace('"', '""'))
+    return qs.filter(pk__in=RawSQL(
+        "SELECT rowid FROM corpus_article_fts WHERE corpus_article_fts MATCH %s",
+        (phrase,)))
 
 
 @staff_required
@@ -23,7 +49,7 @@ def articles(request):
     if author_id:
         qs = qs.filter(author_id=author_id)
     if q:
-        qs = qs.filter(Q(title__icontains=q) | Q(body__icontains=q))
+        qs = _search(qs, q)
 
     author_qs = Author.objects.select_related("outlet").order_by("-article_count")
     if outlet_id:

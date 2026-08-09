@@ -109,6 +109,7 @@ def queue(request):
     from core import llm
 
     model_active, model_limit = llm.gate_state()
+    health = llm.backend_health()
 
     return render(request, "studio/queue.html", {
         "section": "queue",
@@ -121,6 +122,7 @@ def queue(request):
         "model_active": model_active,
         "model_limit": model_limit,
         "model_local": llm.is_local_backend(),
+        "health": health,
     })
 
 

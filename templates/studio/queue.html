@@ -3,6 +3,18 @@
 <h1>隊列</h1>
 <p class="sub">現在機器在做什麼，以及誰在後面等。這一頁每 10 秒自動更新一次。</p>
 
+{% if model_local and not health.ok %}
+<div class="msg error">
+  <strong>本地模型連續 {{ health.consecutive_failures }} 次沒有回應，已暫停呼叫</strong>
+  （{{ health.retry_in }} 秒後自動再試一次）。<br>
+  <span class="small">常見原因是 Ollama 的 runner 卡住——伺服器仍會回應
+  <code class="mono">/api/version</code>，但什麼都算不了，此時看 GPU 會是閒置的。
+  先重啟 Ollama（<code class="mono">./restart_ollama.sh</code>）；若顯存仍被佔住、
+  重啟後依然無法生成，就需要重開 WSL。這段期間新的產稿會立刻失敗並說明原因，
+  不會卡著等。</span>
+</div>
+{% endif %}
+
 <div class="card">
   <div class="row tight" style="gap:26px;flex-wrap:wrap">
     <div><span class="muted small">執行中</span>

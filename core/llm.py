@@ -181,6 +181,90 @@ class ModelBusy(RuntimeError):
     """Gave up waiting for a free slot on the local model."""
 
 
+class ModelUnavailable(RuntimeError):
+    """The local model server looks wedged; failing fast instead of waiting."""
+
+
+# A circuit breaker over the local backend.
+#
+# Ollama's model runner can wedge while the server itself stays responsive:
+# 2026-08-10, `/api/version` answered in 80µs throughout while every
+# `/v1/responses` hung until its 600s client timeout and came back 500 with
+# `Post ".../tokenize": context canceled`. So a ping is not a health check —
+# the only reliable signal is that calls stop coming back.
+#
+# Left alone, that state costs 15 minutes per attempt: 10 minutes for the call
+# to time out, then 900s of gate wait for whoever is behind it, because an
+# abandoned call keeps its slot (correctly — the server is still busy with it).
+# An A/B run lost two data points and an hour to exactly this.
+#
+# Two consecutive timeouts trip it; a success anywhere resets it. While open,
+# calls fail immediately with something that names the likely fix. After the
+# cooldown one call is let through to test the water — recovery needs no
+# intervention, and a still-wedged server just re-opens the breaker.
+_BREAKER_THRESHOLD = 2
+_BREAKER_COOLDOWN = 120.0
+
+_breaker_lock = threading.Lock()
+_breaker_failures = 0
+_breaker_opened_at = 0.0
+
+
+def _breaker_check() -> None:
+    """Raise if the backend is known-bad and the cooldown has not elapsed."""
+    with _breaker_lock:
+        if _breaker_failures < _BREAKER_THRESHOLD:
+            return
+        waited = time.monotonic() - _breaker_opened_at
+        if waited < _BREAKER_COOLDOWN:
+            raise ModelUnavailable(
+                f"本地模型連續 {_breaker_failures} 次沒有回應，暫時停止呼叫"
+                f"（{round(_BREAKER_COOLDOWN - waited)} 秒後自動再試一次）。"
+                "常見原因是 Ollama 的 runner 卡住——伺服器還會回應 /api/version，"
+                "但什麼都算不了；此時要重啟 Ollama，若無效則重啟 WSL。")
+    # Cooldown elapsed: fall through and let this one call probe the server.
+
+
+def _breaker_record(ok: bool) -> None:
+    global _breaker_failures, _breaker_opened_at
+
+    with _breaker_lock:
+        if ok:
+            _breaker_failures = 0
+            return
+        _breaker_failures += 1
+        if _breaker_failures >= _BREAKER_THRESHOLD:
+            _breaker_opened_at = time.monotonic()
+
+
+# "The server did not answer", as opposed to "the model answered something
+# unusable". Matched by class name so this module does not have to import
+# httpx's and openai's error hierarchies just to classify a failure.
+_TRANSPORT_ERRORS = {
+    "APITimeoutError", "APIConnectionError", "InternalServerError",
+    "ReadTimeout", "ConnectTimeout", "ConnectError", "RemoteProtocolError",
+    "ReadError", "PoolTimeout",
+}
+
+
+def _is_transport_error(exc: BaseException) -> bool:
+    if isinstance(exc, (TimeoutError, ConnectionError)):
+        return True
+    return type(exc).__name__ in _TRANSPORT_ERRORS
+
+
+def backend_health() -> dict:
+    """For the 隊列 page: is the local backend answering?"""
+    with _breaker_lock:
+        open_ = _breaker_failures >= _BREAKER_THRESHOLD
+        return {
+            "ok": not open_,
+            "consecutive_failures": _breaker_failures,
+            "retry_in": max(0, round(_BREAKER_COOLDOWN - (time.monotonic() - _breaker_opened_at)))
+            if open_ else 0,
+        }
+
+
 # One gate for *every* local model call — writing, vision, fact extraction.
 #
 # 任務三 measured what its absence costs: five users uploading at once put five
@@ -306,6 +390,8 @@ def _with_deadline(call, seconds: float, gated: bool = False):
     outcome: dict = {}
 
     if gated:
+        # Before the slot, not after: a wedged server should not be queued for.
+        _breaker_check()
         _gate_acquire()
 
     def _run():
@@ -325,12 +411,20 @@ def _with_deadline(call, seconds: float, gated: bool = False):
     worker.join(timeout=seconds + 10)
 
     if worker.is_alive():
+        if gated:
+            _breaker_record(ok=False)
         raise ModelTimeout(
             f"模型超過 {round(seconds)} 秒沒有回應完畢，已放棄這次呼叫。"
             "本地模型偶爾會停不下來（見 report/本地線上API比較.md §4.2），"
             "請再試一次；連續失敗時重啟 Ollama。")
     if "error" in outcome:
+        # A refusal or an unparseable answer says nothing about the server's
+        # health, so only transport-level failures count toward the breaker.
+        if gated and _is_transport_error(outcome["error"]):
+            _breaker_record(ok=False)
         raise outcome["error"]
+    if gated:
+        _breaker_record(ok=True)
     return outcome["value"]
 
 def complete(

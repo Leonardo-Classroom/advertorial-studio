@@ -53,13 +53,41 @@ from openai import OpenAI
 # all — so a single switch could only ever serve the weaker of the two.
 TEXT, VISION = "text", "vision"
 
-# Providers whose OpenAI-compatible layer does not serve the Responses API.
-# Google's answers 404 to `/responses` and only accepts `/chat/completions`
-# (measured 2026-08-11); OpenAI and DeepSeek both serve Responses, and DeepSeek
-# was verified rather than assumed. Keyed by `OnlineProvider.kind`, so adding a
-# provider that needs the older shape is a one-line change here plus a choice
-# in the model.
+# Providers known not to serve the Responses API, so the first call skips a
+# round trip that would only 404. Google's compatible layer is one (measured
+# 2026-08-11). This is a fast path, not the rule — `_prefers_chat` below
+# discovers the rest.
 USES_CHAT_COMPLETIONS = {"google"}
+
+# Endpoints found at runtime to reject Responses, as (base_url, model).
+#
+# Support is not uniform even within one provider: DeepSeek serves Responses for
+# `deepseek-v4-flash` but answers `deepseek-v4-pro` with "Codex integration ...
+# will be available starting early August 2026". A hardcoded list would be
+# wrong the week that ships, so the decision is learned from the first refusal
+# and kept only for this process — a restart tries Responses again, which is
+# how the newer shape gets picked up once it works.
+_chat_only: set[tuple[str, str]] = set()
+
+
+def _prefers_chat(endpoint, model: str) -> bool:
+    return endpoint.kind in USES_CHAT_COMPLETIONS or (endpoint.base_url, model) in _chat_only
+
+
+def _responses_unsupported(exc: BaseException) -> bool:
+    """Whether this failure means "this endpoint has no Responses API".
+
+    Matched on the message rather than the status code: the two providers seen
+    so far disagree on the code (Google 404, DeepSeek 400) while both say
+    plainly what is wrong. Anything else — a bad key, a rate limit, a genuinely
+    malformed request — must not be mistaken for it and silently retried.
+    """
+    text = str(exc).lower()
+    if "not found for api version" in text or "is not supported for" in text:
+        return True
+    if "codex integration" in text and "will be available" in text:
+        return True
+    return "responses" in text and ("not supported" in text or "unsupported" in text)
 
 
 class OnlineEndpoint(NamedTuple):
@@ -67,6 +95,9 @@ class OnlineEndpoint(NamedTuple):
     api_key: str
     model: str
     kind: str
+    # True when this came from `.env` rather than a row someone selected. The
+    # judge override only applies to the `.env` endpoint — see `judge_model`.
+    from_env: bool = False
 
 
 def _online_config(kind: str = TEXT) -> OnlineEndpoint:
@@ -83,11 +114,11 @@ def _online_config(kind: str = TEXT) -> OnlineEndpoint:
         provider = row.vision_online_provider if kind == VISION else row.online_provider
         if provider is not None and provider.is_complete:
             return OnlineEndpoint(provider.base_url, provider.api_key,
-                                  provider.model, provider.kind)
+                                  provider.model, provider.kind, from_env=False)
     except Exception:  # noqa: BLE001 - a broken settings row must not hide .env
         pass
     return OnlineEndpoint(settings.LLM_BASE_URL, settings.LLM_API_KEY,
-                          settings.LLM_MODEL, "openai")
+                          settings.LLM_MODEL, "openai", from_env=True)
 
 
 @lru_cache(maxsize=4)
@@ -214,7 +245,14 @@ def judge_model() -> str:
     """
     if _backend() == "local":
         return settings.LOCAL_LLM_MODEL
-    return getattr(settings, "LLM_JUDGE_MODEL", None) or _online_config()[2]
+    endpoint = _online_config(TEXT)
+    # A model name only means anything at the endpoint that serves it. When an
+    # endpoint was chosen in 高級設定, its own model is the only valid answer;
+    # `LLM_JUDGE_MODEL` belongs to the `.env` endpoint and applies only there.
+    # Ignoring that sent "gpt-5.4" to Google and got a 404 on every evaluation.
+    if endpoint.from_env:
+        return getattr(settings, "LLM_JUDGE_MODEL", None) or endpoint.model
+    return endpoint.model
 
 
 def _extract_text(response) -> str:
@@ -556,14 +594,24 @@ def complete(
 
     deadline = timeout if timeout is not None else (
         settings.LOCAL_LLM_TIMEOUT if local else settings.LLM_TIMEOUT)
-    if not local and endpoint.kind in USES_CHAT_COMPLETIONS:
-        return _with_deadline(lambda: _chat_completion(
+    if not local:
+        chat = lambda: _chat_completion(  # noqa: E731
             client, kwargs["model"], instructions, user_input, max_output_tokens,
-            kwargs.get("temperature")), deadline)
+            kwargs.get("temperature"))
+        if _prefers_chat(endpoint, kwargs["model"]):
+            return _with_deadline(chat, deadline)
+        try:
+            response = _with_deadline(lambda: client.responses.create(**kwargs), deadline)
+        except Exception as exc:  # noqa: BLE001 - re-raised unless it is the one case
+            if not _responses_unsupported(exc):
+                raise
+            _chat_only.add((endpoint.base_url, kwargs["model"]))
+            return _with_deadline(chat, deadline)
+        return _extract_text(response)
+
     response = _with_deadline(lambda: client.responses.create(**kwargs), deadline,
                               gated=local)
-    if local:
-        _touch_keep_alive(kwargs["model"])
+    _touch_keep_alive(kwargs["model"])
     return _extract_text(response)
 
 
@@ -637,16 +685,26 @@ def complete_vision(
     # first, and it means any *other* caller of this function is covered too.
     deadline = timeout if timeout is not None else (
         settings.LOCAL_LLM_VISION_TIMEOUT if local else settings.LLM_TIMEOUT)
-    if not local and endpoint.kind in USES_CHAT_COMPLETIONS:
+    if not local:
         parts = [{"type": "text", "text": user_input},
                  {"type": "image_url",
                   "image_url": {"url": f"data:{mime};base64,{encoded}"}}]
-        return _with_deadline(lambda: _chat_completion(
-            client, kwargs["model"], instructions, parts, None), deadline)
+        chat = lambda: _chat_completion(  # noqa: E731
+            client, kwargs["model"], instructions, parts, None)
+        if _prefers_chat(endpoint, kwargs["model"]):
+            return _with_deadline(chat, deadline)
+        try:
+            response = _with_deadline(lambda: client.responses.create(**kwargs), deadline)
+        except Exception as exc:  # noqa: BLE001 - see `complete`
+            if not _responses_unsupported(exc):
+                raise
+            _chat_only.add((endpoint.base_url, kwargs["model"]))
+            return _with_deadline(chat, deadline)
+        return _extract_text(response)
+
     response = _with_deadline(lambda: client.responses.create(**kwargs), deadline,
                               gated=local)
-    if local:
-        _touch_keep_alive(kwargs["model"])
+    _touch_keep_alive(kwargs["model"])
     return _extract_text(response)
 
 

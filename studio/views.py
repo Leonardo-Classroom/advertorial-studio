@@ -46,13 +46,15 @@ def home(request):
 def _save_online_providers(request, settings_row) -> None:
     """Create, update, delete and select the online endpoints from the form.
 
-    Rows arrive indexed (`provider_kind_3`, …). A row whose `pk` is not in the
-    POST at all was removed in the browser, so it is deleted here — the remove
-    button drops the `<tr>` rather than submitting a flag, which keeps "what
-    you see is what gets saved" true without a second round trip.
+    Two independent lists — one for text, one for pictures — each posting rows
+    named by use and index (`provider_text_kind_3`, `provider_vision_key_0`).
+    They are separate because the same endpoint rarely serves both: a provider
+    that writes well may not accept an image at all.
 
-    A blank trailing row is normal (the form always ends with one) and is
-    ignored unless something was typed into it.
+    A row whose `pk` is not in the POST was removed in the browser, so it is
+    deleted here — the remove button drops the `<tr>` rather than submitting a
+    flag, which keeps "what you see is what gets saved" true without a second
+    round trip. A blank trailing row is normal and ignored unless typed into.
 
     The key is only written when a value is supplied. The page renders just the
     last four characters, so an empty key field means "leave it alone" — not
@@ -60,45 +62,42 @@ def _save_online_providers(request, settings_row) -> None:
     """
     from studio.models import OnlineProvider
 
-    indexes = sorted({
-        key.rsplit("_", 1)[1] for key in request.POST
-        if key.startswith("provider_") and key.rsplit("_", 1)[1].isdigit()
-    }, key=int)
+    for use, field in (("text", "online_provider"), ("vision", "vision_online_provider")):
+        prefix = f"provider_{use}_"
+        indexes = sorted({
+            key.rsplit("_", 1)[1] for key in request.POST
+            if key.startswith(prefix) and key.rsplit("_", 1)[1].isdigit()
+        }, key=int)
 
-    wanted = {
-        "text": request.POST.get("provider_selected_text"),
-        "vision": request.POST.get("provider_selected_vision"),
-    }
-    kept, chosen = [], {"text": None, "vision": None}
-    for i in indexes:
-        pk = (request.POST.get(f"provider_pk_{i}") or "").strip()
-        kind = request.POST.get(f"provider_kind_{i}") or "openai"
-        base_url = (request.POST.get(f"provider_base_url_{i}") or "").strip()
-        api_key = (request.POST.get(f"provider_key_{i}") or "").strip()
-        model = (request.POST.get(f"provider_model_{i}") or "").strip()
+        wanted = request.POST.get(f"provider_selected_{use}")
+        kept, chosen = [], None
+        for i in indexes:
+            pk = (request.POST.get(f"{prefix}pk_{i}") or "").strip()
+            kind = request.POST.get(f"{prefix}kind_{i}") or "openai"
+            base_url = (request.POST.get(f"{prefix}base_url_{i}") or "").strip()
+            api_key = (request.POST.get(f"{prefix}key_{i}") or "").strip()
+            model = (request.POST.get(f"{prefix}model_{i}") or "").strip()
 
-        if not pk and not (base_url or api_key or model):
-            continue                      # the empty trailing row
-        row = OnlineProvider.objects.filter(pk=pk).first() if pk else OnlineProvider()
-        if row is None:
-            continue                      # deleted by someone else meanwhile
-        row.kind = kind if kind in dict(OnlineProvider.KINDS) else "openai"
-        row.base_url, row.model = base_url, model
-        if api_key:
-            row.api_key = api_key
-        row.save()
-        kept.append(row.pk)
-        for use, index in wanted.items():
-            if index == str(i):
-                chosen[use] = row
+            if not pk and not (base_url or api_key or model):
+                continue                      # the empty trailing row
+            row = OnlineProvider.objects.filter(pk=pk, use=use).first() if pk else None
+            if pk and row is None:
+                continue                      # deleted by someone else meanwhile
+            row = row or OnlineProvider(use=use)
+            row.kind = kind if kind in dict(OnlineProvider.KINDS) else "openai"
+            row.base_url, row.model = base_url, model
+            if api_key:
+                row.api_key = api_key
+            row.save()
+            kept.append(row.pk)
+            if wanted == str(i):
+                chosen = row
 
-    OnlineProvider.objects.exclude(pk__in=kept).delete()
-    # Text and vision each keep their own selection; a radio naming a row that
-    # is gone clears that one only, leaving the other alone.
-    if chosen["text"] is not None or settings_row.online_provider_id not in kept:
-        settings_row.online_provider = chosen["text"]
-    if chosen["vision"] is not None or settings_row.vision_online_provider_id not in kept:
-        settings_row.vision_online_provider = chosen["vision"]
+        OnlineProvider.objects.filter(use=use).exclude(pk__in=kept).delete()
+        # Clear the selection only when the row it named is gone; leave the
+        # other list's choice untouched.
+        if chosen is not None or getattr(settings_row, f"{field}_id") not in kept:
+            setattr(settings_row, field, chosen)
 
 
 def _duration(seconds: int) -> str:
@@ -288,7 +287,8 @@ def advanced(request):
         "backends": backends,
         "vision_backends": vision_backends,
         "embed_devices": EMBED_DEVICES,
-        "providers": list(OnlineProvider.objects.all()),
+        "text_providers": list(OnlineProvider.objects.filter(use="text")),
+        "vision_providers": list(OnlineProvider.objects.filter(use="vision")),
         "provider_kinds": OnlineProvider.KINDS,
     })
 

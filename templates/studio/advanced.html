@@ -5,16 +5,16 @@
    everything except the endpoint table at 680px to keep prose line length
    short, which left the controls looking stranded beside a much wider card —
    consistency across the page won over the typographic rule. */
-#provider-rows{min-width:880px}
-#provider-rows th,#provider-rows td{padding:7px 8px;vertical-align:middle}
-#provider-rows td:first-child,#provider-rows td:nth-child(2){text-align:center}
+.provider-rows{min-width:880px}
+.provider-rows th,.provider-rows td{padding:7px 8px;vertical-align:middle}
+.provider-rows td:first-child{text-align:center}
 /* `input[type=password]` is absent from the global input rule in base.html,
    so without this the key field renders as an unstyled browser default and
    looks like it belongs to a different form. */
-#provider-rows input[type=password]{width:100%;padding:8px 11px;
+.provider-rows input[type=password]{width:100%;padding:8px 11px;
   border:1px solid var(--line);border-radius:7px;background:var(--bg);
   color:var(--ink);font:inherit;font-size:14px}
-#provider-rows .provider-remove{white-space:nowrap;padding:6px 11px}
+.provider-rows .provider-remove{white-space:nowrap;padding:6px 11px}
 </style>
 <h1>高級設定</h1>
 <p class="sub">產稿參數的預設值。使用者端不再詢問這些，一律套用這裡的設定。</p>
@@ -34,86 +34,39 @@
       結構較鬆。
     </p>
 
-    <div class="row">
-      <div>
-        <label>文字生成使用的模型</label>
-        <select name="llm_backend">
-          {% for value, label in backends %}
-            <option value="{{ value }}" {% if value == settings.llm_backend %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div>
-        <label>圖片辨識使用的模型</label>
-        <select name="vision_backend">
-          {% for value, label in vision_backends %}
-            <option value="{{ value }}" {% if value == settings.vision_backend %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-    </div>
+    <label>文字生成使用的模型</label>
+    <select name="llm_backend">
+      {% for value, label in backends %}
+        <option value="{{ value }}" {% if value == settings.llm_backend %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
     <p class="small muted" style="margin:4px 0 8px">
-      兩者各自獨立。本地的文字與視覺是兩個模型、這張卡上放不下兩個，所以分開設定
-      才能一邊走本地、一邊走線上；線上也一樣——擅長寫作的供應商未必收圖片。
-    </p>
-    <p class="small muted" style="margin:4px 0 16px">
       <strong>切換本地模型前請先看過 <code class="mono">report/本地線上API比較.md</code>。</strong>
       實測本地文字生成約 20% 機率耗時拉長到正常值的 5～50 倍（曾經一次卡了近
-      30 分鐘才回應）；本地圖片辨識約 30% 機率失敗或給出空白結果。這不是
-      「偶爾比較慢」，是有明確機率的風險，開啟前請有心理準備。
+      30 分鐘才回應）。寫稿與評審都跟著這個設定。
     </p>
-    <div id="providers" {% if settings.llm_backend != 'online' and settings.vision_backend != 'online' %}hidden{% endif %}
-         style="margin:4px 0 16px">
-      <p class="small muted" style="margin:0 0 8px">
-        線上模型的端點清單，文字與圖片<strong>各選一個</strong>——同一列可以兩邊都選，
-        也可以分別指向不同供應商。最後一列留空，填入任一欄就會自動長出下一列。
-        <strong>金鑰只顯示末四碼</strong>——留白代表沿用原本的，不是清空。
-      </p>
-      <div class="scroll"><table id="provider-rows">
-        <tr>
-          <th style="width:46px">文字</th><th style="width:46px">圖片</th>
-          <th style="width:118px">API 種類</th>
-          <th style="min-width:240px">端點</th><th style="width:190px">API Key</th>
-          <th style="width:160px">模型</th><th style="width:70px"></th>
-        </tr>
-        {% for p in providers %}
-        <tr>
-          <td><input type="radio" name="provider_selected_text" value="{{ forloop.counter0 }}"
-                     {% if settings.online_provider_id == p.pk %}checked{% endif %}></td>
-          <td><input type="radio" name="provider_selected_vision" value="{{ forloop.counter0 }}"
-                     {% if settings.vision_online_provider_id == p.pk %}checked{% endif %}></td>
-          <td><input type="hidden" name="provider_pk_{{ forloop.counter0 }}" value="{{ p.pk }}">
-            <select name="provider_kind_{{ forloop.counter0 }}">
-              {% for value, label in provider_kinds %}
-                <option value="{{ value }}" {% if value == p.kind %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select></td>
-          <td><input type="text" name="provider_base_url_{{ forloop.counter0 }}"
-                     value="{{ p.base_url }}" placeholder="https://…/v1"></td>
-          <td><input type="password" name="provider_key_{{ forloop.counter0 }}"
-                     autocomplete="new-password"
-                     placeholder="{% if p.key_hint %}目前 {{ p.key_hint }}（留白不變）{% else %}尚未設定{% endif %}"></td>
-          <td><input type="text" name="provider_model_{{ forloop.counter0 }}" value="{{ p.model }}"></td>
-          <td><button type="button" class="btn ghost provider-remove"
-                      title="移除這一列">移除</button></td>
-        </tr>
-        {% endfor %}
-      </table></div>
-      <p class="small muted" style="margin:8px 2px 0">
-        沒有選任何一列時，線上後端沿用 <code class="mono">.env</code> 的
-        <code class="mono">LLM_BASE_URL</code> / <code class="mono">LLM_API_KEY</code> /
-        <code class="mono">LLM_MODEL</code>。<strong>金鑰存在資料庫裡</strong>，
-        能讀到資料庫或其備份的人就拿得到——要作廢請到供應商後台換金鑰。
-      </p>
-    </div>
+    {% include "studio/_provider_list.html" with use="text" rows=text_providers selected_id=settings.online_provider_id %}
 
-    <p class="small muted" style="margin:4px 0 16px">
-      <strong>評審也跟著這個設定切換。</strong>選線上時評審是另一個模型
+    <label style="margin-top:18px">圖片辨識使用的模型</label>
+    <select name="vision_backend">
+      {% for value, label in vision_backends %}
+        <option value="{{ value }}" {% if value == settings.vision_backend %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <p class="small muted" style="margin:4px 0 8px">
+      與上面各自獨立——本地的文字與視覺是兩個模型、這張卡上放不下兩個，分開設定
+      才能一邊走本地、一邊走線上。實測本地圖片辨識約 30% 機率失敗或給出空白結果。
+      <strong>注意</strong>：並非所有線上模型都看得懂圖片（例如
+      <code class="mono">deepseek-chat</code> 只能寫字），這一欄要填支援視覺的模型。
+    </p>
+    {% include "studio/_provider_list.html" with use="vision" rows=vision_providers selected_id=settings.vision_online_provider_id %}
+
+    <p class="small muted" style="margin:14px 0 16px">
+      <strong>評審跟著「文字」那一欄。</strong>選線上時評審是另一個模型
       （<code class="mono">LLM_JUDGE_MODEL</code>）；選本地時，這張卡上只有一個文字模型，
       所以<strong>寫稿的和評分的是同一個模型</strong>。這種情況下的絕對分數意義不大
       ——模型評自己寫的東西——但 A/B 這類<strong>相對比較</strong>仍然可用，因為兩邊
-      由同一個評審、且成對比較會左右對調各評一次。每筆評分都會記下當時的評分模型，
-      看分數時不必猜是誰評的。
+      由同一個評審、且成對比較會左右對調各評一次。每筆評分都會記下當時的評分模型。
     </p>
 
     <label>本地嵌入模型執行裝置</label>
@@ -327,92 +280,88 @@
 
 {{ provider_kinds|json_script:"provider-kinds" }}
 <script>
-// The online-endpoint table: show it only for the online backend, grow it as
-// rows are filled in, and let a row be removed by dropping it from the form.
-// Deletion needs no flag — the server treats a pk that did not come back as
+// Two endpoint lists — text and pictures — each shown only when its own
+// dropdown is set to online, each growing a fresh blank row as the last one is
+// filled in, and each letting a row be removed by dropping it from the form.
+// Deletion needs no flag: the server treats a pk that did not come back as
 // deleted, so what is on screen is what gets saved.
 (function () {
-  const box = document.getElementById('providers');
-  const table = document.getElementById('provider-rows');
-  if (!box || !table) return;
-
-  // Shown when *either* kind is online — the list is shared, and hiding it
-  // because text went local would take the picture endpoint with it.
-  const backends = ['llm_backend', 'vision_backend'].map(function (n) {
-    return document.querySelector('select[name="' + n + '"]');
-  }).filter(Boolean);
-  function syncVisibility() {
-    box.hidden = !backends.some(function (el) { return el.value === 'online'; });
-  }
-  backends.forEach(function (el) { el.addEventListener('change', syncVisibility); });
-
-  // Rendered as JSON rather than interpolated: a Python list of tuples
-  // prints as ('openai', 'OpenAI'), which JavaScript reads as a comma
-  // expression, not an array.
   const KINDS = JSON.parse(document.getElementById('provider-kinds').textContent);
+  const BACKEND_FIELD = {text: 'llm_backend', vision: 'vision_backend'};
 
-  function blankRow(i) {
-    const tr = document.createElement('tr');
-    const options = KINDS.map(function (k) {
-      return '<option value="' + k[0] + '">' + k[1] + '</option>';
-    }).join('');
-    tr.innerHTML =
-      '<td><input type="radio" name="provider_selected_text" value="' + i + '"></td>' +
-      '<td><input type="radio" name="provider_selected_vision" value="' + i + '"></td>' +
-      '<td><input type="hidden" name="provider_pk_' + i + '" value="">' +
-      '<select name="provider_kind_' + i + '">' + options + '</select></td>' +
-      '<td><input type="text" name="provider_base_url_' + i + '" placeholder="https://…/v1"></td>' +
-      '<td><input type="password" name="provider_key_' + i + '" autocomplete="new-password"></td>' +
-      '<td><input type="text" name="provider_model_' + i + '"></td>' +
-      '<td></td>';   // no remove button: syncRemoveButtons adds one once this
-                     // row stops being the trailing blank
-    return tr;
-  }
+  document.querySelectorAll('.provider-list').forEach(function (box) {
+    const use = box.dataset.use;
+    const table = box.querySelector('.provider-rows');
+    if (!table) return;
 
-  // Indexes only have to be unique within one submission, so a counter that
-  // never reuses a number is simpler — and safer — than renumbering rows
-  // after a removal, which would silently retarget the selected radio.
-  let next = table.querySelectorAll('tr').length;
-
-  // The trailing row is an invitation to add one, not a row that exists yet,
-  // so it carries no remove button — there is nothing to remove, and offering
-  // it reads as though something is missing. A row gains the button the moment
-  // it stops being last, which is exactly when it becomes real.
-  function syncRemoveButtons() {
-    const rows = Array.from(table.querySelectorAll('tr')).slice(1);
-    rows.forEach(function (tr, i) {
-      const cell = tr.lastElementChild;
-      const btn = cell.querySelector('.provider-remove');
-      const isLast = i === rows.length - 1;
-      if (isLast && btn) {
-        btn.remove();
-      } else if (!isLast && !btn) {
-        cell.innerHTML = '<button type="button" class="btn ghost provider-remove"'
-          + ' title="移除這一列">移除</button>';
-      }
-    });
-  }
-
-  function ensureBlankRow() {
-    const rows = Array.from(table.querySelectorAll('tr')).slice(1);
-    const last = rows[rows.length - 1];
-    const lastUsed = last && Array.from(last.querySelectorAll('input[type=text], input[type=password], input[type=hidden]'))
-      .some(function (el) { return el.value.trim() !== ''; });
-    if (!last || lastUsed) {
-      table.appendChild(blankRow(next++));
+    const backend = document.querySelector('select[name="' + BACKEND_FIELD[use] + '"]');
+    function syncVisibility() {
+      box.hidden = backend ? backend.value !== 'online' : false;
     }
-    syncRemoveButtons();
-  }
+    if (backend) backend.addEventListener('change', syncVisibility);
+    syncVisibility();
 
-  table.addEventListener('input', ensureBlankRow);
-  table.addEventListener('click', function (e) {
-    const btn = e.target.closest('.provider-remove');
-    if (!btn) return;
-    btn.closest('tr').remove();
+    function blankRow(i) {
+      const tr = document.createElement('tr');
+      const options = KINDS.map(function (k) {
+        return '<option value="' + k[0] + '">' + k[1] + '</option>';
+      }).join('');
+      const n = function (field) { return 'provider_' + use + '_' + field + '_' + i; };
+      tr.innerHTML =
+        '<td><input type="radio" name="provider_selected_' + use + '" value="' + i + '"></td>' +
+        '<td><input type="hidden" name="' + n('pk') + '" value="">' +
+        '<select name="' + n('kind') + '">' + options + '</select></td>' +
+        '<td><input type="text" name="' + n('base_url') + '" placeholder="https://…/v1"></td>' +
+        '<td><input type="password" name="' + n('key') + '" autocomplete="new-password"></td>' +
+        '<td><input type="text" name="' + n('model') + '"></td>' +
+        '<td></td>';   // no remove button while this row is the trailing blank
+      return tr;
+    }
+
+    // Indexes only have to be unique within one submission, so a counter that
+    // never reuses a number is simpler — and safer — than renumbering rows
+    // after a removal, which would silently retarget the selected radio.
+    let next = table.querySelectorAll('tr').length;
+
+    // The trailing row is an invitation to add one, not a row that exists yet,
+    // so it carries no remove button — there is nothing to remove, and offering
+    // it reads as though something is missing. A row gains the button the
+    // moment it stops being last, which is when it becomes real.
+    function syncRemoveButtons() {
+      const rows = Array.from(table.querySelectorAll('tr')).slice(1);
+      rows.forEach(function (tr, i) {
+        const cell = tr.lastElementChild;
+        const btn = cell.querySelector('.provider-remove');
+        const isLast = i === rows.length - 1;
+        if (isLast && btn) {
+          btn.remove();
+        } else if (!isLast && !btn) {
+          cell.innerHTML = '<button type="button" class="btn ghost provider-remove"'
+            + ' title="移除這一列">移除</button>';
+        }
+      });
+    }
+
+    function ensureBlankRow() {
+      const rows = Array.from(table.querySelectorAll('tr')).slice(1);
+      const last = rows[rows.length - 1];
+      const lastUsed = last && Array.from(last.querySelectorAll(
+        'input[type=text], input[type=password], input[type=hidden]'))
+        .some(function (el) { return el.value.trim() !== ''; });
+      if (!last || lastUsed) table.appendChild(blankRow(next++));
+      syncRemoveButtons();
+    }
+
+    table.addEventListener('input', ensureBlankRow);
+    table.addEventListener('click', function (e) {
+      const btn = e.target.closest('.provider-remove');
+      if (!btn) return;
+      btn.closest('tr').remove();
+      ensureBlankRow();
+    });
+
     ensureBlankRow();
   });
-
-  ensureBlankRow();
 })();
 </script>
 {% endblock %}

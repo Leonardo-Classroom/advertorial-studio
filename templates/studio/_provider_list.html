@@ -1,0 +1,47 @@
+{% comment %}
+  One online-endpoint list. Included twice — once for text, once for pictures —
+  with `use` ("text"/"vision"), `rows`, and `selected_id`.
+
+  Two lists rather than one shared list with two selection columns: the same
+  endpoint rarely serves both (a model that writes well may not accept an
+  image at all), and a shared list could not express that. The cost is
+  retyping a key when one provider genuinely does both.
+
+  Field names carry the use, so the two lists cannot collide in the POST:
+  `provider_text_kind_0` vs `provider_vision_kind_0`.
+{% endcomment %}
+<div class="provider-list" data-use="{{ use }}" style="margin:0 0 4px">
+  <div class="scroll"><table class="provider-rows" data-use="{{ use }}">
+    <tr>
+      <th style="width:46px">使用</th><th style="width:118px">API 種類</th>
+      <th style="min-width:250px">端點</th><th style="width:200px">API Key</th>
+      <th style="width:170px">模型</th><th style="width:70px"></th>
+    </tr>
+    {% for p in rows %}
+    <tr>
+      <td><input type="radio" name="provider_selected_{{ use }}" value="{{ forloop.counter0 }}"
+                 {% if selected_id == p.pk %}checked{% endif %}></td>
+      <td><input type="hidden" name="provider_{{ use }}_pk_{{ forloop.counter0 }}" value="{{ p.pk }}">
+        <select name="provider_{{ use }}_kind_{{ forloop.counter0 }}">
+          {% for value, label in provider_kinds %}
+            <option value="{{ value }}" {% if value == p.kind %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select></td>
+      <td><input type="text" name="provider_{{ use }}_base_url_{{ forloop.counter0 }}"
+                 value="{{ p.base_url }}" placeholder="https://…/v1"></td>
+      <td><input type="password" name="provider_{{ use }}_key_{{ forloop.counter0 }}"
+                 autocomplete="new-password"
+                 placeholder="{% if p.key_hint %}目前 {{ p.key_hint }}（留白不變）{% else %}尚未設定{% endif %}"></td>
+      <td><input type="text" name="provider_{{ use }}_model_{{ forloop.counter0 }}" value="{{ p.model }}"></td>
+      <td><button type="button" class="btn ghost provider-remove" title="移除這一列">移除</button></td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  <p class="small muted" style="margin:6px 2px 0">
+    最後一列留空，填入任一欄就會自動長出下一列。<strong>金鑰只顯示末四碼</strong>——
+    留白代表沿用原本的，不是清空。沒有選任何一列時，沿用 <code class="mono">.env</code>
+    的 <code class="mono">LLM_BASE_URL</code> / <code class="mono">LLM_API_KEY</code> /
+    <code class="mono">LLM_MODEL</code>。金鑰存在資料庫裡，能讀到資料庫或其備份的人
+    就拿得到——要作廢請到供應商後台換金鑰。
+  </p>
+</div>

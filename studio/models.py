@@ -89,7 +89,18 @@ class OnlineProvider(models.Model):
         ("openai", "OpenAI"),
         ("deepseek", "DeepSeek"),
     ]
+    # Which list a row belongs to. Text and vision keep separate lists rather
+    # than sharing one with two selection columns: the same endpoint rarely
+    # serves both well — `deepseek-chat` writes but cannot see a picture — and
+    # a shared list made "which of these is valid for pictures?" a question the
+    # page could not answer. The cost is retyping a key when one provider
+    # genuinely does both.
+    USES = [
+        ("text", "文字"),
+        ("vision", "圖片"),
+    ]
 
+    use = models.CharField("用途", max_length=8, choices=USES, default="text")
     kind = models.CharField("API 種類", max_length=16, choices=KINDS, default="openai")
     base_url = models.CharField("端點", max_length=300, blank=True)
     api_key = models.CharField("API Key", max_length=300, blank=True)
@@ -98,7 +109,7 @@ class OnlineProvider(models.Model):
 
     class Meta:
         verbose_name = verbose_name_plural = "線上模型"
-        ordering = ["pk"]
+        ordering = ["use", "pk"]
 
     def __str__(self):
         return f"{self.get_kind_display()} / {self.model or '（未填模型）'}"

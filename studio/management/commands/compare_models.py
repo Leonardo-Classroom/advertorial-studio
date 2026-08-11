@@ -58,8 +58,11 @@ class Command(BaseCommand):
                             help="max_rewrites。0 = 只量初稿；1 = 含評分後重寫（預設）")
         parser.add_argument("--modes", default="single",
                             help="逗號分隔：single,staged。兩個都給就一起比")
-        parser.add_argument("--thinking", default="on",
-                            help="逗號分隔：on,off。兩個都給就比開關思考的差異")
+        parser.add_argument("--thinking", default="",
+                            help="逗號分隔的推理強度：off,low,medium,high。"
+                                 "留空表示不指定，用供應商預設。DeepSeek 只分 off 與其他")
+        parser.add_argument("--judge-effort", dest="judge_effort", default="",
+                            help="評審用的推理強度，固定不變")
         parser.add_argument("--concurrent", action="store_true",
                             help="併發產稿。會讓耗時數字失去意義，只在不比速度時使用")
         parser.add_argument("--workers", type=int, default=6, help="評分併發數")
@@ -75,15 +78,20 @@ class Command(BaseCommand):
         if row.llm_backend != "online":
             raise CommandError("文字後端不是線上模型——這個指令只比較線上端點上的模型。")
         endpoint = llm._online_config("text")
+        modes = [m.strip() for m in opts["modes"].split(",") if m.strip()]
+        efforts = [t.strip() for t in opts["thinking"].split(",") if t.strip()] or [None]
+        unknown = [e for e in efforts if e and e not in llm.EFFORTS]
+        if unknown:
+            raise CommandError(f"不認得的推理強度 {unknown}，可用：{list(llm.EFFORTS)}")
+
         self.stdout.write(
             f"端點 {endpoint.base_url}｜候選 {models}｜評審 {judge}｜"
             f"專案 {briefs}｜max_rewrites={opts['rewrites']}"
-            f"｜方案 {opts['modes']}｜思考 {opts['thinking']}")
+            f"｜方案 {modes}｜推理強度 {efforts}"
+            f"｜評審強度 {opts['judge_effort'] or '（預設）'}")
 
-        modes = [m.strip() for m in opts["modes"].split(",") if m.strip()]
-        thinking = [t.strip() == "on" for t in opts["thinking"].split(",") if t.strip()]
-        results = self._generate(models, briefs, modes, thinking, opts)
-        self._score(results, judge, opts["workers"])
+        results = self._generate(models, briefs, modes, efforts, opts)
+        self._score(results, judge, opts["judge_effort"] or None, opts["workers"])
         self._report(results, models)
         if opts["json_path"]:
             with open(opts["json_path"], "w", encoding="utf8") as fh:
@@ -92,7 +100,7 @@ class Command(BaseCommand):
 
     # ---- generation ------------------------------------------------------
 
-    def _one_run(self, model: str, brief_pk: int, mode: str, thinking: bool, opts) -> dict:
+    def _one_run(self, model: str, brief_pk: int, mode: str, effort, opts) -> dict:
         from studio.services import generate as generate_service
 
         brief = Brief.objects.get(pk=brief_pk)
@@ -110,7 +118,7 @@ class Command(BaseCommand):
         started = time.time()
         ok = False
         try:
-            with llm.model_override(model, thinking=thinking):
+            with llm.model_override(model, effort=effort):
                 generate_service.run_generation(run)
             run.refresh_from_db()
             ok = run.status == "done"
@@ -121,21 +129,21 @@ class Command(BaseCommand):
         refine_ms = next((s.get("elapsed_ms") for s in (run.stages or [])
                           if s.get("name") == "refine"), 0) or 0
         revision = run.revisions.filter(accepted=True, source="auto").order_by("-round").first()
-        tag = f"{model}/{mode}/{'think' if thinking else 'nothink'}"
+        tag = f"{model}/{mode}/{effort or 'default'}"
         self.stdout.write(
             f"  {tag:44s} brief{brief_pk}  {elapsed:6.1f}s"
             f"（重寫 {refine_ms / 1000:5.1f}s）  {'成功' if ok else '失敗'}"
             f"  {len(run.output or ''):5d} 字  重寫{'採納' if revision else '未採納'}")
-        return {"model": model, "mode": mode, "thinking": thinking, "tag": tag,
+        return {"model": model, "mode": mode, "effort": effort, "tag": tag,
                 "brief": brief_pk, "run": run.pk, "ok": ok,
                 "secs": round(elapsed, 1), "refine_s": round(refine_ms / 1000, 1),
                 "revision": revision.pk if revision else None,
                 "first_chars": len(run.output or ""),
                 "final_chars": len(run.latest_text or "")}
 
-    def _generate(self, models, briefs, modes, thinking, opts) -> list[dict]:
-        jobs = [(m, b, mode, think)
-                for m in models for mode in modes for think in thinking for b in briefs]
+    def _generate(self, models, briefs, modes, efforts, opts) -> list[dict]:
+        jobs = [(m, b, mode, effort)
+                for m in models for mode in modes for effort in efforts for b in briefs]
         self.stdout.write(
             f"\n[產稿] {len(jobs)} 篇"
             f"（{'併發 ' + str(opts['workers']) if opts['concurrent'] else '序列——耗時才有意義'}）")
@@ -153,17 +161,17 @@ class Command(BaseCommand):
 
     # ---- scoring ---------------------------------------------------------
 
-    def _score(self, results: list[dict], judge: str, workers: int) -> None:
+    def _score(self, results: list[dict], judge: str, judge_effort, workers: int) -> None:
         from studio.services import evaluate as evaluate_service
 
         todo = [r for r in results if r["ok"]]
-        self.stdout.write(f"\n[評分] {len(todo)} 篇 × 2（初稿／重寫後），"
-                          f"評審 {judge}，併發 {workers}")
+        self.stdout.write(f"\n[評分] {len(todo)} 篇 × 2（初稿／重寫後），評審 {judge}"
+                          f"（強度 {judge_effort or '預設'}），併發 {workers}")
 
         def score_one(record):
             try:
                 run = GenerationRun.objects.get(pk=record["run"])
-                with llm.model_override(judge):
+                with llm.model_override(judge, effort=judge_effort):
                     first = evaluate_service.evaluate(run, run_judge=True)
                     record["first"] = _mean(first.judge_scores or {})
                     record["judge_model"] = first.judge_model

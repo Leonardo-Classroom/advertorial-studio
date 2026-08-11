@@ -97,6 +97,36 @@ def _responses_unsupported(exc: BaseException) -> bool:
 # understand it is a 400, so it is gated on the kind.
 THINKING_OFF = {"deepseek": {"thinking": {"type": "disabled"}}}
 
+# Reasoning effort, as one vocabulary across providers.
+#
+# The two families disagree on both the shape and the granularity: DeepSeek is
+# on/off through `extra_body`, OpenAI's reasoning models take
+# `reasoning.effort` at four levels. Comparing them needs one vocabulary, so
+# callers say `off/low/medium/high` and each provider translates.
+#
+# Support is per *model*, not per provider: on one OpenAI endpoint `gpt-5.4`
+# accepts effort while `gpt-4o-mini` answers 400 `Unsupported parameter`. So
+# there is no list of capable models here — the parameter is sent, and a model
+# that rejects it is remembered and retried without (`_no_effort`), the same
+# shape as the Responses fallback above.
+EFFORTS = ("off", "low", "medium", "high")
+_no_effort: set[tuple[str, str]] = set()
+
+
+def _effort_unsupported(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return ("reasoning.effort" in text or "reasoning_effort" in text) and (
+        "unsupported" in text or "not supported" in text)
+
+
+def _reasoning_param(endpoint, model: str, effort: str | None) -> dict:
+    """`reasoning=` for the Responses API, or {} when it must not be sent."""
+    if not effort or endpoint.kind not in {"openai"}:
+        return {}
+    if (endpoint.base_url, model) in _no_effort:
+        return {}
+    return {"reasoning": {"effort": "none" if effort == "off" else effort}}
+
 
 class OnlineEndpoint(NamedTuple):
     base_url: str
@@ -106,11 +136,21 @@ class OnlineEndpoint(NamedTuple):
     # True when this came from `.env` rather than a row someone selected. The
     # judge override only applies to the `.env` endpoint — see `judge_model`.
     from_env: bool = False
-    thinking: bool = True
+    # "off" / "low" / "medium" / "high" — see EFFORTS. None means "say nothing",
+    # which leaves the provider on its own default.
+    effort: str | None = None
+
+    @property
+    def thinking(self) -> bool:
+        return self.effort != "off"
 
     def thinking_extra_body(self) -> dict:
-        """`extra_body` that disables reasoning, or {} when not applicable."""
-        if self.thinking:
+        """`extra_body` that disables reasoning, or {} when not applicable.
+
+        DeepSeek is on/off only, so every level above "off" is simply its
+        normal thinking mode.
+        """
+        if self.effort != "off":
             return {}
         # "deepseek" and "deepseek-thinking" are one API with two behaviours,
         # so the payload is keyed on the family rather than the kind.
@@ -129,15 +169,15 @@ _override = threading.local()
 
 
 @contextmanager
-def model_override(model: str | None, thinking: bool | None = None):
-    """Use `model` (and optionally this thinking setting) on this thread only."""
-    previous = (getattr(_override, "model", None), getattr(_override, "thinking", None))
+def model_override(model: str | None, effort: str | None = None):
+    """Use `model` (and optionally this reasoning effort) on this thread only."""
+    previous = (getattr(_override, "model", None), getattr(_override, "effort", None))
     _override.model = model
-    _override.thinking = thinking
+    _override.effort = effort
     try:
         yield
     finally:
-        _override.model, _override.thinking = previous
+        _override.model, _override.effort = previous
 
 
 def _online_config(kind: str = TEXT) -> OnlineEndpoint:
@@ -153,17 +193,22 @@ def _online_config(kind: str = TEXT) -> OnlineEndpoint:
         row = SiteSettings.load()
         provider = row.vision_online_provider if kind == VISION else row.online_provider
         if provider is not None and provider.is_complete:
-            thinking = getattr(_override, "thinking", None)
+            override_effort = getattr(_override, "effort", None)
+            # A provider row carries no level of its own; "DeepSeek" (as
+            # opposed to "DeepSeek-thinking") means off, and anything else
+            # leaves the provider on its default until a caller asks.
+            default = None if provider.thinking else "off"
             return OnlineEndpoint(
                 provider.base_url, provider.api_key,
                 getattr(_override, "model", None) or provider.model,
                 provider.kind, from_env=False,
-                thinking=provider.thinking if thinking is None else thinking)
+                effort=override_effort or default)
     except Exception:  # noqa: BLE001 - a broken settings row must not hide .env
         pass
     return OnlineEndpoint(settings.LLM_BASE_URL, settings.LLM_API_KEY,
                           getattr(_override, "model", None) or settings.LLM_MODEL,
-                          "openai", from_env=True)
+                          "openai", from_env=True,
+                          effort=getattr(_override, "effort", None))
 
 
 @lru_cache(maxsize=4)
@@ -649,6 +694,7 @@ def complete(
         extra = endpoint.thinking_extra_body()
         if extra:
             kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **extra}
+        kwargs.update(_reasoning_param(endpoint, kwargs["model"], endpoint.effort))
         chat = lambda: _chat_completion(  # noqa: E731
             client, kwargs["model"], instructions, user_input, max_output_tokens,
             kwargs.get("temperature"), extra)
@@ -656,7 +702,15 @@ def complete(
             return _with_deadline(chat, deadline)
         try:
             response = _with_deadline(lambda: client.responses.create(**kwargs), deadline)
-        except Exception as exc:  # noqa: BLE001 - re-raised unless it is the one case
+        except Exception as exc:  # noqa: BLE001 - re-raised unless a known shape
+            if _effort_unsupported(exc):
+                # This model does not take an effort level; remember and retry
+                # without one rather than lose the call to a parameter that was
+                # only ever a preference.
+                _no_effort.add((endpoint.base_url, kwargs["model"]))
+                kwargs.pop("reasoning", None)
+                response = _with_deadline(lambda: client.responses.create(**kwargs), deadline)
+                return _extract_text(response)
             if not _responses_unsupported(exc):
                 raise
             _chat_only.add((endpoint.base_url, kwargs["model"]))

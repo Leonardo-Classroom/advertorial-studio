@@ -5,7 +5,7 @@
    everything except the endpoint table at 680px to keep prose line length
    short, which left the controls looking stranded beside a much wider card —
    consistency across the page won over the typographic rule. */
-.provider-rows{min-width:880px}
+.provider-rows{min-width:980px}
 .provider-rows th,.provider-rows td{padding:7px 8px;vertical-align:middle}
 .provider-rows td:first-child{text-align:center}
 /* `input[type=password]` is absent from the global input rule in base.html,
@@ -19,7 +19,7 @@
 <h1>高級設定</h1>
 <p class="sub">產稿參數的預設值。使用者端不再詢問這些，一律套用這裡的設定。</p>
 
-<div class="card" style="max-width:940px">
+<div class="card" style="max-width:1080px">
   <form method="post" id="settings-form">
     {% csrf_token %}
 
@@ -269,7 +269,7 @@
   </form>
 </div>
 
-<div class="card" style="max-width:940px">
+<div class="card" style="max-width:1080px">
   <h2 style="margin-top:0">不在這裡的東西</h2>
   <p class="small muted" style="margin:0">
     <strong>線上模型的端點與金鑰現在設在上面的清單裡</strong>，不再只能改

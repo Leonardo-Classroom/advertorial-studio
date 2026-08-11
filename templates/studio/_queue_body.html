@@ -30,6 +30,8 @@
     <div><span class="muted small">檔案處理中</span>
       <strong style="font-size:19px">{{ ingesting|length }}</strong>
       <span class="muted small">（不佔產稿名額，但共用同一張顯卡）</span></div>
+    <div style="margin-left:auto"><span class="muted small">更新於</span>
+      <strong class="mono" style="font-size:15px">{{ updated_at }}</strong></div>
     {% if model_local %}
     <div><span class="muted small">本地模型呼叫</span>
       <strong style="font-size:19px">{{ model_active }}</strong>
@@ -97,9 +99,9 @@
   {% endif %}
 </div>
 
-{% if classifying %}
-<h2>圖片辨識中</h2>
+<h2>圖片辨識</h2>
 <div class="card">
+  {% if not classifying %}<div class="empty">現在沒有圖片在辨識。</div>{% else %}
   <div class="scroll"><table>
     <tr><th>使用者</th><th>專案</th><th style="width:220px">進度</th><th style="width:90px">已辨識</th></tr>
     {% for c in classifying %}
@@ -119,12 +121,12 @@
     一次辨識一張圖，每張都是一次視覺模型呼叫。本地後端時這些呼叫和產稿共用
     同一個閘門，所以辨識期間產稿會排隊。
   </p>
+  {% endif %}
 </div>
-{% endif %}
 
-{% if ingesting %}
-<h2>檔案處理中</h2>
+<h2>檔案處理</h2>
 <div class="card">
+  {% if not ingesting %}<div class="empty">現在沒有檔案在解析。</div>{% else %}
   <div class="scroll"><table>
     <tr><th>使用者</th><th>專案</th><th style="width:110px">階段</th>
         <th style="width:90px">檔案</th><th>正在讀</th></tr>
@@ -143,5 +145,5 @@
   <p class="small muted" style="margin:10px 2px 0">
     解析檔案與抽出內容不經過產稿佇列，各自一條執行緒，但和產稿搶同一張顯卡。
   </p>
+  {% endif %}
 </div>
-{% endif %}

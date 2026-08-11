@@ -238,6 +238,10 @@ def _queue_context() -> dict:
         "model_limit": model_limit,
         "model_local": llm.is_local_backend(),
         "health": llm.backend_health(),
+        # Rendered into the fragment so the page can be seen to be live. With
+        # nothing running, every refresh returns identical markup and the page
+        # looks frozen — indistinguishable from a poll that has stopped.
+        "updated_at": timezone.localtime(now).strftime("%H:%M:%S"),
     }
 
 

@@ -1,12 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-/* Six columns do not fit the 680px form card — the endpoint field ended up
-   about one character wide. The prose around it still wants a readable line
-   length, so only this block widens, bleeding right into the page's own
-   margin (main is 1180px) rather than stretching the whole card. */
-#providers{margin-right:-260px}
-@media (max-width:1120px){#providers{margin-right:0}}
+/* The card is wide enough for the six-column endpoint table (880px + the
+   card's 40px of padding), but everything else in the form is prose and
+   single controls, which do not want a 900px line. So the card widens and its
+   other children stay at the width they had. */
+#settings-form > label,#settings-form > select,#settings-form > input,
+#settings-form > p,#settings-form > .row,#settings-form > h3,
+#settings-form > label.switch,#settings-form > .btn{max-width:680px}
 #provider-rows{min-width:880px}
 #provider-rows th,#provider-rows td{padding:7px 8px;vertical-align:middle}
 #provider-rows td:first-child{text-align:center}
@@ -21,8 +22,8 @@
 <h1>高級設定</h1>
 <p class="sub">產稿參數的預設值。使用者端不再詢問這些，一律套用這裡的設定。</p>
 
-<div class="card" style="max-width:680px">
-  <form method="post">
+<div class="card" style="max-width:940px">
+  <form method="post" id="settings-form">
     {% csrf_token %}
 
     <label>預設生成方式</label>
@@ -343,7 +344,8 @@
       '<td><input type="text" name="provider_base_url_' + i + '" placeholder="https://…/v1"></td>' +
       '<td><input type="password" name="provider_key_' + i + '" autocomplete="new-password"></td>' +
       '<td><input type="text" name="provider_model_' + i + '"></td>' +
-      '<td><button type="button" class="btn ghost provider-remove" title="移除這一列">移除</button></td>';
+      '<td></td>';   // no remove button: syncRemoveButtons adds one once this
+                     // row stops being the trailing blank
     return tr;
   }
 
@@ -351,6 +353,25 @@
   // never reuses a number is simpler — and safer — than renumbering rows
   // after a removal, which would silently retarget the selected radio.
   let next = table.querySelectorAll('tr').length;
+
+  // The trailing row is an invitation to add one, not a row that exists yet,
+  // so it carries no remove button — there is nothing to remove, and offering
+  // it reads as though something is missing. A row gains the button the moment
+  // it stops being last, which is exactly when it becomes real.
+  function syncRemoveButtons() {
+    const rows = Array.from(table.querySelectorAll('tr')).slice(1);
+    rows.forEach(function (tr, i) {
+      const cell = tr.lastElementChild;
+      const btn = cell.querySelector('.provider-remove');
+      const isLast = i === rows.length - 1;
+      if (isLast && btn) {
+        btn.remove();
+      } else if (!isLast && !btn) {
+        cell.innerHTML = '<button type="button" class="btn ghost provider-remove"'
+          + ' title="移除這一列">移除</button>';
+      }
+    });
+  }
 
   function ensureBlankRow() {
     const rows = Array.from(table.querySelectorAll('tr')).slice(1);
@@ -360,6 +381,7 @@
     if (!last || lastUsed) {
       table.appendChild(blankRow(next++));
     }
+    syncRemoveButtons();
   }
 
   table.addEventListener('input', ensureBlankRow);

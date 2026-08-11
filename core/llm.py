@@ -39,6 +39,7 @@ import json
 import re
 import threading
 import time
+from contextlib import contextmanager
 from functools import lru_cache
 from typing import NamedTuple
 
@@ -100,6 +101,28 @@ class OnlineEndpoint(NamedTuple):
     from_env: bool = False
 
 
+# Per-thread model override, for comparing models without touching settings.
+#
+# Switching `SiteSettings.online_provider` to change model is process-global,
+# so two models can never be in flight at once — which is what made the model
+# comparison run one call at a time and take twenty minutes of pure waiting.
+# This overrides only the model name, keeping the selected endpoint's URL and
+# key, so it is meaningful exactly when the models live behind one endpoint
+# (`deepseek-v4-flash` vs `deepseek-v4-pro`) — the case worth parallelising.
+_override = threading.local()
+
+
+@contextmanager
+def model_override(model: str | None):
+    """Use `model` for online calls on this thread only."""
+    previous = getattr(_override, "model", None)
+    _override.model = model
+    try:
+        yield
+    finally:
+        _override.model = previous
+
+
 def _online_config(kind: str = TEXT) -> OnlineEndpoint:
     """The online endpoint for `kind` (text or vision).
 
@@ -114,11 +137,13 @@ def _online_config(kind: str = TEXT) -> OnlineEndpoint:
         provider = row.vision_online_provider if kind == VISION else row.online_provider
         if provider is not None and provider.is_complete:
             return OnlineEndpoint(provider.base_url, provider.api_key,
-                                  provider.model, provider.kind, from_env=False)
+                                  getattr(_override, "model", None) or provider.model,
+                                  provider.kind, from_env=False)
     except Exception:  # noqa: BLE001 - a broken settings row must not hide .env
         pass
     return OnlineEndpoint(settings.LLM_BASE_URL, settings.LLM_API_KEY,
-                          settings.LLM_MODEL, "openai", from_env=True)
+                          getattr(_override, "model", None) or settings.LLM_MODEL,
+                          "openai", from_env=True)
 
 
 @lru_cache(maxsize=4)
@@ -250,6 +275,9 @@ def judge_model() -> str:
     # endpoint was chosen in 高級設定, its own model is the only valid answer;
     # `LLM_JUDGE_MODEL` belongs to the `.env` endpoint and applies only there.
     # Ignoring that sent "gpt-5.4" to Google and got a 404 on every evaluation.
+    override = getattr(_override, "model", None)
+    if override:
+        return override
     if endpoint.from_env:
         return getattr(settings, "LLM_JUDGE_MODEL", None) or endpoint.model
     return endpoint.model

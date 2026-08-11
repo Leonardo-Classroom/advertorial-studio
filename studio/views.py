@@ -200,18 +200,18 @@ def advanced(request):
 
     # The model names come from settings rather than from the choice labels, so
     # this page cannot go on naming a model that was swapped out months ago.
-    from core import llm as llm_module
+    # Only the local option names its model. Which online model is in use is
+    # decided by the list right below the dropdown and shown there; naming one
+    # here would duplicate it and — worse — the name shown would be the `.env`
+    # fallback, which is not what the selected row says. Local has no such
+    # list, so this is the only place its model appears.
+    def _label(value, label, local_model):
+        return f"{label}，使用 {local_model}" if value == "local" else label
 
-    text_names = {
-        "online": f"使用 {llm_module._online_config('text')[2]}",
-        "local": f"使用 {django_settings.LOCAL_LLM_MODEL}",
-    }
-    vision_names = {
-        "online": f"使用 {llm_module._online_config('vision')[2]}",
-        "local": f"使用 {django_settings.LOCAL_LLM_VISION_MODEL}",
-    }
-    backends = [(v, f"{label}，{text_names[v]}") for v, label in LLM_BACKENDS]
-    vision_backends = [(v, f"{label}，{vision_names[v]}") for v, label in LLM_BACKENDS]
+    backends = [(v, _label(v, label, django_settings.LOCAL_LLM_MODEL))
+                for v, label in LLM_BACKENDS]
+    vision_backends = [(v, _label(v, label, django_settings.LOCAL_LLM_VISION_MODEL))
+                       for v, label in LLM_BACKENDS]
 
     if request.method == "POST":
         mode = request.POST.get("default_mode", settings_row.default_mode)

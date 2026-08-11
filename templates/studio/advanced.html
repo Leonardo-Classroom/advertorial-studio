@@ -1,13 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
 <style>
-/* The card is wide enough for the six-column endpoint table (880px + the
-   card's 40px of padding), but everything else in the form is prose and
-   single controls, which do not want a 900px line. So the card widens and its
-   other children stay at the width they had. */
-#settings-form > label,#settings-form > select,#settings-form > input,
-#settings-form > p,#settings-form > .row,#settings-form > h3,
-#settings-form > label.switch,#settings-form > .btn{max-width:680px}
+/* The whole form uses the card's full width. An earlier version capped
+   everything except the endpoint table at 680px to keep prose line length
+   short, which left the controls looking stranded beside a much wider card —
+   consistency across the page won over the typographic rule. */
 #provider-rows{min-width:880px}
 #provider-rows th,#provider-rows td{padding:7px 8px;vertical-align:middle}
 #provider-rows td:first-child{text-align:center}
@@ -294,7 +291,7 @@
   </form>
 </div>
 
-<div class="card" style="max-width:680px">
+<div class="card" style="max-width:940px">
   <h2 style="margin-top:0">不在這裡的東西</h2>
   <p class="small muted" style="margin:0">
     <strong>線上模型的端點與金鑰現在設在上面的清單裡</strong>，不再只能改

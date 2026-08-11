@@ -89,9 +89,17 @@ class OnlineProvider(models.Model):
     # OpenAI and DeepSeek both serve the Responses API; Google's
     # OpenAI-compatible layer answers 404 to it and only does chat completions
     # (measured 2026-08-11). See `core.llm.USES_CHAT_COMPLETIONS`.
+    # Thinking is encoded in the kind rather than kept as a separate switch:
+    # it changes the model's behaviour as much as the provider does, and one
+    # dropdown that says which you get beats a checkbox somewhere else that
+    # silently modifies it. Measured on 32 drafts — `deepseek-v4-pro` with
+    # thinking off scored worst of every combination tried (1.67) and its
+    # rewrite gained nothing, while the same model with thinking on scored
+    # best (3.67). That is not a detail to bury in a second control.
     KINDS = [
         ("openai", "OpenAI"),
         ("deepseek", "DeepSeek"),
+        ("deepseek-thinking", "DeepSeek-thinking"),
         ("google", "Google Gemini"),
     ]
     # Which list a row belongs to. Text and vision keep separate lists rather
@@ -106,7 +114,7 @@ class OnlineProvider(models.Model):
     ]
 
     use = models.CharField("用途", max_length=8, choices=USES, default="text")
-    kind = models.CharField("API 種類", max_length=16, choices=KINDS, default="openai")
+    kind = models.CharField("API 種類", max_length=32, choices=KINDS, default="openai")
     base_url = models.CharField("端點", max_length=300, blank=True)
     api_key = models.CharField("API Key", max_length=300, blank=True)
     model = models.CharField("模型", max_length=100, blank=True)
@@ -118,6 +126,17 @@ class OnlineProvider(models.Model):
 
     def __str__(self):
         return f"{self.get_kind_display()} / {self.model or '（未填模型）'}"
+
+    @property
+    def thinking(self) -> bool:
+        """Whether to let the model reason before answering.
+
+        Derived from the kind, not stored: "DeepSeek" is the non-thinking
+        variant and "DeepSeek-thinking" the reasoning one. Anything else gets
+        no flag at all — the switch is DeepSeek-specific and sending it
+        elsewhere is a 400.
+        """
+        return self.kind != "deepseek"
 
     @property
     def key_hint(self) -> str:

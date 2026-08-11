@@ -91,6 +91,13 @@ def _responses_unsupported(exc: BaseException) -> bool:
     return "responses" in text and ("not supported" in text or "unsupported" in text)
 
 
+# How to ask a provider not to think first. DeepSeek's v4 models take this
+# shape (verified on both flash and pro: `reasoning_tokens` goes to None);
+# nothing else here is known to, and sending it to a provider that does not
+# understand it is a 400, so it is gated on the kind.
+THINKING_OFF = {"deepseek": {"thinking": {"type": "disabled"}}}
+
+
 class OnlineEndpoint(NamedTuple):
     base_url: str
     api_key: str
@@ -99,6 +106,15 @@ class OnlineEndpoint(NamedTuple):
     # True when this came from `.env` rather than a row someone selected. The
     # judge override only applies to the `.env` endpoint — see `judge_model`.
     from_env: bool = False
+    thinking: bool = True
+
+    def thinking_extra_body(self) -> dict:
+        """`extra_body` that disables reasoning, or {} when not applicable."""
+        if self.thinking:
+            return {}
+        # "deepseek" and "deepseek-thinking" are one API with two behaviours,
+        # so the payload is keyed on the family rather than the kind.
+        return dict(THINKING_OFF.get(self.kind.split("-")[0], {}))
 
 
 # Per-thread model override, for comparing models without touching settings.
@@ -113,14 +129,15 @@ _override = threading.local()
 
 
 @contextmanager
-def model_override(model: str | None):
-    """Use `model` for online calls on this thread only."""
-    previous = getattr(_override, "model", None)
+def model_override(model: str | None, thinking: bool | None = None):
+    """Use `model` (and optionally this thinking setting) on this thread only."""
+    previous = (getattr(_override, "model", None), getattr(_override, "thinking", None))
     _override.model = model
+    _override.thinking = thinking
     try:
         yield
     finally:
-        _override.model = previous
+        _override.model, _override.thinking = previous
 
 
 def _online_config(kind: str = TEXT) -> OnlineEndpoint:
@@ -136,9 +153,12 @@ def _online_config(kind: str = TEXT) -> OnlineEndpoint:
         row = SiteSettings.load()
         provider = row.vision_online_provider if kind == VISION else row.online_provider
         if provider is not None and provider.is_complete:
-            return OnlineEndpoint(provider.base_url, provider.api_key,
-                                  getattr(_override, "model", None) or provider.model,
-                                  provider.kind, from_env=False)
+            thinking = getattr(_override, "thinking", None)
+            return OnlineEndpoint(
+                provider.base_url, provider.api_key,
+                getattr(_override, "model", None) or provider.model,
+                provider.kind, from_env=False,
+                thinking=provider.thinking if thinking is None else thinking)
     except Exception:  # noqa: BLE001 - a broken settings row must not hide .env
         pass
     return OnlineEndpoint(settings.LLM_BASE_URL, settings.LLM_API_KEY,
@@ -297,7 +317,8 @@ def _extract_text(response) -> str:
 
 
 def _chat_completion(client, model: str, instructions: str, content,
-                     max_output_tokens: int | None, temperature=None) -> str:
+                     max_output_tokens: int | None, temperature=None,
+                     extra_body: dict | None = None) -> str:
     """The pre-Responses call shape, for providers that only serve that.
 
     Same two inputs as `complete`, mapped onto the older wire format:
@@ -316,6 +337,8 @@ def _chat_completion(client, model: str, instructions: str, content,
         kwargs["max_tokens"] = max_output_tokens
     if temperature is not None:
         kwargs["temperature"] = temperature
+    if extra_body:
+        kwargs["extra_body"] = extra_body
     response = client.chat.completions.create(**kwargs)
     choices = getattr(response, "choices", None) or []
     text = (choices[0].message.content if choices else "") or ""
@@ -623,9 +646,12 @@ def complete(
     deadline = timeout if timeout is not None else (
         settings.LOCAL_LLM_TIMEOUT if local else settings.LLM_TIMEOUT)
     if not local:
+        extra = endpoint.thinking_extra_body()
+        if extra:
+            kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **extra}
         chat = lambda: _chat_completion(  # noqa: E731
             client, kwargs["model"], instructions, user_input, max_output_tokens,
-            kwargs.get("temperature"))
+            kwargs.get("temperature"), extra)
         if _prefers_chat(endpoint, kwargs["model"]):
             return _with_deadline(chat, deadline)
         try:
@@ -717,8 +743,11 @@ def complete_vision(
         parts = [{"type": "text", "text": user_input},
                  {"type": "image_url",
                   "image_url": {"url": f"data:{mime};base64,{encoded}"}}]
+        extra = endpoint.thinking_extra_body()
+        if extra:
+            kwargs["extra_body"] = {**kwargs.get("extra_body", {}), **extra}
         chat = lambda: _chat_completion(  # noqa: E731
-            client, kwargs["model"], instructions, parts, None)
+            client, kwargs["model"], instructions, parts, None, None, extra)
         if _prefers_chat(endpoint, kwargs["model"]):
             return _with_deadline(chat, deadline)
         try:

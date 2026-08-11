@@ -56,7 +56,10 @@ class Command(BaseCommand):
         parser.add_argument("--judge", required=True, help="評分用的模型，固定不變")
         parser.add_argument("--rewrites", type=int, default=1,
                             help="max_rewrites。0 = 只量初稿；1 = 含評分後重寫（預設）")
-        parser.add_argument("--mode", default="single", choices=["single", "staged"])
+        parser.add_argument("--modes", default="single",
+                            help="逗號分隔：single,staged。兩個都給就一起比")
+        parser.add_argument("--thinking", default="on",
+                            help="逗號分隔：on,off。兩個都給就比開關思考的差異")
         parser.add_argument("--concurrent", action="store_true",
                             help="併發產稿。會讓耗時數字失去意義，只在不比速度時使用")
         parser.add_argument("--workers", type=int, default=6, help="評分併發數")
@@ -74,9 +77,12 @@ class Command(BaseCommand):
         endpoint = llm._online_config("text")
         self.stdout.write(
             f"端點 {endpoint.base_url}｜候選 {models}｜評審 {judge}｜"
-            f"專案 {briefs}｜max_rewrites={opts['rewrites']}｜mode={opts['mode']}")
+            f"專案 {briefs}｜max_rewrites={opts['rewrites']}"
+            f"｜方案 {opts['modes']}｜思考 {opts['thinking']}")
 
-        results = self._generate(models, briefs, opts)
+        modes = [m.strip() for m in opts["modes"].split(",") if m.strip()]
+        thinking = [t.strip() == "on" for t in opts["thinking"].split(",") if t.strip()]
+        results = self._generate(models, briefs, modes, thinking, opts)
         self._score(results, judge, opts["workers"])
         self._report(results, models)
         if opts["json_path"]:
@@ -86,7 +92,7 @@ class Command(BaseCommand):
 
     # ---- generation ------------------------------------------------------
 
-    def _one_run(self, model: str, brief_pk: int, opts) -> dict:
+    def _one_run(self, model: str, brief_pk: int, mode: str, thinking: bool, opts) -> dict:
         from studio.services import generate as generate_service
 
         brief = Brief.objects.get(pk=brief_pk)
@@ -96,7 +102,7 @@ class Command(BaseCommand):
         run = GenerationRun.objects.create(
             owner=template.owner, brief=brief, facts_version=brief.latest_facts(),
             outlet=template.outlet, author=template.author,
-            style_guide=template.style_guide, mode=opts["mode"],
+            style_guide=template.style_guide, mode=mode,
             retrieval_strategy=SiteSettings.load().retrieval_strategy,
             exemplar_count=SiteSettings.load().exemplar_count,
             max_rewrites=opts["rewrites"])
@@ -104,7 +110,7 @@ class Command(BaseCommand):
         started = time.time()
         ok = False
         try:
-            with llm.model_override(model):
+            with llm.model_override(model, thinking=thinking):
                 generate_service.run_generation(run)
             run.refresh_from_db()
             ok = run.status == "done"
@@ -115,26 +121,30 @@ class Command(BaseCommand):
         refine_ms = next((s.get("elapsed_ms") for s in (run.stages or [])
                           if s.get("name") == "refine"), 0) or 0
         revision = run.revisions.filter(accepted=True, source="auto").order_by("-round").first()
+        tag = f"{model}/{mode}/{'think' if thinking else 'nothink'}"
         self.stdout.write(
-            f"  {model:20s} brief{brief_pk}  {elapsed:6.1f}s"
+            f"  {tag:44s} brief{brief_pk}  {elapsed:6.1f}s"
             f"（重寫 {refine_ms / 1000:5.1f}s）  {'成功' if ok else '失敗'}"
             f"  {len(run.output or ''):5d} 字  重寫{'採納' if revision else '未採納'}")
-        return {"model": model, "brief": brief_pk, "run": run.pk, "ok": ok,
+        return {"model": model, "mode": mode, "thinking": thinking, "tag": tag,
+                "brief": brief_pk, "run": run.pk, "ok": ok,
                 "secs": round(elapsed, 1), "refine_s": round(refine_ms / 1000, 1),
                 "revision": revision.pk if revision else None,
                 "first_chars": len(run.output or ""),
                 "final_chars": len(run.latest_text or "")}
 
-    def _generate(self, models, briefs, opts) -> list[dict]:
-        jobs = [(m, b) for m in models for b in briefs]
-        self.stdout.write(f"\n[產稿] {len(jobs)} 篇"
-                          f"（{'併發' if opts['concurrent'] else '序列——耗時才有意義'}）")
+    def _generate(self, models, briefs, modes, thinking, opts) -> list[dict]:
+        jobs = [(m, b, mode, think)
+                for m in models for mode in modes for think in thinking for b in briefs]
+        self.stdout.write(
+            f"\n[產稿] {len(jobs)} 篇"
+            f"（{'併發 ' + str(opts['workers']) if opts['concurrent'] else '序列——耗時才有意義'}）")
         if not opts["concurrent"]:
-            return [self._one_run(m, b, opts) for m, b in jobs]
+            return [self._one_run(*job, opts) for job in jobs]
 
         def worker(job):
             try:
-                return self._one_run(job[0], job[1], opts)
+                return self._one_run(*job, opts)
             finally:
                 connections.close_all()
 
@@ -166,13 +176,13 @@ class Command(BaseCommand):
                 if record["first"] is not None and record["final"] is not None:
                     record["delta"] = round(record["final"] - record["first"], 2)
                 self.stdout.write(
-                    f"  {record['model']:20s} brief{record['brief']}  "
+                    f"  {record['tag']:44s} brief{record['brief']}  "
                     f"初稿 {record.get('first')} → 重寫後 {record.get('final')}"
                     f"  ({record.get('delta', 'n/a')})")
             except Exception as exc:  # noqa: BLE001 - a failed score is not a crash
                 record["score_error"] = f"{type(exc).__name__}: {exc}"[:160]
                 self.stdout.write(self.style.WARNING(
-                    f"  {record['model']} brief{record['brief']} 評分失敗：{exc}"))
+                    f"  {record['tag']} brief{record['brief']} 評分失敗：{exc}"))
             finally:
                 connections.close_all()
 
@@ -183,14 +193,14 @@ class Command(BaseCommand):
 
     def _report(self, results: list[dict], models: list[str]) -> None:
         self.stdout.write("\n=== 彙總 ===")
-        for model in models:
-            rows = [r for r in results if r["model"] == model and r["ok"]
+        for model in sorted({r["tag"] for r in results}):
+            rows = [r for r in results if r["tag"] == model and r["ok"]
                     and r.get("first") is not None]
             if not rows:
-                self.stdout.write(f"  {model:20s} 無有效樣本")
+                self.stdout.write(f"  {model:44s} 無有效樣本")
                 continue
             deltas = [r["delta"] for r in rows if r.get("delta") is not None]
-            line = (f"  {model:20s} n={len(rows)}"
+            line = (f"  {model:44s} n={len(rows)}"
                     f"｜總時中位 {statistics.median(r['secs'] for r in rows):6.1f}s"
                     f"（重寫 {statistics.median(r['refine_s'] for r in rows):5.1f}s）"
                     f"｜初稿 {statistics.median(r['first'] for r in rows):.2f}"

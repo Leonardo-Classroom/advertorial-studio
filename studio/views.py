@@ -111,6 +111,62 @@ def _duration(seconds: int) -> str:
     return f"{seconds // 3600} 小時 {seconds % 3600 // 60} 分"
 
 
+def _ingest_rows() -> list[dict]:
+    """Briefs being parsed, with which file is being read right now.
+
+    "處理中" on its own says nothing about a batch that has been running for
+    two minutes. The per-file rows already carry the answer — one of them is
+    `processing` — so the page can name the file instead of the state.
+    """
+    from briefs.models import BriefSourceFile
+
+    briefs = list(Brief.objects.filter(processing=True)
+                  .select_related("owner").order_by("updated_at"))
+    if not briefs:
+        return []
+    files = BriefSourceFile.objects.filter(brief__in=briefs).order_by("order", "pk")
+    by_brief: dict[int, list] = {}
+    for source in files:
+        by_brief.setdefault(source.brief_id, []).append(source)
+
+    rows = []
+    for brief in briefs:
+        owned = by_brief.get(brief.pk, [])
+        current = next((f for f in owned if f.status == "processing"), None)
+        rows.append({
+            "brief": brief,
+            "done": sum(1 for f in owned if f.status == "done"),
+            "failed": sum(1 for f in owned if f.status == "failed"),
+            "total": len(owned),
+            "current": current.original_filename if current else "",
+            # Files are parsed first, then one fact-extraction call. Nothing
+            # left in `processing` while the brief still is means the batch has
+            # moved on to that call, which is the slow part and worth naming.
+            "phase": "抽取內容" if owned and current is None else "解析檔案",
+        })
+    return rows
+
+
+def _classify_rows() -> list[dict]:
+    """Briefs with a picture-classification pass running, and how far along."""
+    from briefs.services import images as image_service
+
+    pks = image_service.active_classifications()
+    if not pks:
+        return []
+    briefs = {b.pk: b for b in Brief.objects.filter(pk__in=pks).select_related("owner")}
+    rows = []
+    for pk in pks:
+        brief = briefs.get(pk)
+        if brief is None:
+            continue
+        progress = image_service.read_classify_progress(pk) or {}
+        done, total = progress.get("done", 0), progress.get("total", 0)
+        rows.append({"brief": brief, "done": done, "total": total,
+                     "pct": round(done / total * 100) if total else 0})
+    return rows
+
+
 @staff_required
 def queue(request):
     """What the machine is working on right now, and who is waiting behind it.
@@ -129,6 +185,16 @@ def queue(request):
     are competing for the same GPU, which is what someone looking at this page
     actually wants to know.
     """
+    context = _queue_context()
+    if request.GET.get("fragment"):
+        # Same context, just the part that changes — see studio/queue.html.
+        return render(request, "studio/_queue_body.html", context)
+    return render(request, "studio/queue.html", context)
+
+
+def _queue_context() -> dict:
+    """Everything the 隊列 page shows. Shared by the page and its refresh."""
+    from core import llm
     from studio.services import runner
 
     in_flight = list(
@@ -158,30 +224,21 @@ def queue(request):
             "stage": stages[-1] if stages else "",
         })
 
-    ingesting = list(Brief.objects.filter(processing=True)
-                     .select_related("owner").order_by("updated_at"))
-
-    # Requests at the model right now, across every kind of work. This is the
-    # number that explains a page full of 排隊中 while nothing looks busy:
-    # generation, picture recognition and fact extraction all queue here.
-    from core import llm
-
     model_active, model_limit = llm.gate_state()
-    health = llm.backend_health()
-
-    return render(request, "studio/queue.html", {
+    return {
         "section": "queue",
         "rows": rows,
         "running": [r for r in rows if not r["waiting"]],
         "waiting": [r for r in rows if r["waiting"]],
-        "ingesting": ingesting,
+        "ingesting": _ingest_rows(),
+        "classifying": _classify_rows(),
         "parallel": SiteSettings.load().max_parallel_runs,
         "queue_max": runner.QUEUE_MAX,
         "model_active": model_active,
         "model_limit": model_limit,
         "model_local": llm.is_local_backend(),
-        "health": health,
-    })
+        "health": llm.backend_health(),
+    }
 
 
 @staff_required

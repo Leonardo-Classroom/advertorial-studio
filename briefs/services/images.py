@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import threading
 
 from core import llm
 
@@ -465,6 +466,25 @@ def ingest(brief, run_classify: bool = True, limit: int = 40) -> dict:
 _PROGRESS_TTL = 900
 
 
+# Which briefs are classifying right now.
+#
+# The progress cache is keyed per brief, so it can answer "how far along is
+# brief 206?" but not "what is running?" — and the 隊列 page needs the second
+# question. Scanning every brief's cache key to find out would be a poll over
+# rows that are almost all idle, so the passes register themselves instead.
+#
+# A set in memory, like `runner`'s gate: the progress cache is already
+# per-process (LocMemCache), so this adds no assumption that was not there.
+_active_lock = threading.Lock()
+_active_classifies: set = set()
+
+
+def active_classifications() -> list:
+    """Brief pks with a classify pass in flight, oldest registration first."""
+    with _active_lock:
+        return sorted(_active_classifies)
+
+
 def classify_progress_key(brief_pk) -> str:
     return f"classify_progress:{brief_pk}"
 
@@ -513,6 +533,19 @@ def classify_checked(brief) -> dict:
               if not image.display_caption()]
     if not targets:
         return {"classified": 0, "usable": 0, "failed": 0}
+
+    with _active_lock:
+        _active_classifies.add(brief.pk)
+    try:
+        return _classify_targets(brief, targets)
+    finally:
+        with _active_lock:
+            _active_classifies.discard(brief.pk)
+
+
+def _classify_targets(brief, targets: list) -> dict:
+    """The body of `classify_checked`, split out so the in-flight registration
+    above has a single, exception-proof place to clear itself."""
 
     brand = str((brief.facts or {}).get("brand") or "").strip()
     payloads = []

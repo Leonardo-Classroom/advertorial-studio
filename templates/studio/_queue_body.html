@@ -1,0 +1,147 @@
+{% comment %}
+  The part of 隊列 that changes. Rendered inside the page on first load and
+  fetched on its own once a second afterwards (`?fragment=1`).
+
+  A fragment rather than JSON: the tables would otherwise exist twice, once
+  in Django templates and once in JavaScript, and the two would drift. There
+  is nothing to type into here, so replacing the markup wholesale costs no
+  interaction state.
+{% endcomment %}
+{% if model_local and not health.ok %}
+<div class="msg error">
+  <strong>本地模型連續 {{ health.consecutive_failures }} 次沒有回應，已暫停呼叫</strong>
+  （{{ health.retry_in }} 秒後自動再試一次）。<br>
+  <span class="small">常見原因是 Ollama 的 runner 卡住——伺服器仍會回應
+  <code class="mono">/api/version</code>，但什麼都算不了，此時看 GPU 會是閒置的。
+  先重啟 Ollama（<code class="mono">./restart_ollama.sh</code>）；若顯存仍被佔住、
+  重啟後依然無法生成，就需要重開 WSL。這段期間新的產稿會立刻失敗並說明原因，
+  不會卡著等。</span>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="row tight" style="gap:26px;flex-wrap:wrap">
+    <div><span class="muted small">執行中</span>
+      <strong style="font-size:19px">{{ running|length }}</strong>
+      <span class="muted small">／同時上限 {{ parallel }}</span></div>
+    <div><span class="muted small">排隊中</span>
+      <strong style="font-size:19px">{{ waiting|length }}</strong>
+      <span class="muted small">／佇列上限 {{ queue_max }}</span></div>
+    <div><span class="muted small">檔案處理中</span>
+      <strong style="font-size:19px">{{ ingesting|length }}</strong>
+      <span class="muted small">（不佔產稿名額，但共用同一張顯卡）</span></div>
+    {% if model_local %}
+    <div><span class="muted small">本地模型呼叫</span>
+      <strong style="font-size:19px">{{ model_active }}</strong>
+      <span class="muted small">／上限 {{ model_limit }}（產稿＋圖片＋抽取共用）</span></div>
+    {% endif %}
+  </div>
+  {% if model_local %}
+  <p class="small muted" style="margin:10px 2px 0">
+    最後這個數字是所有工作共用的：Ollama 一次只跑一個推論，所以產稿、圖片辨識、
+    抽取內容都在同一個閘門後排隊。看到很多「排隊中」而這裡是滿的，就是正常的塞車，
+    不是卡住。
+  </p>
+  {% endif %}
+</div>
+
+<h2>產稿中</h2>
+<div class="card">
+  {% if running %}
+    <div class="scroll"><table>
+      <tr><th>#</th><th>使用者</th><th>專案</th><th>要產的文章</th><th>方式</th>
+          <th>目前階段</th><th>已跑</th></tr>
+      {% for r in running %}
+      <tr>
+        <td><a href="{% url 'studio:run_detail' r.run.pk %}">#{{ r.run.pk }}</a></td>
+        <td class="small">{% if r.run.owner %}{{ r.run.owner.username }}{% else %}<span class="muted">（無主）</span>{% endif %}</td>
+        <td>{{ r.run.brief.title|truncatechars:28 }}</td>
+        <td class="small">{{ r.run.outlet.name }}{% if r.run.author %} / {{ r.run.author.name }}{% endif %}
+          {% if r.run.style_guide %}<br><span class="muted">{{ r.run.style_guide.name|truncatechars:26 }}</span>{% endif %}</td>
+        <td class="small">{{ r.run.get_mode_display }}</td>
+        <td class="small">{% if r.run.status == 'refining' %}<span class="pill">自動重寫中</span>
+          {% elif r.stage %}{{ r.stage }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="small mono">{{ r.elapsed }}</td>
+      </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <div class="empty">現在沒有稿件在產。</div>
+  {% endif %}
+</div>
+
+<h2>排隊中</h2>
+<div class="card">
+  {% if waiting %}
+    <div class="scroll"><table>
+      <tr><th>順位</th><th>#</th><th>使用者</th><th>專案</th><th>要產的文章</th>
+          <th>方式</th><th>已等</th></tr>
+      {% for r in waiting %}
+      <tr>
+        <td><strong>{{ r.place }}</strong></td>
+        <td><a href="{% url 'studio:run_detail' r.run.pk %}">#{{ r.run.pk }}</a></td>
+        <td class="small">{% if r.run.owner %}{{ r.run.owner.username }}{% else %}<span class="muted">（無主）</span>{% endif %}</td>
+        <td>{{ r.run.brief.title|truncatechars:28 }}</td>
+        <td class="small">{{ r.run.outlet.name }}{% if r.run.author %} / {{ r.run.author.name }}{% endif %}</td>
+        <td class="small">{{ r.run.get_mode_display }}</td>
+        <td class="small mono">{{ r.elapsed }}</td>
+      </tr>
+      {% endfor %}
+    </table></div>
+    <p class="small muted" style="margin:10px 2px 0">
+      先到先做，沒有優先權：順位就是送出的先後。一個人連續送出很多份，後面的人
+      會排在他已送出的那些之後。
+    </p>
+  {% else %}
+    <div class="empty">沒有稿件在排隊。</div>
+  {% endif %}
+</div>
+
+{% if classifying %}
+<h2>圖片辨識中</h2>
+<div class="card">
+  <div class="scroll"><table>
+    <tr><th>使用者</th><th>專案</th><th style="width:220px">進度</th><th style="width:90px">已辨識</th></tr>
+    {% for c in classifying %}
+    <tr>
+      <td class="small">{% if c.brief.owner %}{{ c.brief.owner.username }}{% else %}<span class="muted">（無主）</span>{% endif %}</td>
+      <td><a href="{% url 'briefs:detail' c.brief.pk %}">{{ c.brief.title|truncatechars:30 }}</a></td>
+      <td>
+        <div style="background:var(--bg);border:1px solid var(--line);border-radius:6px;height:16px;overflow:hidden">
+          <div style="width:{{ c.pct }}%;height:100%;background:var(--accent)"></div>
+        </div>
+      </td>
+      <td class="small mono">{{ c.done }} / {{ c.total }}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  <p class="small muted" style="margin:10px 2px 0">
+    一次辨識一張圖，每張都是一次視覺模型呼叫。本地後端時這些呼叫和產稿共用
+    同一個閘門，所以辨識期間產稿會排隊。
+  </p>
+</div>
+{% endif %}
+
+{% if ingesting %}
+<h2>檔案處理中</h2>
+<div class="card">
+  <div class="scroll"><table>
+    <tr><th>使用者</th><th>專案</th><th style="width:110px">階段</th>
+        <th style="width:90px">檔案</th><th>正在讀</th></tr>
+    {% for row in ingesting %}
+    <tr>
+      <td class="small">{% if row.brief.owner %}{{ row.brief.owner.username }}{% else %}<span class="muted">（無主）</span>{% endif %}</td>
+      <td><a href="{% url 'briefs:detail' row.brief.pk %}">{{ row.brief.title|truncatechars:28 }}</a></td>
+      <td class="small">{{ row.phase }}</td>
+      <td class="small mono">{{ row.done }} / {{ row.total }}{% if row.failed %}
+        <span class="pill bad" style="margin-left:4px">{{ row.failed }} 失敗</span>{% endif %}</td>
+      <td class="small">{% if row.current %}{{ row.current|truncatechars:34 }}
+        {% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  <p class="small muted" style="margin:10px 2px 0">
+    解析檔案與抽出內容不經過產稿佇列，各自一條執行緒，但和產稿搶同一張顯卡。
+  </p>
+</div>
+{% endif %}

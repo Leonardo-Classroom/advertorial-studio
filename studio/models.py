@@ -101,6 +101,7 @@ class OnlineProvider(models.Model):
         ("deepseek", "DeepSeek"),
         ("deepseek-thinking", "DeepSeek-thinking"),
         ("google", "Google Gemini"),
+        ("kimi", "Kimi / Moonshot"),
     ]
     # Which list a row belongs to. Text and vision keep separate lists rather
     # than sharing one with two selection columns: the same endpoint rarely

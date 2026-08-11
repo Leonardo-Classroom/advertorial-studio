@@ -66,6 +66,8 @@ class Command(BaseCommand):
         parser.add_argument("--concurrent", action="store_true",
                             help="併發產稿。會讓耗時數字失去意義，只在不比速度時使用")
         parser.add_argument("--workers", type=int, default=6, help="評分併發數")
+        parser.add_argument("--guide", type=int, default=0,
+                            help="StyleGuide pk。不給就沿用該專案既有的風格指南")
         parser.add_argument("--json", dest="json_path", default="",
                             help="把逐筆結果寫成 JSON")
 
@@ -78,6 +80,14 @@ class Command(BaseCommand):
         if row.llm_backend != "online":
             raise CommandError("文字後端不是線上模型——這個指令只比較線上端點上的模型。")
         endpoint = llm._online_config("text")
+        self._guide = None
+        if opts["guide"]:
+            from corpus.models import StyleGuide
+
+            self._guide = StyleGuide.objects.filter(pk=opts["guide"]).select_related(
+                "outlet", "author").first()
+            if self._guide is None:
+                raise CommandError(f"找不到 StyleGuide {opts['guide']}。")
         modes = [m.strip() for m in opts["modes"].split(",") if m.strip()]
         efforts = [t.strip() for t in opts["thinking"].split(",") if t.strip()] or [None]
         unknown = [e for e in efforts if e and e not in llm.EFFORTS]
@@ -88,7 +98,8 @@ class Command(BaseCommand):
             f"端點 {endpoint.base_url}｜候選 {models}｜評審 {judge}｜"
             f"專案 {briefs}｜max_rewrites={opts['rewrites']}"
             f"｜方案 {modes}｜推理強度 {efforts}"
-            f"｜評審強度 {opts['judge_effort'] or '（預設）'}")
+            f"｜評審強度 {opts['judge_effort'] or '（預設）'}"
+            f"｜風格指南 {self._guide or '（沿用專案原有）'}")
 
         results = self._generate(models, briefs, modes, efforts, opts)
         self._score(results, judge, opts["judge_effort"] or None, opts["workers"])
@@ -107,10 +118,15 @@ class Command(BaseCommand):
         template = GenerationRun.objects.filter(brief=brief).exclude(style_guide=None).first()
         if template is None:
             raise CommandError(f"brief {brief_pk} 沒有可沿用的風格指南。")
+        # `--guide` swaps the target publication. Outlet and author come from
+        # the guide, not the template: a guide belongs to one publication, and
+        # pairing it with another's outlet would label the run with a媒體 it
+        # was not written for.
+        guide = self._guide or template.style_guide
         run = GenerationRun.objects.create(
             owner=template.owner, brief=brief, facts_version=brief.latest_facts(),
-            outlet=template.outlet, author=template.author,
-            style_guide=template.style_guide, mode=mode,
+            outlet=guide.outlet, author=guide.author,
+            style_guide=guide, mode=mode,
             retrieval_strategy=SiteSettings.load().retrieval_strategy,
             exemplar_count=SiteSettings.load().exemplar_count,
             max_rewrites=opts["rewrites"])

@@ -58,7 +58,7 @@ TEXT, VISION = "text", "vision"
 # round trip that would only 404. Google's compatible layer is one (measured
 # 2026-08-11). This is a fast path, not the rule — `_prefers_chat` below
 # discovers the rest.
-USES_CHAT_COMPLETIONS = {"google"}
+USES_CHAT_COMPLETIONS = {"google", "kimi"}
 
 # Endpoints found at runtime to reject Responses, as (base_url, model).
 #
@@ -87,6 +87,12 @@ def _responses_unsupported(exc: BaseException) -> bool:
     if "not found for api version" in text or "is not supported for" in text:
         return True
     if "codex integration" in text and "will be available" in text:
+        return True
+    # Moonshot/Kimi answers 403 "The API you are accessing is not open" — a
+    # permission error by status, but it means the same thing: this endpoint
+    # has no Responses API. Matched narrowly enough that a genuine permission
+    # problem on some other route is not mistaken for it.
+    if "api you are accessing is not open" in text:
         return True
     return "responses" in text and ("not supported" in text or "unsupported" in text)
 

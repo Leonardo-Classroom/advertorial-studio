@@ -1,5 +1,23 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+/* Six columns do not fit the 680px form card — the endpoint field ended up
+   about one character wide. The prose around it still wants a readable line
+   length, so only this block widens, bleeding right into the page's own
+   margin (main is 1180px) rather than stretching the whole card. */
+#providers{margin-right:-260px}
+@media (max-width:1120px){#providers{margin-right:0}}
+#provider-rows{min-width:880px}
+#provider-rows th,#provider-rows td{padding:7px 8px;vertical-align:middle}
+#provider-rows td:first-child{text-align:center}
+/* `input[type=password]` is absent from the global input rule in base.html,
+   so without this the key field renders as an unstyled browser default and
+   looks like it belongs to a different form. */
+#provider-rows input[type=password]{width:100%;padding:8px 11px;
+  border:1px solid var(--line);border-radius:7px;background:var(--bg);
+  color:var(--ink);font:inherit;font-size:14px}
+#provider-rows .provider-remove{white-space:nowrap;padding:6px 11px}
+</style>
 <h1>高級設定</h1>
 <p class="sub">產稿參數的預設值。使用者端不再詢問這些，一律套用這裡的設定。</p>
 
@@ -39,9 +57,9 @@
       </p>
       <div class="scroll"><table id="provider-rows">
         <tr>
-          <th style="width:44px">使用</th><th style="width:120px">API 種類</th>
-          <th>端點</th><th style="width:190px">API Key</th>
-          <th style="width:150px">模型</th><th style="width:52px"></th>
+          <th style="width:46px">使用</th><th style="width:118px">API 種類</th>
+          <th style="min-width:260px">端點</th><th style="width:200px">API Key</th>
+          <th style="width:170px">模型</th><th style="width:70px"></th>
         </tr>
         {% for p in providers %}
         <tr>

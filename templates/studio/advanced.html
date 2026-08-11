@@ -7,7 +7,7 @@
    consistency across the page won over the typographic rule. */
 #provider-rows{min-width:880px}
 #provider-rows th,#provider-rows td{padding:7px 8px;vertical-align:middle}
-#provider-rows td:first-child{text-align:center}
+#provider-rows td:first-child,#provider-rows td:nth-child(2){text-align:center}
 /* `input[type=password]` is absent from the global input rule in base.html,
    so without this the key field renders as an unstyled browser default and
    looks like it belongs to a different form. */
@@ -34,35 +34,54 @@
       結構較鬆。
     </p>
 
-    <label>文字／圖片生成使用的模型</label>
-    <select name="llm_backend">
-      {% for value, label in backends %}
-        <option value="{{ value }}" {% if value == settings.llm_backend %}selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-    </select>
+    <div class="row">
+      <div>
+        <label>文字生成使用的模型</label>
+        <select name="llm_backend">
+          {% for value, label in backends %}
+            <option value="{{ value }}" {% if value == settings.llm_backend %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>圖片辨識使用的模型</label>
+        <select name="vision_backend">
+          {% for value, label in vision_backends %}
+            <option value="{{ value }}" {% if value == settings.vision_backend %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <p class="small muted" style="margin:4px 0 8px">
+      兩者各自獨立。本地的文字與視覺是兩個模型、這張卡上放不下兩個，所以分開設定
+      才能一邊走本地、一邊走線上；線上也一樣——擅長寫作的供應商未必收圖片。
+    </p>
     <p class="small muted" style="margin:4px 0 16px">
       <strong>切換本地模型前請先看過 <code class="mono">report/本地線上API比較.md</code>。</strong>
       實測本地文字生成約 20% 機率耗時拉長到正常值的 5～50 倍（曾經一次卡了近
       30 分鐘才回應）；本地圖片辨識約 30% 機率失敗或給出空白結果。這不是
       「偶爾比較慢」，是有明確機率的風險，開啟前請有心理準備。
     </p>
-    <div id="providers" {% if settings.llm_backend != 'online' %}hidden{% endif %}
+    <div id="providers" {% if settings.llm_backend != 'online' and settings.vision_backend != 'online' %}hidden{% endif %}
          style="margin:4px 0 16px">
       <p class="small muted" style="margin:0 0 8px">
-        線上模型的端點清單。最左邊選一個當作目前使用的；最後一列留空，
-        填入任一欄就會自動長出下一列。<strong>金鑰只顯示末四碼</strong>——
-        留白代表沿用原本的，不是清空。
+        線上模型的端點清單，文字與圖片<strong>各選一個</strong>——同一列可以兩邊都選，
+        也可以分別指向不同供應商。最後一列留空，填入任一欄就會自動長出下一列。
+        <strong>金鑰只顯示末四碼</strong>——留白代表沿用原本的，不是清空。
       </p>
       <div class="scroll"><table id="provider-rows">
         <tr>
-          <th style="width:46px">使用</th><th style="width:118px">API 種類</th>
-          <th style="min-width:260px">端點</th><th style="width:200px">API Key</th>
-          <th style="width:170px">模型</th><th style="width:70px"></th>
+          <th style="width:46px">文字</th><th style="width:46px">圖片</th>
+          <th style="width:118px">API 種類</th>
+          <th style="min-width:240px">端點</th><th style="width:190px">API Key</th>
+          <th style="width:160px">模型</th><th style="width:70px"></th>
         </tr>
         {% for p in providers %}
         <tr>
-          <td><input type="radio" name="provider_selected" value="{{ forloop.counter0 }}"
+          <td><input type="radio" name="provider_selected_text" value="{{ forloop.counter0 }}"
                      {% if settings.online_provider_id == p.pk %}checked{% endif %}></td>
+          <td><input type="radio" name="provider_selected_vision" value="{{ forloop.counter0 }}"
+                     {% if settings.vision_online_provider_id == p.pk %}checked{% endif %}></td>
           <td><input type="hidden" name="provider_pk_{{ forloop.counter0 }}" value="{{ p.pk }}">
             <select name="provider_kind_{{ forloop.counter0 }}">
               {% for value, label in provider_kinds %}
@@ -317,12 +336,15 @@
   const table = document.getElementById('provider-rows');
   if (!box || !table) return;
 
-  const backend = document.querySelector('select[name="llm_backend"]');
-  if (backend) {
-    backend.addEventListener('change', function () {
-      box.hidden = backend.value !== 'online';
-    });
+  // Shown when *either* kind is online — the list is shared, and hiding it
+  // because text went local would take the picture endpoint with it.
+  const backends = ['llm_backend', 'vision_backend'].map(function (n) {
+    return document.querySelector('select[name="' + n + '"]');
+  }).filter(Boolean);
+  function syncVisibility() {
+    box.hidden = !backends.some(function (el) { return el.value === 'online'; });
   }
+  backends.forEach(function (el) { el.addEventListener('change', syncVisibility); });
 
   // Rendered as JSON rather than interpolated: a Python list of tuples
   // prints as ('openai', 'OpenAI'), which JavaScript reads as a comma
@@ -335,7 +357,8 @@
       return '<option value="' + k[0] + '">' + k[1] + '</option>';
     }).join('');
     tr.innerHTML =
-      '<td><input type="radio" name="provider_selected" value="' + i + '"></td>' +
+      '<td><input type="radio" name="provider_selected_text" value="' + i + '"></td>' +
+      '<td><input type="radio" name="provider_selected_vision" value="' + i + '"></td>' +
       '<td><input type="hidden" name="provider_pk_' + i + '" value="">' +
       '<select name="provider_kind_' + i + '">' + options + '</select></td>' +
       '<td><input type="text" name="provider_base_url_' + i + '" placeholder="https://…/v1"></td>' +

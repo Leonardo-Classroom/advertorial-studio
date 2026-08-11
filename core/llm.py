@@ -45,8 +45,16 @@ from django.conf import settings
 from openai import OpenAI
 
 
-def _online_config() -> tuple[str, str, str]:
-    """(base_url, api_key, model) for the online backend.
+# Writing and looking at pictures are configured separately all the way
+# through: two backends, two selected endpoints. They are different models even
+# within one backend — locally they are two Ollama models that cannot both fit
+# this card, and an online provider good at prose may not accept an image at
+# all — so a single switch could only ever serve the weaker of the two.
+TEXT, VISION = "text", "vision"
+
+
+def _online_config(kind: str = TEXT) -> tuple[str, str, str]:
+    """(base_url, api_key, model) for `kind`'s online endpoint.
 
     From the endpoint selected at /manage/advanced/ if there is one, else the
     `.env` values — which is what a fresh install has, and what every existing
@@ -55,7 +63,8 @@ def _online_config() -> tuple[str, str, str]:
     try:
         from studio.models import SiteSettings
 
-        provider = SiteSettings.load().online_provider
+        row = SiteSettings.load()
+        provider = row.vision_online_provider if kind == VISION else row.online_provider
         if provider is not None and provider.is_complete:
             return provider.base_url, provider.api_key, provider.model
     except Exception:  # noqa: BLE001 - a broken settings row must not hide .env
@@ -74,8 +83,8 @@ def _client_for(base_url: str, api_key: str, timeout: float) -> OpenAI:
     return OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
 
 
-def _online_client() -> OpenAI:
-    base_url, api_key, _ = _online_config()
+def _online_client(kind: str = TEXT) -> OpenAI:
+    base_url, api_key, _ = _online_config(kind)
     if not api_key:
         raise RuntimeError(
             "線上模型還沒有可用的金鑰。請到「高級 → 線上模型」新增一組端點，"
@@ -93,12 +102,13 @@ def _local_client() -> OpenAI:
     )
 
 
-def _backend() -> str:
-    """"online" or "local" — lazy import so `core` never depends on `studio`
-    at module load time (only when a call actually needs to know)."""
+def _backend(kind: str = TEXT) -> str:
+    """"online" or "local" for `kind` — lazy import so `core` never depends on
+    `studio` at module load time (only when a call actually needs to know)."""
     from studio.models import SiteSettings
 
-    return SiteSettings.load().llm_backend
+    row = SiteSettings.load()
+    return row.vision_backend if kind == VISION else row.llm_backend
 
 
 def _ollama_keep_alive():
@@ -148,24 +158,25 @@ def _touch_keep_alive(model: str) -> None:
         pass
 
 
-def is_local_backend() -> bool:
-    """Whether the writer/vision backend is currently local, per `SiteSettings`.
+def is_local_backend(kind: str = TEXT) -> bool:
+    """Whether `kind`'s backend is currently local, per `SiteSettings`.
 
     Public wrapper around `_backend()` for callers outside this module that
     need to make a decision based on which backend is active — e.g. how many
-    picture-classification calls to run at once (see `briefs/services/images.py`).
+    picture-classification calls to run at once, which depends on the *vision*
+    backend and not the writer's (see `briefs/services/images.py`).
     """
-    return _backend() == "local"
+    return _backend(kind) == "local"
 
 
-def get_client() -> OpenAI:
-    """The writer client for the currently-configured backend.
+def get_client(kind: str = TEXT) -> OpenAI:
+    """The client for `kind`'s currently-configured backend.
 
     Each backend's client is cached separately (see `_online_client` /
     `_local_client`) precisely so flipping the toggle doesn't get stuck
     serving whichever one a single shared `lru_cache` happened to build first.
     """
-    return _local_client() if _backend() == "local" else _online_client()
+    return _local_client() if _backend(kind) == "local" else _online_client(kind)
 
 
 def current_model() -> str:
@@ -548,9 +559,9 @@ def complete_vision(
     if mime is None:
         raise ValueError(f"不支援的圖片格式：{image_ext}")
 
-    local = _backend() == "local"
+    local = _backend(VISION) == "local"
 
-    client = get_client()
+    client = get_client(VISION)
     if timeout is not None:
         client = client.with_options(timeout=timeout)
     elif local:
@@ -558,7 +569,7 @@ def complete_vision(
 
     encoded = base64.b64encode(image_bytes).decode()
     kwargs = {
-        "model": model or (settings.LOCAL_LLM_VISION_MODEL if local else _online_config()[2]),
+        "model": model or (settings.LOCAL_LLM_VISION_MODEL if local else _online_config(VISION)[2]),
         "instructions": instructions,
         "input": [{
             "role": "user",

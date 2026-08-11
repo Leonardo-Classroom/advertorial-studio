@@ -325,7 +325,7 @@ def classify_all(images: list[dict], brand: str = "", workers: int | None = None
     if not images:
         return []
     if workers is None:
-        workers = 1 if llm.is_local_backend() else 6
+        workers = 1 if llm.is_local_backend("vision") else 6
     if workers <= 1:
         results = []
         consecutive = 0

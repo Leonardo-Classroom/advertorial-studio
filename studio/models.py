@@ -145,10 +145,18 @@ class SiteSettings(models.Model):
         "預設生成方式", max_length=8, choices=GENERATION_MODES, default="staged",
         help_text="「產出廣編稿」預設用哪個方案。方案 B 結構完整度較高但慢，"
                   "方案 A 較快，兩者的取捨見系統報告書 §七之四。")
+    # Text and vision are configured apart because they are different models
+    # even on one backend: locally they are two Ollama models that cannot both
+    # fit this card, and online a provider strong at prose may not do vision at
+    # all. Tying them to one switch forced the weaker of the two.
     llm_backend = models.CharField(
-        "文字／圖片生成使用的模型", max_length=8, choices=LLM_BACKENDS, default="online",
-        help_text="寫稿、圖片辨識與評審都跟著這個設定。選本地時寫稿與評分是同一個模型，"
+        "文字生成使用的模型", max_length=8, choices=LLM_BACKENDS, default="online",
+        help_text="寫稿與評審跟著這個設定。選本地時寫稿與評分是同一個模型，"
                   "絕對分數意義有限，相對比較仍可用——每筆評分都記錄了當時的評分模型。")
+    vision_backend = models.CharField(
+        "圖片辨識使用的模型", max_length=8, choices=LLM_BACKENDS, default="online",
+        help_text="只影響圖片辨識。與上面的文字模型各自獨立——本地的文字與視覺是"
+                  "兩個模型，這張卡上放不下兩個，分開設定才能一邊走本地、一邊走線上。")
     # Nav visibility. Both default on, and both are only about the *link* —
     # the pages stay reachable by URL, and neither hides anything from anyone
     # who has the address. They exist because these two lists overlap with the
@@ -181,7 +189,10 @@ class SiteSettings(models.Model):
     # the `.env` values, which is what a fresh install has.
     online_provider = models.ForeignKey(
         "studio.OnlineProvider", on_delete=models.SET_NULL, null=True, blank=True,
-        related_name="+", verbose_name="使用的線上模型")
+        related_name="+", verbose_name="文字使用的線上端點")
+    vision_online_provider = models.ForeignKey(
+        "studio.OnlineProvider", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+", verbose_name="圖片使用的線上端點")
     # Gate size for *every* local model call, not just generation — see the
     # long note in `core.llm`. `max_parallel_runs` above counts drafts in
     # flight; this counts requests at Ollama, which is also where fact

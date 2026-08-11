@@ -65,8 +65,11 @@ def _save_online_providers(request, settings_row) -> None:
         if key.startswith("provider_") and key.rsplit("_", 1)[1].isdigit()
     }, key=int)
 
-    kept, selected_index = [], request.POST.get("provider_selected")
-    selected = None
+    wanted = {
+        "text": request.POST.get("provider_selected_text"),
+        "vision": request.POST.get("provider_selected_vision"),
+    }
+    kept, chosen = [], {"text": None, "vision": None}
     for i in indexes:
         pk = (request.POST.get(f"provider_pk_{i}") or "").strip()
         kind = request.POST.get(f"provider_kind_{i}") or "openai"
@@ -85,13 +88,17 @@ def _save_online_providers(request, settings_row) -> None:
             row.api_key = api_key
         row.save()
         kept.append(row.pk)
-        if selected_index == str(i):
-            selected = row
+        for use, index in wanted.items():
+            if index == str(i):
+                chosen[use] = row
 
     OnlineProvider.objects.exclude(pk__in=kept).delete()
-    # Keep the previous selection when the radio names a row that is gone.
-    if selected is not None or settings_row.online_provider_id not in kept:
-        settings_row.online_provider = selected
+    # Text and vision each keep their own selection; a radio naming a row that
+    # is gone clears that one only, leaving the other alone.
+    if chosen["text"] is not None or settings_row.online_provider_id not in kept:
+        settings_row.online_provider = chosen["text"]
+    if chosen["vision"] is not None or settings_row.vision_online_provider_id not in kept:
+        settings_row.vision_online_provider = chosen["vision"]
 
 
 def _duration(seconds: int) -> str:
@@ -196,12 +203,16 @@ def advanced(request):
     # this page cannot go on naming a model that was swapped out months ago.
     from core import llm as llm_module
 
-    names = {
-        "online": f"使用 {llm_module._online_config()[2]}",
-        "local": f"文字用 {django_settings.LOCAL_LLM_MODEL}"
-                 f"、圖片用 {django_settings.LOCAL_LLM_VISION_MODEL}",
+    text_names = {
+        "online": f"使用 {llm_module._online_config('text')[2]}",
+        "local": f"使用 {django_settings.LOCAL_LLM_MODEL}",
     }
-    backends = [(value, f"{label}，{names[value]}") for value, label in LLM_BACKENDS]
+    vision_names = {
+        "online": f"使用 {llm_module._online_config('vision')[2]}",
+        "local": f"使用 {django_settings.LOCAL_LLM_VISION_MODEL}",
+    }
+    backends = [(v, f"{label}，{text_names[v]}") for v, label in LLM_BACKENDS]
+    vision_backends = [(v, f"{label}，{vision_names[v]}") for v, label in LLM_BACKENDS]
 
     if request.method == "POST":
         mode = request.POST.get("default_mode", settings_row.default_mode)
@@ -210,6 +221,9 @@ def advanced(request):
         backend = request.POST.get("llm_backend", settings_row.llm_backend)
         if backend in dict(LLM_BACKENDS):
             settings_row.llm_backend = backend
+        vision = request.POST.get("vision_backend", settings_row.vision_backend)
+        if vision in dict(LLM_BACKENDS):
+            settings_row.vision_backend = vision
         strategy = request.POST.get("retrieval_strategy", settings_row.retrieval_strategy)
         if strategy in dict(SELECTABLE_STRATEGIES):
             settings_row.retrieval_strategy = strategy
@@ -272,6 +286,7 @@ def advanced(request):
         "strategies": SELECTABLE_STRATEGIES,
         "modes": GENERATION_MODES,
         "backends": backends,
+        "vision_backends": vision_backends,
         "embed_devices": EMBED_DEVICES,
         "providers": list(OnlineProvider.objects.all()),
         "provider_kinds": OnlineProvider.KINDS,

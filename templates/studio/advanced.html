@@ -18,7 +18,7 @@
       結構較鬆。
     </p>
 
-    <label>文字／圖片生成使用的 API</label>
+    <label>文字／圖片生成使用的模型</label>
     <select name="llm_backend">
       {% for value, label in backends %}
         <option value="{{ value }}" {% if value == settings.llm_backend %}selected{% endif %}>{{ label }}</option>
@@ -30,6 +30,48 @@
       30 分鐘才回應）；本地圖片辨識約 30% 機率失敗或給出空白結果。這不是
       「偶爾比較慢」，是有明確機率的風險，開啟前請有心理準備。
     </p>
+    <div id="providers" {% if settings.llm_backend != 'online' %}hidden{% endif %}
+         style="margin:4px 0 16px">
+      <p class="small muted" style="margin:0 0 8px">
+        線上模型的端點清單。最左邊選一個當作目前使用的；最後一列留空，
+        填入任一欄就會自動長出下一列。<strong>金鑰只顯示末四碼</strong>——
+        留白代表沿用原本的，不是清空。
+      </p>
+      <div class="scroll"><table id="provider-rows">
+        <tr>
+          <th style="width:44px">使用</th><th style="width:120px">API 種類</th>
+          <th>端點</th><th style="width:190px">API Key</th>
+          <th style="width:150px">模型</th><th style="width:52px"></th>
+        </tr>
+        {% for p in providers %}
+        <tr>
+          <td><input type="radio" name="provider_selected" value="{{ forloop.counter0 }}"
+                     {% if settings.online_provider_id == p.pk %}checked{% endif %}></td>
+          <td><input type="hidden" name="provider_pk_{{ forloop.counter0 }}" value="{{ p.pk }}">
+            <select name="provider_kind_{{ forloop.counter0 }}">
+              {% for value, label in provider_kinds %}
+                <option value="{{ value }}" {% if value == p.kind %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select></td>
+          <td><input type="text" name="provider_base_url_{{ forloop.counter0 }}"
+                     value="{{ p.base_url }}" placeholder="https://…/v1"></td>
+          <td><input type="password" name="provider_key_{{ forloop.counter0 }}"
+                     autocomplete="new-password"
+                     placeholder="{% if p.key_hint %}目前 {{ p.key_hint }}（留白不變）{% else %}尚未設定{% endif %}"></td>
+          <td><input type="text" name="provider_model_{{ forloop.counter0 }}" value="{{ p.model }}"></td>
+          <td><button type="button" class="btn ghost provider-remove"
+                      title="移除這一列">移除</button></td>
+        </tr>
+        {% endfor %}
+      </table></div>
+      <p class="small muted" style="margin:8px 2px 0">
+        沒有選任何一列時，線上後端沿用 <code class="mono">.env</code> 的
+        <code class="mono">LLM_BASE_URL</code> / <code class="mono">LLM_API_KEY</code> /
+        <code class="mono">LLM_MODEL</code>。<strong>金鑰存在資料庫裡</strong>，
+        能讀到資料庫或其備份的人就拿得到——要作廢請到供應商後台換金鑰。
+      </p>
+    </div>
+
     <p class="small muted" style="margin:4px 0 16px">
       <strong>評審也跟著這個設定切換。</strong>選線上時評審是另一個模型
       （<code class="mono">LLM_JUDGE_MODEL</code>）；選本地時，這張卡上只有一個文字模型，
@@ -236,12 +278,81 @@
 <div class="card" style="max-width:680px">
   <h2 style="margin-top:0">不在這裡的東西</h2>
   <p class="small muted" style="margin:0">
-    <strong>模型與金鑰設在 <code class="mono">.env</code></strong>（<code class="mono">LLM_MODEL</code>、
-    <code class="mono">LLM_JUDGE_MODEL</code> 等），不放進網頁。評審模型尤其不能隨手換——
-    換了之後整批評分就不可比；每筆評分都記著當時用的模型，比較前先確認是同一個。<br>
+    <strong>線上模型的端點與金鑰現在設在上面的清單裡</strong>，不再只能改
+    <code class="mono">.env</code>——沒有設定任何一列時才回頭用 <code class="mono">.env</code>。
+    <strong>本地模型仍設在 <code class="mono">.env</code></strong>
+    （<code class="mono">LOCAL_LLM_MODEL</code>、<code class="mono">LOCAL_LLM_VISION_MODEL</code>），
+    因為那綁著這台機器裝了什麼。評審模型不能隨手換——換了之後整批評分就不可比；
+    每筆評分都記著當時用的模型，比較前先確認是同一個。<br>
     <strong>要掃不同參數組合請用</strong> <code class="mono">python manage.py run_experiment</code>，
     它可以逐一變動策略與重寫次數，不受這裡的預設值限制。<br>
     這裡的設定只在<strong>建立生成紀錄的當下</strong>被複製進該筆紀錄，改了不會影響任何既有稿件。
   </p>
 </div>
+
+{{ provider_kinds|json_script:"provider-kinds" }}
+<script>
+// The online-endpoint table: show it only for the online backend, grow it as
+// rows are filled in, and let a row be removed by dropping it from the form.
+// Deletion needs no flag — the server treats a pk that did not come back as
+// deleted, so what is on screen is what gets saved.
+(function () {
+  const box = document.getElementById('providers');
+  const table = document.getElementById('provider-rows');
+  if (!box || !table) return;
+
+  const backend = document.querySelector('select[name="llm_backend"]');
+  if (backend) {
+    backend.addEventListener('change', function () {
+      box.hidden = backend.value !== 'online';
+    });
+  }
+
+  // Rendered as JSON rather than interpolated: a Python list of tuples
+  // prints as ('openai', 'OpenAI'), which JavaScript reads as a comma
+  // expression, not an array.
+  const KINDS = JSON.parse(document.getElementById('provider-kinds').textContent);
+
+  function blankRow(i) {
+    const tr = document.createElement('tr');
+    const options = KINDS.map(function (k) {
+      return '<option value="' + k[0] + '">' + k[1] + '</option>';
+    }).join('');
+    tr.innerHTML =
+      '<td><input type="radio" name="provider_selected" value="' + i + '"></td>' +
+      '<td><input type="hidden" name="provider_pk_' + i + '" value="">' +
+      '<select name="provider_kind_' + i + '">' + options + '</select></td>' +
+      '<td><input type="text" name="provider_base_url_' + i + '" placeholder="https://…/v1"></td>' +
+      '<td><input type="password" name="provider_key_' + i + '" autocomplete="new-password"></td>' +
+      '<td><input type="text" name="provider_model_' + i + '"></td>' +
+      '<td><button type="button" class="btn ghost provider-remove" title="移除這一列">移除</button></td>';
+    return tr;
+  }
+
+  // Indexes only have to be unique within one submission, so a counter that
+  // never reuses a number is simpler — and safer — than renumbering rows
+  // after a removal, which would silently retarget the selected radio.
+  let next = table.querySelectorAll('tr').length;
+
+  function ensureBlankRow() {
+    const rows = Array.from(table.querySelectorAll('tr')).slice(1);
+    const last = rows[rows.length - 1];
+    const lastUsed = last && Array.from(last.querySelectorAll('input[type=text], input[type=password], input[type=hidden]'))
+      .some(function (el) { return el.value.trim() !== ''; });
+    if (!last || lastUsed) {
+      table.appendChild(blankRow(next++));
+    }
+  }
+
+  table.addEventListener('input', ensureBlankRow);
+  table.addEventListener('click', function (e) {
+    const btn = e.target.closest('.provider-remove');
+    if (!btn) return;
+    btn.closest('tr').remove();
+    ensureBlankRow();
+  });
+
+  ensureBlankRow();
+})();
+</script>
 {% endblock %}

@@ -12,7 +12,8 @@ from briefs.models import Brief
 from corpus.models import Article, Author, EmbeddingIndex, Outlet, StyleGuide
 from studio.models import (
     EMBED_DEVICES, GENERATION_MODES, LLM_BACKENDS, RETRIEVAL_STRATEGIES,
-    SELECTABLE_STRATEGIES, Evaluation, Experiment, GenerationRun, SiteSettings,
+    SELECTABLE_STRATEGIES, Evaluation, Experiment, GenerationRun, OnlineProvider,
+    SiteSettings,
 )
 from studio.services import evaluate as evaluate_service
 from studio.services import generate as generate_service
@@ -40,6 +41,57 @@ def home(request):
         "runs": GenerationRun.objects.select_related("brief", "outlet")[:8],
         "run_count": GenerationRun.objects.count(),
     })
+
+
+def _save_online_providers(request, settings_row) -> None:
+    """Create, update, delete and select the online endpoints from the form.
+
+    Rows arrive indexed (`provider_kind_3`, …). A row whose `pk` is not in the
+    POST at all was removed in the browser, so it is deleted here — the remove
+    button drops the `<tr>` rather than submitting a flag, which keeps "what
+    you see is what gets saved" true without a second round trip.
+
+    A blank trailing row is normal (the form always ends with one) and is
+    ignored unless something was typed into it.
+
+    The key is only written when a value is supplied. The page renders just the
+    last four characters, so an empty key field means "leave it alone" — not
+    "clear it". Without that rule, saving any other change would wipe every key.
+    """
+    from studio.models import OnlineProvider
+
+    indexes = sorted({
+        key.rsplit("_", 1)[1] for key in request.POST
+        if key.startswith("provider_") and key.rsplit("_", 1)[1].isdigit()
+    }, key=int)
+
+    kept, selected_index = [], request.POST.get("provider_selected")
+    selected = None
+    for i in indexes:
+        pk = (request.POST.get(f"provider_pk_{i}") or "").strip()
+        kind = request.POST.get(f"provider_kind_{i}") or "openai"
+        base_url = (request.POST.get(f"provider_base_url_{i}") or "").strip()
+        api_key = (request.POST.get(f"provider_key_{i}") or "").strip()
+        model = (request.POST.get(f"provider_model_{i}") or "").strip()
+
+        if not pk and not (base_url or api_key or model):
+            continue                      # the empty trailing row
+        row = OnlineProvider.objects.filter(pk=pk).first() if pk else OnlineProvider()
+        if row is None:
+            continue                      # deleted by someone else meanwhile
+        row.kind = kind if kind in dict(OnlineProvider.KINDS) else "openai"
+        row.base_url, row.model = base_url, model
+        if api_key:
+            row.api_key = api_key
+        row.save()
+        kept.append(row.pk)
+        if selected_index == str(i):
+            selected = row
+
+    OnlineProvider.objects.exclude(pk__in=kept).delete()
+    # Keep the previous selection when the radio names a row that is gone.
+    if selected is not None or settings_row.online_provider_id not in kept:
+        settings_row.online_provider = selected
 
 
 def _duration(seconds: int) -> str:
@@ -142,8 +194,10 @@ def advanced(request):
 
     # The model names come from settings rather than from the choice labels, so
     # this page cannot go on naming a model that was swapped out months ago.
+    from core import llm as llm_module
+
     names = {
-        "online": f"使用 {django_settings.LLM_MODEL}",
+        "online": f"使用 {llm_module._online_config()[2]}",
         "local": f"文字用 {django_settings.LOCAL_LLM_MODEL}"
                  f"、圖片用 {django_settings.LOCAL_LLM_VISION_MODEL}",
     }
@@ -202,6 +256,7 @@ def advanced(request):
             from core import local_embeddings
 
             local_embeddings.reset()
+        _save_online_providers(request, settings_row)
         settings_row.confirm_fact_updates = request.POST.get("confirm_fact_updates") == "on"
         # Unchecked checkboxes are simply absent from a POST, so these read as
         # False when switched off — no separate hidden field needed.
@@ -218,6 +273,8 @@ def advanced(request):
         "modes": GENERATION_MODES,
         "backends": backends,
         "embed_devices": EMBED_DEVICES,
+        "providers": list(OnlineProvider.objects.all()),
+        "provider_kinds": OnlineProvider.KINDS,
     })
 
 

@@ -45,17 +45,43 @@ from django.conf import settings
 from openai import OpenAI
 
 
-@lru_cache(maxsize=1)
+def _online_config() -> tuple[str, str, str]:
+    """(base_url, api_key, model) for the online backend.
+
+    From the endpoint selected at /manage/advanced/ if there is one, else the
+    `.env` values — which is what a fresh install has, and what every existing
+    deployment had before endpoints became editable.
+    """
+    try:
+        from studio.models import SiteSettings
+
+        provider = SiteSettings.load().online_provider
+        if provider is not None and provider.is_complete:
+            return provider.base_url, provider.api_key, provider.model
+    except Exception:  # noqa: BLE001 - a broken settings row must not hide .env
+        pass
+    return settings.LLM_BASE_URL, settings.LLM_API_KEY, settings.LLM_MODEL
+
+
+@lru_cache(maxsize=4)
+def _client_for(base_url: str, api_key: str, timeout: float) -> OpenAI:
+    """Cached per credential set, so editing an endpoint takes effect at once.
+
+    Keyed on the values rather than cached as a singleton: the old
+    `lru_cache(maxsize=1)` would have kept serving the previous endpoint after
+    someone switched to a different one.
+    """
+    return OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
+
+
 def _online_client() -> OpenAI:
-    if not settings.LLM_API_KEY:
+    base_url, api_key, _ = _online_config()
+    if not api_key:
         raise RuntimeError(
-            "LLM_API_KEY 未設定。請在專案根目錄的 .env 填入金鑰（可參考 .env.example）。"
+            "線上模型還沒有可用的金鑰。請到「高級 → 線上模型」新增一組端點，"
+            "或在 .env 填入 LLM_API_KEY。"
         )
-    return OpenAI(
-        base_url=settings.LLM_BASE_URL,
-        api_key=settings.LLM_API_KEY,
-        timeout=settings.LLM_TIMEOUT,
-    )
+    return _client_for(base_url, api_key, settings.LLM_TIMEOUT)
 
 
 @lru_cache(maxsize=1)
@@ -143,7 +169,9 @@ def get_client() -> OpenAI:
 
 
 def current_model() -> str:
-    return settings.LOCAL_LLM_MODEL if _backend() == "local" else settings.LLM_MODEL
+    if _backend() == "local":
+        return settings.LOCAL_LLM_MODEL
+    return _online_config()[2]
 
 
 def judge_model() -> str:
@@ -157,7 +185,7 @@ def judge_model() -> str:
     """
     if _backend() == "local":
         return settings.LOCAL_LLM_MODEL
-    return getattr(settings, "LLM_JUDGE_MODEL", None) or settings.LLM_MODEL
+    return getattr(settings, "LLM_JUDGE_MODEL", None) or _online_config()[2]
 
 
 def _extract_text(response) -> str:
@@ -455,7 +483,7 @@ def complete(
         client = client.with_options(timeout=settings.LOCAL_LLM_TIMEOUT)
 
     kwargs = {
-        "model": model or (settings.LOCAL_LLM_MODEL if local else settings.LLM_MODEL),
+        "model": model or (settings.LOCAL_LLM_MODEL if local else _online_config()[2]),
         "instructions": instructions,
         "input": user_input,
     }
@@ -530,7 +558,7 @@ def complete_vision(
 
     encoded = base64.b64encode(image_bytes).decode()
     kwargs = {
-        "model": model or (settings.LOCAL_LLM_VISION_MODEL if local else settings.LLM_MODEL),
+        "model": model or (settings.LOCAL_LLM_VISION_MODEL if local else _online_config()[2]),
         "instructions": instructions,
         "input": [{
             "role": "user",

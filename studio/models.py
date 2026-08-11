@@ -44,7 +44,7 @@ GENERATION_MODES = [
 # captured in migrations, so a label built from settings would make
 # `makemigrations` want a new migration every time a model name changed.
 LLM_BACKENDS = [
-    ("online", "線上 API"),
+    ("online", "線上模型"),
     ("local", "本地模型"),
 ]
 
@@ -69,6 +69,51 @@ EMBED_DEVICES = [
 ]
 
 
+class OnlineProvider(models.Model):
+    """One configured online model endpoint, editable at /manage/advanced/.
+
+    The online backend used to be a single set of `.env` values, which meant
+    switching provider needed a deploy and there was nowhere to keep a second
+    one ready. Now several can be configured and one selected
+    (`SiteSettings.online_provider`); `.env` stays as the fallback for a fresh
+    install that has none.
+
+    **The key is stored in the database in clear.** That is a real change from
+    keeping it in `.env`: anyone who can read the database, a backup, or a
+    stolen `db.sqlite3` gets the key. The page never renders it back — only the
+    last four characters — so at least it does not sit in HTML, browser cache,
+    or a screenshot. Rotate keys through the provider's console, not by
+    trusting this row to stay private.
+    """
+    KINDS = [
+        ("openai", "OpenAI"),
+        ("deepseek", "DeepSeek"),
+    ]
+
+    kind = models.CharField("API 種類", max_length=16, choices=KINDS, default="openai")
+    base_url = models.CharField("端點", max_length=300, blank=True)
+    api_key = models.CharField("API Key", max_length=300, blank=True)
+    model = models.CharField("模型", max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = verbose_name_plural = "線上模型"
+        ordering = ["pk"]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} / {self.model or '（未填模型）'}"
+
+    @property
+    def key_hint(self) -> str:
+        """Last four characters, for confirming *which* key is set without
+        showing it. Empty when no key is stored, so the page can say so."""
+        return f"…{self.api_key[-4:]}" if len(self.api_key) >= 4 else ("已設定" if self.api_key else "")
+
+    @property
+    def is_complete(self) -> bool:
+        return bool(self.base_url and self.api_key and self.model)
+
+
 class SiteSettings(models.Model):
     """Generation defaults, set once by staff instead of asked on every form.
 
@@ -83,13 +128,17 @@ class SiteSettings(models.Model):
     switching the default to `none` (same measured quality, ~20% faster, 14%
     cheaper) should be a settings change someone can try and undo, not a deploy.
 
-    Models and keys deliberately do *not* live here. They belong to `.env`:
-    swapping the judge model mid-corpus makes every prior score incomparable,
-    which is not something a web form should make easy. `llm_backend` below
-    is the one exception to "not here" — it is a pure on/off switch (which
-    provider, not which model or endpoint), same shape as `EMBED_BACKEND` in
-    `.env` for the embedding service. The model names/URLs it switches between
-    still live in `.env` (`LLM_MODEL` / `LOCAL_LLM_MODEL` etc.), unchanged.
+    Online endpoints and their keys *do* live here now, as `OnlineProvider`
+    rows selected by `online_provider` — keeping them in `.env` meant a deploy
+    to switch provider and nowhere to keep a spare configured. `.env` remains
+    the fallback when no row is selected. Local model names stay in `.env`
+    (`LOCAL_LLM_MODEL`, `LOCAL_LLM_VISION_MODEL`) because they describe what is
+    installed on this machine, not a choice someone makes in a form.
+
+    The caution that motivated the old rule still holds: swapping the judge
+    model mid-corpus makes every prior score incomparable. That is now handled
+    by recording `Evaluation.judge_model` with each result rather than by
+    making the change hard.
     """
 
     default_mode = models.CharField(
@@ -97,8 +146,9 @@ class SiteSettings(models.Model):
         help_text="「產出廣編稿」預設用哪個方案。方案 B 結構完整度較高但慢，"
                   "方案 A 較快，兩者的取捨見系統報告書 §七之四。")
     llm_backend = models.CharField(
-        "文字／圖片生成使用的 API", max_length=8, choices=LLM_BACKENDS, default="online",
-        help_text="只影響寫稿與圖片辨識，評審永遠走線上——避免本地模型評自己的稿子。")
+        "文字／圖片生成使用的模型", max_length=8, choices=LLM_BACKENDS, default="online",
+        help_text="寫稿、圖片辨識與評審都跟著這個設定。選本地時寫稿與評分是同一個模型，"
+                  "絕對分數意義有限，相對比較仍可用——每筆評分都記錄了當時的評分模型。")
     # Nav visibility. Both default on, and both are only about the *link* —
     # the pages stay reachable by URL, and neither hides anything from anyone
     # who has the address. They exist because these two lists overlap with the
@@ -127,6 +177,11 @@ class SiteSettings(models.Model):
         help_text="產稿改成背景執行後，使用者可以連按好幾次。超過這個數字的會排隊，"
                   "不會同時打出去。調高會加快多篇產出，也會同時放大 API 用量與"
                   "SQLite 的寫入競爭。")
+    # Which configured endpoint the online backend uses. Null falls back to
+    # the `.env` values, which is what a fresh install has.
+    online_provider = models.ForeignKey(
+        "studio.OnlineProvider", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+", verbose_name="使用的線上模型")
     # Gate size for *every* local model call, not just generation — see the
     # long note in `core.llm`. `max_parallel_runs` above counts drafts in
     # flight; this counts requests at Ollama, which is also where fact

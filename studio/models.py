@@ -85,9 +85,14 @@ class OnlineProvider(models.Model):
     or a screenshot. Rotate keys through the provider's console, not by
     trusting this row to stay private.
     """
+    # The kind is not cosmetic: it selects which API shape `core.llm` uses.
+    # OpenAI and DeepSeek both serve the Responses API; Google's
+    # OpenAI-compatible layer answers 404 to it and only does chat completions
+    # (measured 2026-08-11). See `core.llm.USES_CHAT_COMPLETIONS`.
     KINDS = [
         ("openai", "OpenAI"),
         ("deepseek", "DeepSeek"),
+        ("google", "Google Gemini"),
     ]
     # Which list a row belongs to. Text and vision keep separate lists rather
     # than sharing one with two selection columns: the same endpoint rarely

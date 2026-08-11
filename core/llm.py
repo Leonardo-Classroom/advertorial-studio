@@ -40,6 +40,7 @@ import re
 import threading
 import time
 from functools import lru_cache
+from typing import NamedTuple
 
 from django.conf import settings
 from openai import OpenAI
@@ -52,9 +53,24 @@ from openai import OpenAI
 # all — so a single switch could only ever serve the weaker of the two.
 TEXT, VISION = "text", "vision"
 
+# Providers whose OpenAI-compatible layer does not serve the Responses API.
+# Google's answers 404 to `/responses` and only accepts `/chat/completions`
+# (measured 2026-08-11); OpenAI and DeepSeek both serve Responses, and DeepSeek
+# was verified rather than assumed. Keyed by `OnlineProvider.kind`, so adding a
+# provider that needs the older shape is a one-line change here plus a choice
+# in the model.
+USES_CHAT_COMPLETIONS = {"google"}
 
-def _online_config(kind: str = TEXT) -> tuple[str, str, str]:
-    """(base_url, api_key, model) for `kind`'s online endpoint.
+
+class OnlineEndpoint(NamedTuple):
+    base_url: str
+    api_key: str
+    model: str
+    kind: str
+
+
+def _online_config(kind: str = TEXT) -> OnlineEndpoint:
+    """The online endpoint for `kind` (text or vision).
 
     From the endpoint selected at /manage/advanced/ if there is one, else the
     `.env` values — which is what a fresh install has, and what every existing
@@ -66,10 +82,12 @@ def _online_config(kind: str = TEXT) -> tuple[str, str, str]:
         row = SiteSettings.load()
         provider = row.vision_online_provider if kind == VISION else row.online_provider
         if provider is not None and provider.is_complete:
-            return provider.base_url, provider.api_key, provider.model
+            return OnlineEndpoint(provider.base_url, provider.api_key,
+                                  provider.model, provider.kind)
     except Exception:  # noqa: BLE001 - a broken settings row must not hide .env
         pass
-    return settings.LLM_BASE_URL, settings.LLM_API_KEY, settings.LLM_MODEL
+    return OnlineEndpoint(settings.LLM_BASE_URL, settings.LLM_API_KEY,
+                          settings.LLM_MODEL, "openai")
 
 
 @lru_cache(maxsize=4)
@@ -84,7 +102,7 @@ def _client_for(base_url: str, api_key: str, timeout: float) -> OpenAI:
 
 
 def _online_client(kind: str = TEXT) -> OpenAI:
-    base_url, api_key, _ = _online_config(kind)
+    base_url, api_key = _online_config(kind)[:2]
     if not api_key:
         raise RuntimeError(
             "線上模型還沒有可用的金鑰。請到「高級 → 線上模型」新增一組端點，"
@@ -210,6 +228,32 @@ def _extract_text(response) -> str:
             if value:
                 chunks.append(value)
     return "\n".join(chunks).strip() if chunks else str(response)
+
+
+def _chat_completion(client, model: str, instructions: str, content,
+                     max_output_tokens: int | None, temperature=None) -> str:
+    """The pre-Responses call shape, for providers that only serve that.
+
+    Same two inputs as `complete`, mapped onto the older wire format:
+    `instructions` becomes the system message and `content` the user one —
+    a string for text, or OpenAI's content-parts list when a picture is
+    attached. Kept apart from the Responses path rather than abstracted over
+    it, because the two disagree on more than parameter names and a wrapper
+    pretending otherwise would hide which one actually ran.
+    """
+    kwargs = {
+        "model": model,
+        "messages": [{"role": "system", "content": instructions},
+                     {"role": "user", "content": content}],
+    }
+    if max_output_tokens:
+        kwargs["max_tokens"] = max_output_tokens
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    response = client.chat.completions.create(**kwargs)
+    choices = getattr(response, "choices", None) or []
+    text = (choices[0].message.content if choices else "") or ""
+    return text.strip()
 
 
 class ModelTimeout(RuntimeError):
@@ -486,6 +530,7 @@ def complete(
     `judge_model()`, which already returns the right name for the backend.
     """
     local = _backend() == "local"
+    endpoint = None if local else _online_config(TEXT)
 
     client = get_client()
     if timeout is not None:
@@ -494,7 +539,7 @@ def complete(
         client = client.with_options(timeout=settings.LOCAL_LLM_TIMEOUT)
 
     kwargs = {
-        "model": model or (settings.LOCAL_LLM_MODEL if local else _online_config()[2]),
+        "model": model or (settings.LOCAL_LLM_MODEL if local else endpoint.model),
         "instructions": instructions,
         "input": user_input,
     }
@@ -511,6 +556,10 @@ def complete(
 
     deadline = timeout if timeout is not None else (
         settings.LOCAL_LLM_TIMEOUT if local else settings.LLM_TIMEOUT)
+    if not local and endpoint.kind in USES_CHAT_COMPLETIONS:
+        return _with_deadline(lambda: _chat_completion(
+            client, kwargs["model"], instructions, user_input, max_output_tokens,
+            kwargs.get("temperature")), deadline)
     response = _with_deadline(lambda: client.responses.create(**kwargs), deadline,
                               gated=local)
     if local:
@@ -560,6 +609,7 @@ def complete_vision(
         raise ValueError(f"不支援的圖片格式：{image_ext}")
 
     local = _backend(VISION) == "local"
+    endpoint = None if local else _online_config(VISION)
 
     client = get_client(VISION)
     if timeout is not None:
@@ -569,7 +619,7 @@ def complete_vision(
 
     encoded = base64.b64encode(image_bytes).decode()
     kwargs = {
-        "model": model or (settings.LOCAL_LLM_VISION_MODEL if local else _online_config(VISION)[2]),
+        "model": model or (settings.LOCAL_LLM_VISION_MODEL if local else endpoint.model),
         "instructions": instructions,
         "input": [{
             "role": "user",
@@ -587,6 +637,12 @@ def complete_vision(
     # first, and it means any *other* caller of this function is covered too.
     deadline = timeout if timeout is not None else (
         settings.LOCAL_LLM_VISION_TIMEOUT if local else settings.LLM_TIMEOUT)
+    if not local and endpoint.kind in USES_CHAT_COMPLETIONS:
+        parts = [{"type": "text", "text": user_input},
+                 {"type": "image_url",
+                  "image_url": {"url": f"data:{mime};base64,{encoded}"}}]
+        return _with_deadline(lambda: _chat_completion(
+            client, kwargs["model"], instructions, parts, None), deadline)
     response = _with_deadline(lambda: client.responses.create(**kwargs), deadline,
                               gated=local)
     if local:

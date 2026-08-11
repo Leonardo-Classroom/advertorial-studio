@@ -241,7 +241,7 @@ def _queue_context() -> dict:
         # Rendered into the fragment so the page can be seen to be live. With
         # nothing running, every refresh returns identical markup and the page
         # looks frozen — indistinguishable from a poll that has stopped.
-        "updated_at": timezone.localtime(now).strftime("%H:%M:%S"),
+        "updated_at": timezone.localtime(now).strftime("%Y-%m-%d %H:%M:%S"),
     }
 
 

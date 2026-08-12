@@ -261,7 +261,7 @@ def costs_briefs(request):
           .annotate(run_count=Count("runs", distinct=True), spend=Subquery(spend))
           .order_by("-created_at"))
     return render(request, "studio/costs_briefs.html", {
-        "section": "costs",
+        "section": "costs_briefs",
         **paginate(request, qs, 30),
         "total": Brief.objects.aggregate(s=Sum("token_usage__cost_usd"))["s"] or 0,
     })
@@ -276,7 +276,7 @@ def costs_runs(request):
           .annotate(spend=Sum("token_usage__cost_usd"))
           .order_by("-created_at"))
     return render(request, "studio/costs_runs.html", {
-        "section": "costs",
+        "section": "costs_runs",
         **paginate(request, qs, 30),
         "total": GenerationRun.objects.aggregate(s=Sum("token_usage__cost_usd"))["s"] or 0,
     })
@@ -321,7 +321,7 @@ def costs_brief_detail(request, pk):
             per_run[row.run_id]["cost"] += row.cost_usd
             per_run[row.run_id]["calls"] += 1
     return render(request, "studio/costs_detail.html", {
-        "section": "costs", "title": brief.title, "subject": "專案",
+        "section": "costs_briefs", "title": brief.title, "subject": "專案",
         "back": "studio:costs_briefs",
         "breakdown": _breakdown(rows), "rows": rows[:200],
         "total": sum(r.cost_usd for r in rows),
@@ -336,7 +336,7 @@ def costs_run_detail(request, pk):
     run = get_object_or_404(GenerationRun.objects.select_related("brief", "outlet"), pk=pk)
     rows = list(TokenUsage.objects.filter(run=run))
     return render(request, "studio/costs_detail.html", {
-        "section": "costs", "title": f"#{run.pk} {run.brief.title}", "subject": "廣編稿",
+        "section": "costs_runs", "title": f"#{run.pk} {run.brief.title}", "subject": "廣編稿",
         "back": "studio:costs_runs", "run": run,
         "breakdown": _breakdown(rows), "rows": rows[:200],
         "total": sum(r.cost_usd for r in rows), "per_run": [],

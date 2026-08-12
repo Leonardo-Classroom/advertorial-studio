@@ -372,6 +372,7 @@ def judge_model() -> str:
 
 
 def _extract_text(response) -> str:
+    _record_usage(getattr(response, "usage", None))
     text = getattr(response, "output_text", None)
     if text:
         return text.strip()
@@ -382,6 +383,52 @@ def _extract_text(response) -> str:
             if value:
                 chunks.append(value)
     return "\n".join(chunks).strip() if chunks else str(response)
+
+
+# Token usage, accumulated per thread.
+#
+# One draft is several calls — generation, then a stage at a time for plan B,
+# then judging — and the caller wants the total, so this adds up rather than
+# reporting the last one. Thread-local because comparisons run models in
+# parallel and each thread is measuring its own work.
+#
+# Reasoning tokens are counted separately but are *not* separate from output:
+# providers bill them as output tokens. They are broken out because they are
+# the part you can turn off, and the part that explains a bill that looks too
+# large for the text produced.
+_usage = threading.local()
+
+
+def reset_usage() -> None:
+    _usage.totals = {"input": 0, "output": 0, "reasoning": 0, "cached_input": 0, "calls": 0}
+
+
+def take_usage() -> dict:
+    """The totals since `reset_usage`, and clear them."""
+    totals = getattr(_usage, "totals", None) or {
+        "input": 0, "output": 0, "reasoning": 0, "cached_input": 0, "calls": 0}
+    reset_usage()
+    return totals
+
+
+def _record_usage(usage) -> None:
+    """Fold one response's usage in. Shapes differ between the two APIs."""
+    if usage is None:
+        return
+    totals = getattr(_usage, "totals", None)
+    if totals is None:
+        reset_usage()
+        totals = _usage.totals
+    # Responses API says input/output; chat completions says prompt/completion.
+    totals["input"] += getattr(usage, "input_tokens", None) or getattr(usage, "prompt_tokens", 0) or 0
+    totals["output"] += getattr(usage, "output_tokens", None) or getattr(usage, "completion_tokens", 0) or 0
+    out_details = getattr(usage, "output_tokens_details", None) or getattr(
+        usage, "completion_tokens_details", None)
+    totals["reasoning"] += getattr(out_details, "reasoning_tokens", 0) or 0
+    in_details = getattr(usage, "input_tokens_details", None) or getattr(
+        usage, "prompt_tokens_details", None)
+    totals["cached_input"] += getattr(in_details, "cached_tokens", 0) or 0
+    totals["calls"] += 1
 
 
 def _chat_completion(client, model: str, instructions: str, content,
@@ -408,6 +455,7 @@ def _chat_completion(client, model: str, instructions: str, content,
     if extra_body:
         kwargs["extra_body"] = extra_body
     response = client.chat.completions.create(**kwargs)
+    _record_usage(getattr(response, "usage", None))
     choices = getattr(response, "choices", None) or []
     text = (choices[0].message.content if choices else "") or ""
     return text.strip()

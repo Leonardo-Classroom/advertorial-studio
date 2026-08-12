@@ -397,6 +397,18 @@ class GenerationRun(models.Model):
     output = models.TextField("生成結果", blank=True)
 
     model = models.CharField(max_length=64, blank=True)
+    # What this run actually cost, in tokens. Recorded rather than reconstructed
+    # afterwards with a tokenizer: reasoning tokens cannot be reconstructed at
+    # all — they never appear in the text — and they are billed as output, so
+    # a run with reasoning on can cost several times what its draft length
+    # suggests. `usage_calls` counts the API calls the run took, which is how
+    # a single "draft" turns out to be three or eight requests.
+    input_tokens = models.IntegerField("輸入 token", default=0)
+    output_tokens = models.IntegerField("輸出 token", default=0)
+    reasoning_tokens = models.IntegerField("推理 token", default=0,
+                                           help_text="計入輸出計費，但不出現在文字裡")
+    cached_input_tokens = models.IntegerField("命中快取的輸入 token", default=0)
+    usage_calls = models.IntegerField("API 呼叫次數", default=0)
     status = models.CharField(max_length=16, choices=STATUS, default="pending")
     error = models.TextField(blank=True)
     elapsed_ms = models.IntegerField(default=0)

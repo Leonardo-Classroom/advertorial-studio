@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="small"><a href="{% url back %}">← 回{{ subject }}花費</a></p>
+<div class="row tight" style="margin-bottom:6px">
+  <h1 style="flex:1;margin:0">{{ title|truncatechars:56 }}</h1>
+  <span class="mono" style="font-size:20px">${{ total|floatformat:5 }}</span>
+</div>
+<p class="sub">{{ subject }}的花費明細，依用途分開。推理 token 已包含在輸出裡，另列只是為了看出比例。</p>
+
+<h2>依用途</h2>
+<div class="card">
+  {% if breakdown %}
+    <div class="scroll"><table>
+      <tr><th style="width:110px">用途</th><th style="width:70px">呼叫</th>
+          <th style="width:100px">輸入</th><th style="width:100px">輸出</th>
+          <th style="width:100px">其中推理</th><th style="width:100px">命中快取</th>
+          <th>模型</th><th style="width:110px;text-align:right">金額</th></tr>
+      {% for b in breakdown %}
+      <tr>
+        <td><strong>{{ b.purpose }}</strong></td>
+        <td class="small mono">{{ b.calls }}</td>
+        <td class="small mono">{{ b.input }}</td>
+        <td class="small mono">{{ b.output }}</td>
+        <td class="small mono">{{ b.reasoning }}</td>
+        <td class="small mono">{{ b.cached }}</td>
+        <td class="small">{{ b.models }}{% if b.unpriced %}
+          <span class="pill bad" style="margin-left:4px">{{ b.unpriced }} 筆無費率</span>{% endif %}</td>
+        <td class="mono" style="text-align:right">${{ b.cost|floatformat:5 }}</td>
+      </tr>
+      {% endfor %}
+    </table></div>
+  {% else %}
+    <div class="empty">這個{{ subject }}還沒有花費紀錄。</div>
+  {% endif %}
+</div>
+
+{% if per_run %}
+<h2>依稿件</h2>
+<div class="card">
+  <div class="scroll"><table>
+    <tr><th style="width:70px">#</th><th>目標風格</th><th style="width:80px">呼叫</th>
+        <th style="width:120px;text-align:right">金額</th></tr>
+    {% for r in per_run %}
+    <tr>
+      <td><a href="{% url 'studio:costs_run_detail' r.run.pk %}">#{{ r.run.pk }}</a></td>
+      <td class="small">{% if r.run.style_guide %}{{ r.run.style_guide.scope_label }}
+        {% else %}{{ r.run.outlet.name }}{% endif %}</td>
+      <td class="small mono">{{ r.calls }}</td>
+      <td class="mono" style="text-align:right">${{ r.cost|floatformat:5 }}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  <p class="small muted" style="margin:10px 2px 0">
+    這些是稿件自己的產稿與重寫。抽取內容與分析圖片屬於整個專案、由所有稿件共用，
+    列在上面而不分攤到個別稿件。
+  </p>
+</div>
+{% endif %}
+
+<h2>逐次呼叫</h2>
+<div class="card">
+  {% if rows %}
+    <div class="scroll"><table>
+      <tr><th style="width:140px">時間</th><th style="width:100px">用途</th>
+          <th style="width:170px">模型</th><th style="width:90px">輸入</th>
+          <th style="width:90px">輸出</th><th style="width:90px">推理</th>
+          <th style="width:70px">稿件</th><th style="width:110px;text-align:right">金額</th></tr>
+      {% for u in rows %}
+      <tr>
+        <td class="small muted">{{ u.created_at|date:"m-d H:i:s" }}</td>
+        <td class="small">{{ u.get_purpose_display }}</td>
+        <td class="small">{{ u.model }}{% if not u.priced %}
+          <span class="pill bad" style="margin-left:4px">無費率</span>{% endif %}</td>
+        <td class="small mono">{{ u.input_tokens }}</td>
+        <td class="small mono">{{ u.output_tokens }}</td>
+        <td class="small mono">{{ u.reasoning_tokens }}</td>
+        <td class="small mono">{% if u.run_id %}#{{ u.run_id }}{% else %}—{% endif %}</td>
+        <td class="mono" style="text-align:right">${{ u.cost_usd|floatformat:6 }}</td>
+      </tr>
+      {% endfor %}
+    </table></div>
+    <p class="small muted" style="margin:10px 2px 0">最多顯示 200 筆。</p>
+  {% else %}
+    <div class="empty">沒有逐次紀錄。</div>
+  {% endif %}
+</div>
+{% endblock %}

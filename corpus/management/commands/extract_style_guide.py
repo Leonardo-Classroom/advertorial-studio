@@ -65,10 +65,16 @@ class Command(BaseCommand):
             scope = f"{outlet.name} / {author.name}" if author else f"{outlet.name}（全站）"
             self.stdout.write(f"分析中：{scope} …")
             try:
-                guide = styleguide.induce(
-                    outlet=outlet, author=author, sample_size=opts["sample_size"],
-                    sampling=opts["sampling"],
-                )
+                # Booked as 其他: a style guide belongs to an outlet, not to any
+                # one brief, so it appears in the totals without an owner rather
+                # than being charged to whatever project ran next.
+                from core import llm
+
+                with llm.usage_context("other"):
+                    guide = styleguide.induce(
+                        outlet=outlet, author=author, sample_size=opts["sample_size"],
+                        sampling=opts["sampling"],
+                    )
             except Exception as exc:  # noqa: BLE001 - report and continue to next author
                 self.stderr.write(self.style.ERROR(f"  失敗：{exc}"))
                 continue

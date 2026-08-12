@@ -735,7 +735,10 @@ def brief_facts_update(request, pk):
     try:
         # The history goes in with it, so "改回原本的" has an answer. Without it
         # the model saw one snapshot and could only decline.
-        merged = facts_update.propose(current.data or {}, user_input, versions=versions)
+        from core import llm
+
+        with llm.usage_context("extract", brief=brief):
+            merged = facts_update.propose(current.data or {}, user_input, versions=versions)
     except Exception as exc:  # noqa: BLE001 - the user needs the reason
         messages.error(request, f"更新失敗：{exc}。你剛才輸入的內容沒有送出，請再試一次。")
         return redirect("portal:brief_detail", pk=pk)

@@ -55,6 +55,15 @@ def run_stages(run: GenerationRun, stop_after_outline: bool = False) -> Generati
     at the outline stage costs one edit, catching it in a finished draft costs a
     rewrite.
     """
+    # Plan B is three or four model calls, not one, and all of them are 產稿 as
+    # far as the cost pages are concerned. Declared here rather than in
+    # `generate.run_generation` so every caller is covered — including
+    # `continue_from_outline`, which does not go through that function at all.
+    with llm.usage_context("generate", brief=run.brief, run=run):
+        return _run_stages(run, stop_after_outline)
+
+
+def _run_stages(run: GenerationRun, stop_after_outline: bool) -> GenerationRun:
     run.status = "running"
     run.stages = []
     run.save(update_fields=["status", "stages"])
@@ -144,6 +153,11 @@ def run_stages(run: GenerationRun, stop_after_outline: bool = False) -> Generati
 
 def continue_from_outline(run: GenerationRun) -> GenerationRun:
     """Resume a paused run after a human has edited and approved the outline."""
+    with llm.usage_context("generate", brief=run.brief, run=run):
+        return _continue_from_outline(run)
+
+
+def _continue_from_outline(run: GenerationRun) -> GenerationRun:
     started = time.time()
     run.status = "running"
     run.save(update_fields=["status"])

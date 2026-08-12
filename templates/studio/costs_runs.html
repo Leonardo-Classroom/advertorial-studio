@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row tight" style="margin-bottom:6px">
+  <h1 style="flex:1;margin:0">廣編稿花費</h1>
+  <span class="small muted">全部合計 <strong class="mono" style="font-size:16px;color:var(--ink)">${{ total|floatformat:4 }}</strong></span>
+</div>
+<p class="sub">每篇稿的產稿與重寫花費。抽取內容與分析圖片屬於整個專案、由多篇稿共用，計在「專案花費」而不重複計在這裡。</p>
+
+<div class="card">
+  {% if page %}
+    <div class="scroll"><table>
+      <tr><th style="width:60px">#</th><th>專案</th><th style="width:150px">目標風格</th>
+          <th style="width:80px">方式</th><th style="width:140px">建立</th>
+          <th style="width:120px;text-align:right">總金額</th></tr>
+      {% for r in page %}
+      <tr>
+        <td><a href="{% url 'studio:run_detail' r.pk %}">#{{ r.pk }}</a></td>
+        <td>{{ r.brief.title|truncatechars:34 }}</td>
+        <td class="small">{{ r.outlet.name }}</td>
+        <td class="small">{{ r.get_mode_display|truncatechars:8 }}</td>
+        <td class="small muted">{{ r.created_at|date:"m-d H:i" }}</td>
+        <td style="text-align:right">
+          {% if r.spend %}
+            <a class="mono" href="{% url 'studio:costs_run_detail' r.pk %}"
+               style="font-size:15px">${{ r.spend|floatformat:4 }}</a>
+          {% else %}<span class="muted small">—</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table></div>
+    {% include "_pager.html" with unit="篇" %}
+  {% else %}
+    <div class="empty">還沒有稿件。</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -246,6 +246,104 @@ def _queue_context() -> dict:
 
 
 @staff_required
+def costs_briefs(request):
+    """專案花費：一列一個專案，最右邊是它到目前為止的總金額。"""
+    from django.db.models import Count, OuterRef, Subquery, Sum
+
+    from studio.models import TokenUsage
+
+    # Two aggregates over two different multi-valued relations cannot share one
+    # query: the join multiplies the rows and every cost gets counted once per
+    # draft. The spend comes from a subquery so the two stay independent.
+    spend = (TokenUsage.objects.filter(brief=OuterRef("pk"))
+             .values("brief").annotate(s=Sum("cost_usd")).values("s"))
+    qs = (Brief.objects.select_related("owner")
+          .annotate(run_count=Count("runs", distinct=True), spend=Subquery(spend))
+          .order_by("-created_at"))
+    return render(request, "studio/costs_briefs.html", {
+        "section": "costs",
+        **paginate(request, qs, 30),
+        "total": Brief.objects.aggregate(s=Sum("token_usage__cost_usd"))["s"] or 0,
+    })
+
+
+@staff_required
+def costs_runs(request):
+    """廣編稿花費：一列一篇稿。抽取與圖片屬於專案，不在這裡重複計。"""
+    from django.db.models import Sum
+
+    qs = (GenerationRun.objects.select_related("brief", "outlet", "owner")
+          .annotate(spend=Sum("token_usage__cost_usd"))
+          .order_by("-created_at"))
+    return render(request, "studio/costs_runs.html", {
+        "section": "costs",
+        **paginate(request, qs, 30),
+        "total": GenerationRun.objects.aggregate(s=Sum("token_usage__cost_usd"))["s"] or 0,
+    })
+
+
+def _breakdown(rows):
+    """Per-phase totals, in the order the phases actually happen."""
+    from studio.models import TokenUsage
+
+    order = [p for p, _ in TokenUsage.PURPOSES]
+    labels = dict(TokenUsage.PURPOSES)
+    buckets = {}
+    for row in rows:
+        b = buckets.setdefault(row.purpose, {
+            "purpose": labels.get(row.purpose, row.purpose), "calls": 0,
+            "input": 0, "output": 0, "reasoning": 0, "cached": 0, "cost": 0.0,
+            "models": set(), "unpriced": 0})
+        b["calls"] += 1
+        b["input"] += row.input_tokens
+        b["output"] += row.output_tokens
+        b["reasoning"] += row.reasoning_tokens
+        b["cached"] += row.cached_input_tokens
+        b["cost"] += row.cost_usd
+        b["models"].add(row.model)
+        b["unpriced"] += 0 if row.priced else 1
+    for b in buckets.values():
+        b["models"] = "、".join(sorted(m for m in b["models"] if m))
+    return [buckets[p] for p in order if p in buckets]
+
+
+@staff_required
+def costs_brief_detail(request, pk):
+    from studio.models import TokenUsage
+
+    brief = get_object_or_404(Brief, pk=pk)
+    rows = list(TokenUsage.objects.filter(brief=brief)
+                .select_related("run__outlet", "run__style_guide"))
+    per_run = {}
+    for row in rows:
+        if row.run_id:
+            per_run.setdefault(row.run_id, {"run": row.run, "cost": 0.0, "calls": 0})
+            per_run[row.run_id]["cost"] += row.cost_usd
+            per_run[row.run_id]["calls"] += 1
+    return render(request, "studio/costs_detail.html", {
+        "section": "costs", "title": brief.title, "subject": "專案",
+        "back": "studio:costs_briefs",
+        "breakdown": _breakdown(rows), "rows": rows[:200],
+        "total": sum(r.cost_usd for r in rows),
+        "per_run": sorted(per_run.values(), key=lambda x: -x["cost"]),
+    })
+
+
+@staff_required
+def costs_run_detail(request, pk):
+    from studio.models import TokenUsage
+
+    run = get_object_or_404(GenerationRun.objects.select_related("brief", "outlet"), pk=pk)
+    rows = list(TokenUsage.objects.filter(run=run))
+    return render(request, "studio/costs_detail.html", {
+        "section": "costs", "title": f"#{run.pk} {run.brief.title}", "subject": "廣編稿",
+        "back": "studio:costs_runs", "run": run,
+        "breakdown": _breakdown(rows), "rows": rows[:200],
+        "total": sum(r.cost_usd for r in rows), "per_run": [],
+    })
+
+
+@staff_required
 def advanced(request):
     """Generation defaults, in one place, for the people allowed to change them.
 

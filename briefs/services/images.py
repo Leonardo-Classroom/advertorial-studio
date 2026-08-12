@@ -227,8 +227,11 @@ def classify(image: dict, brand: str = "", timeout: float | None = None) -> dict
     location = image.get("location") or f"第 {image['slide_index']} 張投影片"
 
     outcome: dict = {}
+    usage_bucket = llm.current_usage_bucket()
 
     def _call():
+        # Token counting is thread-local and this runs on its own thread.
+        llm.adopt_usage_bucket(usage_bucket)
         try:
             outcome["data"] = llm.complete_json_vision(
                 instructions=CLASSIFY_ROLE,
@@ -537,7 +540,8 @@ def classify_checked(brief) -> dict:
     with _active_lock:
         _active_classifies.add(brief.pk)
     try:
-        return _classify_targets(brief, targets)
+        with llm.usage_context("classify", brief=brief):
+            return _classify_targets(brief, targets)
     finally:
         with _active_lock:
             _active_classifies.discard(brief.pk)

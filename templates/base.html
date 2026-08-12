@@ -31,7 +31,7 @@ nav.main a.navportal{margin-left:auto;font-size:13px}
   color:var(--muted);font:inherit;font-size:18px;line-height:1;padding:6px 11px;cursor:pointer}
 .navtoggle:hover{color:var(--ink)}
 
-/* Eight nav items plus the brand cannot share one 56px row on a phone. Below
+/* Ten nav items plus the brand cannot share one 56px row on a phone. Below
    this width the bar keeps only the brand and a toggle, and the links stack
    underneath — the row-height/flex-wrap combination it had before let them wrap
    out of a fixed-height bar and get clipped. */
@@ -241,6 +241,8 @@ th.th-sortable{padding:0}
   <nav class="main" id="mainnav">
     <a href="{% url 'studio:home' %}" class="{% if section == 'home' %}on{% endif %}">總覽</a>
     <a href="{% url 'studio:queue' %}" class="{% if section == 'queue' %}on{% endif %}">隊列</a>
+    <a href="{% url 'studio:costs_briefs' %}" class="{% if section == 'costs' %}on{% endif %}">專案花費</a>
+    <a href="{% url 'studio:costs_runs' %}" class="{% if section == 'costs' %}on{% endif %}">廣編稿花費</a>
     <a href="{% url 'corpus:articles' %}" class="{% if section == 'corpus' %}on{% endif %}">語料庫</a>
     <a href="{% url 'corpus:guides' %}" class="{% if section == 'guides' %}on{% endif %}">風格指南</a>
     {% if show_briefs_nav %}<a href="{% url 'briefs:list' %}" class="{% if section == 'briefs' %}on{% endif %}">專案</a>{% endif %}

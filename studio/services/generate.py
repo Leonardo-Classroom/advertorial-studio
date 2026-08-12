@@ -54,10 +54,11 @@ def run_generation(run: GenerationRun, stop_after_outline: bool = False,
         )
         user_input = prompts.build_input(facts, exemplars, images=run.brief.usable_images())
 
-        output = llm.complete(
-            instructions=instructions, user_input=user_input,
-            timeout=timeouts.generate(),
-        )
+        with llm.usage_context("generate", brief=run.brief, run=run):
+            output = llm.complete(
+                instructions=instructions, user_input=user_input,
+                timeout=timeouts.generate(),
+            )
 
         run.exemplars = [e.as_dict() for e in exemplars]
         run.prompt_instructions = instructions
@@ -96,7 +97,8 @@ def _maybe_refine(run: GenerationRun, auto_refine: bool) -> None:
         "summary": f"重寫上限 {run.max_rewrites} 次",
         "output": "", "elapsed_ms": 0,
     }]
-    history = refine_service.refine(run)
+    with llm.usage_context("refine", brief=run.brief, run=run):
+        history = refine_service.refine(run)
     run.stages[-1]["output"] = "\n".join(
         f"第 {h['iteration']} 輪 {h['kind']}："
         f"評審 {h['judge_mean']}｜覆蓋 {h['coverage']}｜{h['note'] or '採納'}"
@@ -130,11 +132,12 @@ def run_revision(run: GenerationRun, feedback: str,
         run=run, round=next_round, feedback=feedback, output=""
     )
     try:
-        revision.output = llm.complete(
-            instructions=prompts.REVISION_ROLE,
-            user_input=prompts.build_revision_input(previous_text, feedback, run.facts),
-            timeout=timeouts.generate(),
-        )
+        with llm.usage_context("refine", brief=run.brief, run=run):
+            revision.output = llm.complete(
+                instructions=prompts.REVISION_ROLE,
+                user_input=prompts.build_revision_input(previous_text, feedback, run.facts),
+                timeout=timeouts.generate(),
+            )
     except Exception as exc:  # noqa: BLE001
         revision.output = f"（修訂失敗）{type(exc).__name__}: {exc}"
     revision.save(update_fields=["output"])

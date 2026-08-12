@@ -103,19 +103,23 @@ def pairwise_judge(run_a, run_b, guide_text: str, max_chars: int = 7000,
     text_a, text_b = pick(run_a)[:max_chars], pick(run_b)[:max_chars]
     guide = guide_text[:6000]
 
-    first = llm.complete_json(
-        instructions=PAIRWISE_INSTRUCTIONS,
-        user_input=PAIRWISE_TASK.format(guide=guide, a=text_a, b=text_b),
-        model=llm.judge_model(),
-        timeout=timeouts.generate(),
-    )
-    # Swapped run: what the judge called "A" is now run_b.
-    second_raw = llm.complete_json(
-        instructions=PAIRWISE_INSTRUCTIONS,
-        user_input=PAIRWISE_TASK.format(guide=guide, a=text_b, b=text_a),
-        model=llm.judge_model(),
-        timeout=timeouts.generate(),
-    )
+    # A head-to-head belongs to neither draft, so it is booked against the
+    # brief only. Charging it to `run_a` would make whichever draft happened to
+    # be passed first look more expensive than its twin.
+    with llm.usage_context("judge", brief=run_a.brief):
+        first = llm.complete_json(
+            instructions=PAIRWISE_INSTRUCTIONS,
+            user_input=PAIRWISE_TASK.format(guide=guide, a=text_a, b=text_b),
+            model=llm.judge_model(),
+            timeout=timeouts.generate(),
+        )
+        # Swapped run: what the judge called "A" is now run_b.
+        second_raw = llm.complete_json(
+            instructions=PAIRWISE_INSTRUCTIONS,
+            user_input=PAIRWISE_TASK.format(guide=guide, a=text_b, b=text_a),
+            model=llm.judge_model(),
+            timeout=timeouts.generate(),
+        )
     second = {k: (_FLIP.get(v, v) if isinstance(v, str) and v in _FLIP else v)
               for k, v in second_raw.items()}
 
@@ -303,14 +307,15 @@ def evaluate(run: GenerationRun, revision: Revision | None = None,
     if run_judge and run.style_guide:
         judge = llm.judge_model()
         try:
-            scores = llm.complete_json(
-                instructions=JUDGE_INSTRUCTIONS,
-                user_input=JUDGE_TASK.format(
-                    guide=run.style_guide.content[:6000], draft=draft[:8000]
-                ),
-                model=judge,
-                timeout=timeouts.generate(),
-            )
+            with llm.usage_context("judge", brief=run.brief, run=run):
+                scores = llm.complete_json(
+                    instructions=JUDGE_INSTRUCTIONS,
+                    user_input=JUDGE_TASK.format(
+                        guide=run.style_guide.content[:6000], draft=draft[:8000]
+                    ),
+                    model=judge,
+                    timeout=timeouts.generate(),
+                )
             ev.judge_scores = scores
             ev.judge_model = judge
             ev.judge_comment += str(scores.get("comment", ""))

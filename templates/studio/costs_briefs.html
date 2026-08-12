@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row tight" style="margin-bottom:6px">
+  <h1 style="flex:1;margin:0">專案花費</h1>
+  <span class="small muted">全部合計 <strong class="mono" style="font-size:16px;color:var(--ink)">${{ total|floatformat:4 }}</strong></span>
+</div>
+<p class="sub">每個專案到目前為止的 API 花費，包含抽取內容、分析圖片，以及底下所有稿件的產稿與重寫。點金額看明細。</p>
+
+<div class="card">
+  {% if page %}
+    <div class="scroll"><table>
+      <tr><th>專案</th><th style="width:110px">擁有者</th><th style="width:80px">稿件</th>
+          <th style="width:140px">建立</th><th style="width:120px;text-align:right">總金額</th></tr>
+      {% for b in page %}
+      <tr>
+        <td><a href="{% url 'briefs:detail' b.pk %}">{{ b.title|truncatechars:44 }}</a></td>
+        <td class="small">{% if b.owner %}{{ b.owner.username }}{% else %}<span class="muted">（無主）</span>{% endif %}</td>
+        <td class="small mono">{{ b.run_count }}</td>
+        <td class="small muted">{{ b.created_at|date:"m-d H:i" }}</td>
+        <td style="text-align:right">
+          {% if b.spend %}
+            <a class="mono" href="{% url 'studio:costs_brief_detail' b.pk %}"
+               style="font-size:15px">${{ b.spend|floatformat:4 }}</a>
+          {% else %}<span class="muted small">—</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table></div>
+    {% include "_pager.html" with unit="個專案" %}
+  {% else %}
+    <div class="empty">還沒有專案。</div>
+  {% endif %}
+</div>
+{% endblock %}

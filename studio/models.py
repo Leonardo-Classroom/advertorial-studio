@@ -69,6 +69,58 @@ EMBED_DEVICES = [
 ]
 
 
+class TokenUsage(models.Model):
+    """One model call: what it was for, what it cost, what it belonged to.
+
+    A row per call rather than a running total on `Brief`/`GenerationRun`,
+    because the question people actually ask is not "how much did this cost"
+    but "what was expensive about it" — and that needs the phases kept apart.
+    A draft is extraction plus a picture apiece plus generation plus a rewrite,
+    and those four are priced very differently.
+
+    Cost is stored, not computed on read: rates change, and a bill from last
+    month should not silently restate itself when a provider updates its page.
+    """
+    PURPOSES = [
+        ("extract", "抽取內容"),
+        ("classify", "分析圖片"),
+        ("generate", "產稿"),
+        ("refine", "重寫"),
+        ("judge", "評分"),
+        ("other", "其他"),
+    ]
+
+    purpose = models.CharField("用途", max_length=16, choices=PURPOSES, default="other")
+    model = models.CharField("模型", max_length=64, blank=True)
+    kind = models.CharField("端點種類", max_length=32, blank=True)
+
+    brief = models.ForeignKey(Brief, on_delete=models.CASCADE, null=True, blank=True,
+                              related_name="token_usage")
+    run = models.ForeignKey("studio.GenerationRun", on_delete=models.CASCADE,
+                            null=True, blank=True, related_name="token_usage")
+
+    input_tokens = models.IntegerField(default=0)
+    output_tokens = models.IntegerField(default=0)
+    reasoning_tokens = models.IntegerField(
+        default=0, help_text="已包含在輸出 token 內，另計只是為了看出比例")
+    cached_input_tokens = models.IntegerField(default=0)
+    cost_usd = models.FloatField("金額（美元）", default=0.0)
+    priced = models.BooleanField("費率已知", default=True,
+                                 help_text="False 代表這個模型沒有定價資料，金額會是 0")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = verbose_name_plural = "Token 用量"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["brief", "purpose"]),
+            models.Index(fields=["run", "purpose"]),
+        ]
+
+    def __str__(self):
+        return f"{self.get_purpose_display()} {self.model} ${self.cost_usd:.5f}"
+
+
 class OnlineProvider(models.Model):
     """One configured online model endpoint, editable at /manage/advanced/.
 
@@ -97,12 +149,25 @@ class OnlineProvider(models.Model):
     # rewrite gained nothing, while the same model with thinking on scored
     # best (3.67). That is not a detail to bury in a second control.
     KINDS = [
-        ("openai", "OpenAI"),
+        ("openai-none", "OpenAI（none）"),
+        ("openai-low", "OpenAI（low）"),
+        ("openai-medium", "OpenAI（medium）"),
+        ("openai-high", "OpenAI（high）"),
         ("deepseek", "DeepSeek"),
         ("deepseek-thinking", "DeepSeek-thinking"),
         ("google", "Google Gemini"),
         ("kimi", "Kimi / Moonshot"),
     ]
+
+    # Reasoning effort per kind, since the kind is where it is encoded. None
+    # means "send nothing and take the provider's default" — that is what
+    # anything outside these two families gets, because the parameter is not
+    # universal and sending it to a model that does not know it is a 400.
+    EFFORT_BY_KIND = {
+        "openai-none": "off", "openai-low": "low",
+        "openai-medium": "medium", "openai-high": "high",
+        "deepseek": "off",
+    }
     # Which list a row belongs to. Text and vision keep separate lists rather
     # than sharing one with two selection columns: the same endpoint rarely
     # serves both well — `deepseek-chat` writes but cannot see a picture — and
@@ -129,15 +194,22 @@ class OnlineProvider(models.Model):
         return f"{self.get_kind_display()} / {self.model or '（未填模型）'}"
 
     @property
-    def thinking(self) -> bool:
-        """Whether to let the model reason before answering.
+    def default_effort(self) -> str | None:
+        """The reasoning level this kind asks for, or None to say nothing.
 
-        Derived from the kind, not stored: "DeepSeek" is the non-thinking
-        variant and "DeepSeek-thinking" the reasoning one. Anything else gets
-        no flag at all — the switch is DeepSeek-specific and sending it
-        elsewhere is a 400.
+        Encoded in the kind rather than stored beside it: how hard a model
+        thinks changes its output as much as swapping the model does, and a
+        dropdown that names it beats a second control that quietly modifies
+        it. OpenAI's reasoning models take four levels; DeepSeek is on/off, so
+        its "off" variant maps here and its thinking variant says nothing.
         """
-        return self.kind != "deepseek"
+        return self.EFFORT_BY_KIND.get(self.kind)
+
+    @property
+    def thinking(self) -> bool:
+        """Whether the model reasons before answering. False only for the
+        variants that explicitly disable it."""
+        return self.default_effort not in ("off",)
 
     @property
     def key_hint(self) -> str:

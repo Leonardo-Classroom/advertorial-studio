@@ -75,7 +75,10 @@ def _extract_facts_and_images(brief) -> None:
     # succeeds, nothing else will clear it and the page would go on showing a
     # failure that already got fixed by trying again.
     type(brief).objects.filter(pk=brief.pk).update(note="")
-    facts = ppt_extract.extract_facts(brief.raw_text)
+    from core import llm
+
+    with llm.usage_context("extract", brief=brief):
+        facts = ppt_extract.extract_facts(brief.raw_text)
     brief.add_facts_version(facts, source="extract")
     # Pictures are an extra, and their failure is not the batch's failure: the
     # facts are already saved and a draft can be written without illustrations.
@@ -229,9 +232,12 @@ def _retry_source_file(brief_id: int, source_file_id: int) -> None:
             _extract_facts_and_images(brief)
             return
 
-        merged = facts_update.merge_document(
-            current.data or {}, source_file.raw_text,
-            filename=source_file.original_filename, version=current.version)
+        from core import llm
+
+        with llm.usage_context("extract", brief=brief):
+            merged = facts_update.merge_document(
+                current.data or {}, source_file.raw_text,
+                filename=source_file.original_filename, version=current.version)
         if merged == (current.data or {}):
             Brief.objects.filter(pk=brief_id).update(
                 note=f"《{source_file.original_filename}》已重新解析，"

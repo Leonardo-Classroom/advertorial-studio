@@ -127,7 +127,7 @@ def _effort_unsupported(exc: BaseException) -> bool:
 
 def _reasoning_param(endpoint, model: str, effort: str | None) -> dict:
     """`reasoning=` for the Responses API, or {} when it must not be sent."""
-    if not effort or endpoint.kind not in {"openai"}:
+    if not effort or not endpoint.kind.startswith("openai"):
         return {}
     if (endpoint.base_url, model) in _no_effort:
         return {}
@@ -209,7 +209,7 @@ def _online_config(kind: str = TEXT) -> OnlineEndpoint:
             forced.base_url, forced.api_key,
             getattr(_override, "model", None) or forced.model,
             forced.kind, from_env=False,
-            effort=override_effort or (None if forced.thinking else "off"))
+            effort=override_effort or forced.default_effort)
     try:
         from studio.models import SiteSettings
 
@@ -217,10 +217,10 @@ def _online_config(kind: str = TEXT) -> OnlineEndpoint:
         provider = row.vision_online_provider if kind == VISION else row.online_provider
         if provider is not None and provider.is_complete:
             override_effort = getattr(_override, "effort", None)
-            # A provider row carries no level of its own; "DeepSeek" (as
-            # opposed to "DeepSeek-thinking") means off, and anything else
-            # leaves the provider on its default until a caller asks.
-            default = None if provider.thinking else "off"
+            # The level comes from the kind (see `OnlineProvider.EFFORT_BY_KIND`);
+            # an explicit override still wins, which is how comparisons sweep
+            # levels without editing rows.
+            default = provider.default_effort
             return OnlineEndpoint(
                 provider.base_url, provider.api_key,
                 getattr(_override, "model", None) or provider.model,
@@ -230,7 +230,7 @@ def _online_config(kind: str = TEXT) -> OnlineEndpoint:
         pass
     return OnlineEndpoint(settings.LLM_BASE_URL, settings.LLM_API_KEY,
                           getattr(_override, "model", None) or settings.LLM_MODEL,
-                          "openai", from_env=True,
+                          "openai-medium", from_env=True,
                           effort=getattr(_override, "effort", None))
 
 
@@ -411,6 +411,58 @@ def take_usage() -> dict:
     return totals
 
 
+def current_usage_bucket():
+    """What this thread is accumulating into, for handing to a worker."""
+    if getattr(_usage, "totals", None) is None:
+        reset_usage()
+    return (_usage.totals, getattr(_usage, "rows", None),
+            getattr(_usage, "model", ""), getattr(_usage, "kind", ""))
+
+
+def adopt_usage_bucket(bucket) -> None:
+    """Accumulate into `bucket` on this thread.
+
+    The model call often happens on a *different* thread than the caller:
+    `_with_deadline` runs it on a daemon thread so an unresponsive model can be
+    abandoned, and `images.classify` does the same per picture. Thread-local
+    storage does not cross that boundary, so without handing the dict over, the
+    tokens are counted on a thread nobody reads and the caller sees zero —
+    which is exactly what happened to the first vision measurement.
+    """
+    if bucket is None:
+        return
+    _usage.totals, _usage.rows, _usage.model, _usage.kind = bucket
+
+
+@contextmanager
+def usage_context(purpose: str, brief=None, run=None):
+    """Attribute every model call made inside to `purpose` and its owner.
+
+    Call sites know what they are doing and what it is for; `core.llm` knows
+    the tokens. This is the seam between them — declare the purpose once and
+    each call inside becomes a `TokenUsage` row without the call site counting
+    anything itself.
+
+    Rows are collected in memory and written when the block exits, in *this*
+    thread. The calls themselves happen on worker threads (see
+    `adopt_usage_bucket`), and writing to the database from those would leave
+    a connection open per picture classified.
+    """
+    from studio.models import TokenUsage
+
+    previous = getattr(_usage, "rows", None)
+    _usage.rows = []
+    try:
+        yield
+    finally:
+        rows, _usage.rows = _usage.rows, previous
+        try:
+            TokenUsage.objects.bulk_create([
+                TokenUsage(purpose=purpose, brief=brief, run=run, **row) for row in rows])
+        except Exception:  # noqa: BLE001 - accounting must never break the work
+            pass
+
+
 def _record_usage(usage) -> None:
     """Fold one response's usage in. Shapes differ between the two APIs."""
     if usage is None:
@@ -429,6 +481,24 @@ def _record_usage(usage) -> None:
         usage, "prompt_tokens_details", None)
     totals["cached_input"] += getattr(in_details, "cached_tokens", 0) or 0
     totals["calls"] += 1
+
+    rows = getattr(_usage, "rows", None)
+    if rows is None:
+        return                      # nobody declared a purpose; nothing to file
+    from core import pricing
+
+    model = getattr(_usage, "model", "") or ""
+    call_in = getattr(usage, "input_tokens", None) or getattr(usage, "prompt_tokens", 0) or 0
+    call_out = getattr(usage, "output_tokens", None) or getattr(usage, "completion_tokens", 0) or 0
+    call_reason = getattr(out_details, "reasoning_tokens", 0) or 0
+    call_cached = getattr(in_details, "cached_tokens", 0) or 0
+    rows.append({
+        "model": model, "kind": getattr(_usage, "kind", "") or "",
+        "input_tokens": call_in, "output_tokens": call_out,
+        "reasoning_tokens": call_reason, "cached_input_tokens": call_cached,
+        "cost_usd": pricing.cost(model, call_in, call_out, call_cached),
+        "priced": pricing.is_priced(model),
+    })
 
 
 def _chat_completion(client, model: str, instructions: str, content,
@@ -676,6 +746,7 @@ def _with_deadline(call, seconds: float, gated: bool = False):
       would hand the next caller a slot the server does not actually have.
     """
     outcome: dict = {}
+    bucket = current_usage_bucket()
 
     if gated:
         # Before the slot, not after: a wedged server should not be queued for.
@@ -683,6 +754,7 @@ def _with_deadline(call, seconds: float, gated: bool = False):
         _gate_acquire()
 
     def _run():
+        adopt_usage_bucket(bucket)
         try:
             outcome["value"] = call()
         except Exception as exc:  # noqa: BLE001 - re-raised on the calling side
@@ -759,6 +831,8 @@ def complete(
     if max_output_tokens:
         kwargs["max_output_tokens"] = max_output_tokens
 
+    _usage.model = kwargs["model"]
+    _usage.kind = "local" if local else endpoint.kind
     deadline = timeout if timeout is not None else (
         settings.LOCAL_LLM_TIMEOUT if local else settings.LLM_TIMEOUT)
     if not local:
@@ -862,6 +936,8 @@ def complete_vision(
     # Same guard as `complete`. `images.classify` also wraps its call, so a
     # picture is covered twice — harmless, the inner deadline simply fires
     # first, and it means any *other* caller of this function is covered too.
+    _usage.model = kwargs["model"]
+    _usage.kind = "local" if local else endpoint.kind
     deadline = timeout if timeout is not None else (
         settings.LOCAL_LLM_VISION_TIMEOUT if local else settings.LLM_TIMEOUT)
     if not local:

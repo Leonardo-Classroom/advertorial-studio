@@ -58,15 +58,26 @@
 </div>
 {% endif %}
 
-<h2>逐次呼叫</h2>
+<div class="row tight" style="margin:26px 0 10px">
+  <h2 style="flex:1;margin:0">逐次呼叫<span class="muted small" style="font-weight:400">
+    　共 {{ page.paginator.count }} 次</span></h2>
+  <form method="get" class="row tight" style="flex:0;gap:8px;margin:0">
+    <label for="f_per" style="margin:0">每頁</label>
+    <select id="f_per" name="per" style="width:auto" onchange="this.form.submit()">
+      {% for n in page_sizes %}
+        <option value="{{ n }}" {% if per == n %}selected{% endif %}>{{ n }} 筆</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
 <div class="card">
-  {% if rows %}
+  {% if page.object_list %}
     <div class="scroll"><table>
       <tr><th style="width:140px">時間</th><th style="width:100px">用途</th>
           <th style="width:170px">模型</th><th style="width:90px">輸入</th>
           <th style="width:90px">輸出</th><th style="width:90px">推理</th>
           <th style="width:70px">稿件</th><th style="width:110px;text-align:right">金額</th></tr>
-      {% for u in rows %}
+      {% for u in page.object_list %}
       <tr>
         <td class="small muted">{{ u.created_at|date:"m-d H:i:s" }}</td>
         <td class="small">{{ u.get_purpose_display }}{% if u.items %}
@@ -81,7 +92,7 @@
       </tr>
       {% endfor %}
     </table></div>
-    <p class="small muted" style="margin:10px 2px 0">最多顯示 200 筆。</p>
+    {% include "_pager.html" with unit="次" %}
   {% else %}
     <div class="empty">沒有逐次紀錄。</div>
   {% endif %}

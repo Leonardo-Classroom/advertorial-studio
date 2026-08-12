@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from accounts.decorators import staff_required
-from core.pagination import paginate
+from core.pagination import PAGE_SIZES, page_size, paginate
 from briefs.models import Brief
 from corpus.models import Article, Author, EmbeddingIndex, Outlet, StyleGuide
 from studio.models import (
@@ -282,51 +282,82 @@ def costs_runs(request):
     })
 
 
-def _breakdown(rows):
-    """Per-phase totals, in the order the phases actually happen."""
+def _breakdown(qs):
+    """Per-phase totals, in the order the phases actually happen.
+
+    Summed by the database rather than in Python, because the call log this
+    sits above is paged: loading every row to add them up would defeat the
+    paging on the one page where the row count actually grows without limit —
+    a project classifies forty pictures and every one of them is a row.
+    """
+    from django.db.models import Count, Q, Sum
+
     from studio.models import TokenUsage
 
     order = [p for p, _ in TokenUsage.PURPOSES]
     labels = dict(TokenUsage.PURPOSES)
-    buckets = {}
-    for row in rows:
-        b = buckets.setdefault(row.purpose, {
-            "purpose": labels.get(row.purpose, row.purpose), "calls": 0,
-            "input": 0, "output": 0, "reasoning": 0, "cached": 0, "cost": 0.0,
-            "items": 0, "models": set(), "unpriced": 0})
-        b["calls"] += 1
-        b["items"] += row.items
-        b["input"] += row.input_tokens
-        b["output"] += row.output_tokens
-        b["reasoning"] += row.reasoning_tokens
-        b["cached"] += row.cached_input_tokens
-        b["cost"] += row.cost_usd
-        b["models"].add(row.model)
-        b["unpriced"] += 0 if row.priced else 1
-    for b in buckets.values():
-        b["models"] = "、".join(sorted(m for m in b["models"] if m))
-    return [buckets[p] for p in order if p in buckets]
+
+    totals = {
+        row["purpose"]: row for row in qs.values("purpose").annotate(
+            calls=Count("pk"), items=Sum("items"),
+            input=Sum("input_tokens"), output=Sum("output_tokens"),
+            reasoning=Sum("reasoning_tokens"), cached=Sum("cached_input_tokens"),
+            cost=Sum("cost_usd"), unpriced=Count("pk", filter=Q(priced=False)),
+        )
+    }
+    # Which models served each phase, as a second small query — a GROUP BY that
+    # also splits on model would break the per-phase rows apart.
+    models: dict[str, set] = {}
+    for purpose, model in qs.values_list("purpose", "model").distinct():
+        models.setdefault(purpose, set()).add(model)
+
+    out = []
+    for purpose in order:
+        row = totals.get(purpose)
+        if not row:
+            continue
+        row["purpose"] = labels.get(purpose, purpose)
+        row["models"] = "、".join(sorted(m for m in models.get(purpose, ()) if m))
+        out.append(row)
+    return out
+
+
+def _costs_detail(request, qs, extra):
+    """Shared tail of both detail pages: totals, then a paged call log."""
+    from django.db.models import Sum
+
+    context = {
+        "breakdown": _breakdown(qs),
+        "total": qs.aggregate(s=Sum("cost_usd"))["s"] or 0,
+        "per": page_size(request, default=30),
+        "page_sizes": PAGE_SIZES,
+        **extra,
+    }
+    context.update(paginate(request, qs, context["per"]))
+    return render(request, "studio/costs_detail.html", context)
 
 
 @staff_required
 def costs_brief_detail(request, pk):
+    from django.db.models import Count, Sum
+
     from studio.models import TokenUsage
 
     brief = get_object_or_404(Brief, pk=pk)
-    rows = list(TokenUsage.objects.filter(brief=brief)
-                .select_related("run__outlet", "run__style_guide"))
-    per_run = {}
-    for row in rows:
-        if row.run_id:
-            per_run.setdefault(row.run_id, {"run": row.run, "cost": 0.0, "calls": 0})
-            per_run[row.run_id]["cost"] += row.cost_usd
-            per_run[row.run_id]["calls"] += 1
-    return render(request, "studio/costs_detail.html", {
+    qs = TokenUsage.objects.filter(brief=brief)
+
+    # Per-draft subtotals, aggregated rather than derived from the page — the
+    # page shows thirty rows and this has to cover every one of them.
+    spend = (qs.filter(run__isnull=False).values("run")
+             .annotate(cost=Sum("cost_usd"), calls=Count("pk")).order_by("-cost"))
+    runs = GenerationRun.objects.select_related("outlet", "style_guide").in_bulk(
+        [r["run"] for r in spend])
+    per_run = [{"run": runs[r["run"]], "cost": r["cost"], "calls": r["calls"]}
+               for r in spend if r["run"] in runs]
+
+    return _costs_detail(request, qs, {
         "section": "costs_briefs", "title": brief.title, "subject": "專案",
-        "back": "studio:costs_briefs",
-        "breakdown": _breakdown(rows), "rows": rows[:200],
-        "total": sum(r.cost_usd for r in rows),
-        "per_run": sorted(per_run.values(), key=lambda x: -x["cost"]),
+        "back": "studio:costs_briefs", "per_run": per_run,
     })
 
 
@@ -335,12 +366,9 @@ def costs_run_detail(request, pk):
     from studio.models import TokenUsage
 
     run = get_object_or_404(GenerationRun.objects.select_related("brief", "outlet"), pk=pk)
-    rows = list(TokenUsage.objects.filter(run=run))
-    return render(request, "studio/costs_detail.html", {
-        "section": "costs_runs", "title": f"#{run.pk} {run.brief.title}", "subject": "廣編稿",
-        "back": "studio:costs_runs", "run": run,
-        "breakdown": _breakdown(rows), "rows": rows[:200],
-        "total": sum(r.cost_usd for r in rows), "per_run": [],
+    return _costs_detail(request, TokenUsage.objects.filter(run=run), {
+        "section": "costs_runs", "title": f"#{run.pk} {run.brief.title}",
+        "subject": "廣編稿", "back": "studio:costs_runs", "run": run, "per_run": [],
     })
 
 

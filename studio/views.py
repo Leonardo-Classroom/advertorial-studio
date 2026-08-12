@@ -293,8 +293,9 @@ def _breakdown(rows):
         b = buckets.setdefault(row.purpose, {
             "purpose": labels.get(row.purpose, row.purpose), "calls": 0,
             "input": 0, "output": 0, "reasoning": 0, "cached": 0, "cost": 0.0,
-            "models": set(), "unpriced": 0})
+            "items": 0, "models": set(), "unpriced": 0})
         b["calls"] += 1
+        b["items"] += row.items
         b["input"] += row.input_tokens
         b["output"] += row.output_tokens
         b["reasoning"] += row.reasoning_tokens

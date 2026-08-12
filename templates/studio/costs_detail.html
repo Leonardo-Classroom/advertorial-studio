@@ -11,14 +11,15 @@
 <div class="card">
   {% if breakdown %}
     <div class="scroll"><table>
-      <tr><th style="width:110px">用途</th><th style="width:70px">呼叫</th>
+      <tr><th style="width:110px">用途</th><th style="width:130px">呼叫</th>
           <th style="width:100px">輸入</th><th style="width:100px">輸出</th>
           <th style="width:100px">其中推理</th><th style="width:100px">命中快取</th>
           <th>模型</th><th style="width:110px;text-align:right">金額</th></tr>
       {% for b in breakdown %}
       <tr>
         <td><strong>{{ b.purpose }}</strong></td>
-        <td class="small mono">{{ b.calls }}</td>
+        <td class="small mono">{{ b.calls }}{% if b.items %}
+          <span class="muted">／{{ b.items }} 張</span>{% endif %}</td>
         <td class="small mono">{{ b.input }}</td>
         <td class="small mono">{{ b.output }}</td>
         <td class="small mono">{{ b.reasoning }}</td>
@@ -68,7 +69,8 @@
       {% for u in rows %}
       <tr>
         <td class="small muted">{{ u.created_at|date:"m-d H:i:s" }}</td>
-        <td class="small">{{ u.get_purpose_display }}</td>
+        <td class="small">{{ u.get_purpose_display }}{% if u.items %}
+          <span class="muted">{{ u.items }} 張</span>{% endif %}</td>
         <td class="small">{{ u.model }}{% if not u.priced %}
           <span class="pill bad" style="margin-left:4px">無費率</span>{% endif %}</td>
         <td class="small mono">{{ u.input_tokens }}</td>

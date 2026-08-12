@@ -435,8 +435,12 @@ def adopt_usage_bucket(bucket) -> None:
 
 
 @contextmanager
-def usage_context(purpose: str, brief=None, run=None):
+def usage_context(purpose: str, brief=None, run=None, items_per_call: int = 0):
     """Attribute every model call made inside to `purpose` and its owner.
+
+    `items_per_call` is how many things one call inside covers — pictures, for
+    classification. It is a property of how the call site batches, which only
+    the call site knows, so it is declared here rather than counted.
 
     Call sites know what they are doing and what it is for; `core.llm` knows
     the tokens. This is the seam between them — declare the purpose once and
@@ -458,7 +462,8 @@ def usage_context(purpose: str, brief=None, run=None):
         rows, _usage.rows = _usage.rows, previous
         try:
             TokenUsage.objects.bulk_create([
-                TokenUsage(purpose=purpose, brief=brief, run=run, **row) for row in rows])
+                TokenUsage(purpose=purpose, brief=brief, run=run,
+                           items=items_per_call, **row) for row in rows])
         except Exception:  # noqa: BLE001 - accounting must never break the work
             pass
 

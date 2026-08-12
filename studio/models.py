@@ -104,6 +104,10 @@ class TokenUsage(models.Model):
     reasoning_tokens = models.IntegerField(
         default=0, help_text="已包含在輸出 token 內，另計只是為了看出比例")
     cached_input_tokens = models.IntegerField(default=0)
+    # 這次呼叫涵蓋幾張圖。目前分析圖片是一張一次呼叫，所以恆為 1，加總後就是
+    # 這個專案解析過幾張；改成一次送多張時這個數字才會和呼叫次數脫鉤，而那正是
+    # 事後推不回來的時候。0 代表「這個用途不以張數計」。
+    items = models.IntegerField("涵蓋張數", default=0)
     cost_usd = models.FloatField("金額（美元）", default=0.0)
     priced = models.BooleanField("費率已知", default=True,
                                  help_text="False 代表這個模型沒有定價資料，金額會是 0")

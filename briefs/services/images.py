@@ -349,9 +349,18 @@ def classify_all(images: list[dict], brand: str = "", workers: int | None = None
 
     lock = threading.Lock()
     done = 0
+    # Token accounting is thread-local, and there are *two* thread hops between
+    # the caller and the model call: this pool, and the daemon thread `classify`
+    # runs the call on. `classify` already hands the bucket across the second
+    # hop, but it captures it from whatever thread it happens to be on — a pool
+    # worker, which has none — so the tokens landed nowhere and eight real
+    # picture calls were billed with no record of them. Carry it across this
+    # hop first, then `classify`'s own capture finds the caller's bucket.
+    usage_bucket = llm.current_usage_bucket()
 
     def _one(image):
         nonlocal done
+        llm.adopt_usage_bucket(usage_bucket)
         verdict = classify(image, brand=brand)
         if on_done:
             # Counting in the worker threads, so the lock is what keeps two
@@ -540,7 +549,8 @@ def classify_checked(brief) -> dict:
     with _active_lock:
         _active_classifies.add(brief.pk)
     try:
-        with llm.usage_context("classify", brief=brief):
+        # 一張圖一次呼叫（見 `classify_all`），所以每列涵蓋 1 張。
+        with llm.usage_context("classify", brief=brief, items_per_call=1):
             return _classify_targets(brief, targets)
     finally:
         with _active_lock:

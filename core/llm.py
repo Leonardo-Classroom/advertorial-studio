@@ -175,15 +175,24 @@ _override = threading.local()
 
 
 @contextmanager
-def model_override(model: str | None, effort: str | None = None):
-    """Use `model` (and optionally this reasoning effort) on this thread only."""
-    previous = (getattr(_override, "model", None), getattr(_override, "effort", None))
+def model_override(model: str | None, effort: str | None = None, provider=None):
+    """Use `model` (and optionally this effort, and this endpoint) on this thread.
+
+    `provider` is an `OnlineProvider` row. Overriding the endpoint as well as
+    the model is what lets several APIs run at once: the selected endpoint
+    lives in `SiteSettings` and is process-global, so without this two
+    comparisons against different providers would overwrite each other's
+    setting rather than run side by side.
+    """
+    previous = (getattr(_override, "model", None), getattr(_override, "effort", None),
+                getattr(_override, "provider", None))
     _override.model = model
     _override.effort = effort
+    _override.provider = provider
     try:
         yield
     finally:
-        _override.model, _override.effort = previous
+        _override.model, _override.effort, _override.provider = previous
 
 
 def _online_config(kind: str = TEXT) -> OnlineEndpoint:
@@ -193,6 +202,14 @@ def _online_config(kind: str = TEXT) -> OnlineEndpoint:
     `.env` values — which is what a fresh install has, and what every existing
     deployment had before endpoints became editable.
     """
+    forced = getattr(_override, "provider", None)
+    if forced is not None:
+        override_effort = getattr(_override, "effort", None)
+        return OnlineEndpoint(
+            forced.base_url, forced.api_key,
+            getattr(_override, "model", None) or forced.model,
+            forced.kind, from_env=False,
+            effort=override_effort or (None if forced.thinking else "off"))
     try:
         from studio.models import SiteSettings
 

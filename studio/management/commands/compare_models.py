@@ -66,6 +66,11 @@ class Command(BaseCommand):
         parser.add_argument("--concurrent", action="store_true",
                             help="併發產稿。會讓耗時數字失去意義，只在不比速度時使用")
         parser.add_argument("--workers", type=int, default=6, help="評分併發數")
+        parser.add_argument("--provider", type=int, default=0,
+                            help="候選用的 OnlineProvider pk。不給就用目前選定的端點。"
+                                 "指定它才能讓多家 API 同時跑而不互相覆蓋設定")
+        parser.add_argument("--judge-provider", dest="judge_provider", type=int, default=0,
+                            help="評審用的 OnlineProvider pk。評審與候選不同家時必填")
         parser.add_argument("--guide", type=int, default=0,
                             help="StyleGuide pk。不給就沿用該專案既有的風格指南")
         parser.add_argument("--json", dest="json_path", default="",
@@ -76,10 +81,21 @@ class Command(BaseCommand):
         briefs = [int(b) for b in opts["briefs"].split(",") if b.strip()]
         judge = opts["judge"].strip()
 
+        from studio.models import OnlineProvider
+
+        self._provider = OnlineProvider.objects.filter(pk=opts["provider"]).first() \
+            if opts["provider"] else None
+        self._judge_provider = OnlineProvider.objects.filter(
+            pk=opts["judge_provider"]).first() if opts["judge_provider"] else None
+        if opts["provider"] and self._provider is None:
+            raise CommandError(f"找不到 OnlineProvider {opts['provider']}。")
+        if opts["judge_provider"] and self._judge_provider is None:
+            raise CommandError(f"找不到 OnlineProvider {opts['judge_provider']}。")
+
         row = SiteSettings.load()
-        if row.llm_backend != "online":
+        if row.llm_backend != "online" and self._provider is None:
             raise CommandError("文字後端不是線上模型——這個指令只比較線上端點上的模型。")
-        endpoint = llm._online_config("text")
+        endpoint = self._provider or llm._online_config("text")
         self._guide = None
         if opts["guide"]:
             from corpus.models import StyleGuide
@@ -103,11 +119,16 @@ class Command(BaseCommand):
 
         results = self._generate(models, briefs, modes, efforts, opts)
         self._score(results, judge, opts["judge_effort"] or None, opts["workers"])
-        self._report(results, models)
+        # Written before the summary, not after: a run that fails partway
+        # still cost real time and money, and losing it to a formatting error
+        # in the report is the one outcome not worth risking. That is not
+        # hypothetical — a `None` score crashed `statistics.median` and took
+        # 80 finished drafts of data with it.
         if opts["json_path"]:
             with open(opts["json_path"], "w", encoding="utf8") as fh:
                 json.dump(results, fh, ensure_ascii=False, indent=1)
             self.stdout.write(f"逐筆結果已寫入 {opts['json_path']}")
+        self._report(results, models)
 
     # ---- generation ------------------------------------------------------
 
@@ -134,7 +155,7 @@ class Command(BaseCommand):
         started = time.time()
         ok = False
         try:
-            with llm.model_override(model, effort=effort):
+            with llm.model_override(model, effort=effort, provider=self._provider):
                 generate_service.run_generation(run)
             run.refresh_from_db()
             ok = run.status == "done"
@@ -187,7 +208,8 @@ class Command(BaseCommand):
         def score_one(record):
             try:
                 run = GenerationRun.objects.get(pk=record["run"])
-                with llm.model_override(judge, effort=judge_effort):
+                with llm.model_override(judge, effort=judge_effort,
+                                        provider=self._judge_provider):
                     first = evaluate_service.evaluate(run, run_judge=True)
                     record["first"] = _mean(first.judge_scores or {})
                     record["judge_model"] = first.judge_model
@@ -218,13 +240,19 @@ class Command(BaseCommand):
     def _report(self, results: list[dict], models: list[str]) -> None:
         self.stdout.write("\n=== 彙總 ===")
         for model in sorted({r["tag"] for r in results}):
-            rows = [r for r in results if r["tag"] == model and r["ok"]
-                    and r.get("first") is not None]
+            attempted = [r for r in results if r["tag"] == model]
+            rows = [r for r in attempted if r["ok"] and r.get("first") is not None
+                    and r.get("final") is not None]
             if not rows:
-                self.stdout.write(f"  {model:44s} 無有效樣本")
+                failed = sum(1 for r in attempted if not r["ok"])
+                unscored = len(attempted) - failed - len(rows)
+                self.stdout.write(
+                    f"  {model:44s} 無有效樣本（產稿失敗 {failed}／未評分 {unscored}）")
                 continue
             deltas = [r["delta"] for r in rows if r.get("delta") is not None]
+            missing = len(attempted) - len(rows)
             line = (f"  {model:44s} n={len(rows)}"
+                    + (f"(缺 {missing})" if missing else "")
                     f"｜總時中位 {statistics.median(r['secs'] for r in rows):6.1f}s"
                     f"（重寫 {statistics.median(r['refine_s'] for r in rows):5.1f}s）"
                     f"｜初稿 {statistics.median(r['first'] for r in rows):.2f}"
